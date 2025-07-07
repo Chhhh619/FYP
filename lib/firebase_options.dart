@@ -85,4 +85,5 @@ class DefaultFirebaseOptions {
     storageBucket: 'fyp1-da867.firebasestorage.app',
     measurementId: 'G-6RP42T50S4',
   );
+
 }
