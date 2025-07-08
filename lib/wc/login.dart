@@ -121,7 +121,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         controller: _usernameOrEmailController,
                         decoration: InputDecoration(
                           labelText: 'Username or Email',
-                          labelStyle: const TextStyle(color: Colors.orange),
+                          labelStyle: const TextStyle(color: Colors.white),
                           filled: true,
                           fillColor: Colors.grey[900],
                           border: OutlineInputBorder(
@@ -142,7 +142,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         controller: _passwordController,
                         decoration: InputDecoration(
                           labelText: 'Password',
-                          labelStyle: const TextStyle(color: Colors.orange),
+                          labelStyle: const TextStyle(color: Colors.white),
                           filled: true,
                           fillColor: Colors.grey[900],
                           border: OutlineInputBorder(
@@ -163,17 +163,17 @@ class _LoginScreenState extends State<LoginScreen> {
                       if (_errorMessage != null)
                         Text(
                           _errorMessage!,
-                          style: const TextStyle(color: Colors.red),
+                          style: const TextStyle(color: const Color(0xFFB0BEC5)),
                         ),
                       const SizedBox(height: 16),
                       _isLoading
-                          ? const CircularProgressIndicator(
-                        color: Colors.orange,
+                          ? CircularProgressIndicator(
+                        color: Colors.grey[700],
                       )
                           : ElevatedButton(
                         onPressed: _login,
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.orange,
+                          backgroundColor: Colors.grey[700],
                           minimumSize: const Size(double.infinity, 50),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(8),
@@ -183,7 +183,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           'Sign In',
                           style: TextStyle(
                             fontSize: 16,
-                            color: Colors.black,
+                            color: Colors.white,
                           ),
                         ),
                       ),
@@ -193,7 +193,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         },
                         child: const Text(
                           'Don’t have an account? Sign Up',
-                          style: TextStyle(color: Colors.orange),
+                          style: TextStyle(color: const Color(0xFFB0BEC5)),
                         ),
                       ),
                     ],

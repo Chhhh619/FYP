@@ -6,6 +6,9 @@ import 'firebase_options.dart';
 import 'wc/login.dart';
 import 'wc/register.dart';
 import 'wc/currencyconverter.dart';
+import 'wc/splash.dart';
+import 'wc/home.dart';
+
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -38,13 +41,15 @@ class MyApp extends StatelessWidget {
         ),
       ),
       debugShowCheckedModeBanner: false, // Remove debug banner
-      initialRoute: '/currencyconverter',
+      initialRoute: '/splash',
       routes: {
+        '/splash': (context) => SplashScreen(),
         '/currencyconverter': (context) => const CurrencyConverterScreen(),
         '/login': (context) => const LoginScreen(),
         '/register': (context) => const RegisterScreen(),
         '/home': (context) => const HomeScreen(),
       },
+
     );
   }
 }

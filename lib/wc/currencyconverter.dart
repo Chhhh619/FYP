@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
@@ -12,20 +11,16 @@ class CurrencyConverterScreen extends StatefulWidget {
 }
 
 class _CurrencyConverterScreenState extends State<CurrencyConverterScreen> {
-  final _expensesCollection = FirebaseFirestore.instance.collection('expenses');
-  final _userId = 'currentUserId'; // Placeholder for authenticated user ID
-  List<Map<String, dynamic>> expenses = [];
   String _baseCurrency = 'MYR'; // Default to Malaysian Ringgit
-  String _targetCurrency = 'MYR'; // Default to Malaysian Ringgit
+  String _targetCurrency = 'USD'; // Default to USD for Google-like experience
   double _exchangeRate = 1.0; // Default, will be updated by API
-  String _amountInput = ''; // For numpad input
-  final _titleController = TextEditingController();
+  String _amountInput = ''; // For user input
+  final _amountController = TextEditingController();
 
   @override
   void initState() {
     super.initState();
     _fetchExchangeRate();
-    _loadExpenses();
   }
 
   Future<void> _fetchExchangeRate() async {
@@ -45,36 +40,8 @@ class _CurrencyConverterScreenState extends State<CurrencyConverterScreen> {
     }
   }
 
-  Future<void> _loadExpenses() async {
-    final snapshot = await _expensesCollection
-        .where('userId', isEqualTo: _userId)
-        .get();
-    setState(() {
-      expenses = snapshot.docs.map((doc) => {
-        ...doc.data() as Map<String, dynamic>,
-        'id': doc.id,
-      }).toList();
-    });
-  }
-
-  double _convertCurrency(double amount, String fromCurrency, String toCurrency) {
-    if (fromCurrency == _baseCurrency && toCurrency == _targetCurrency) {
-      return amount * _exchangeRate;
-    }
-    return amount; // Default to original if unsupported
-  }
-
-  double _getCurrencyTrend(String currency) {
-    switch (currency) {
-      case 'MYR':
-        return 0.01;
-      case 'SGD':
-        return -0.005;
-      case 'THB':
-        return 0.002;
-      default:
-        return 0.0;
-    }
+  double _convertCurrency(double amount) {
+    return amount * _exchangeRate;
   }
 
   void _swapCurrencies() {
@@ -86,132 +53,27 @@ class _CurrencyConverterScreenState extends State<CurrencyConverterScreen> {
     });
   }
 
-  void _addDigit(String digit) {
+  void _updateAmount(String value) {
     setState(() {
-      _amountInput += digit;
+      _amountInput = value;
     });
-  }
-
-  void _deleteDigit() {
-    setState(() {
-      if (_amountInput.isNotEmpty) {
-        _amountInput = _amountInput.substring(0, _amountInput.length - 1);
-      }
-    });
-  }
-
-  Future<void> _addExpense() async {
-    final title = _titleController.text.trim();
-    final amount = double.tryParse(_amountInput) ?? 0.0;
-    if (title.isEmpty || amount <= 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter a valid title and amount')),
-      );
-      return;
-    }
-
-    final convertedAmount = _convertCurrency(amount, _baseCurrency, _targetCurrency);
-    await _expensesCollection.add({
-      'userId': _userId,
-      'title': title,
-      'amount': amount,
-      'originalCurrency': _baseCurrency,
-      'convertedAmount': convertedAmount,
-      'targetCurrency': _targetCurrency,
-      'timestamp': FieldValue.serverTimestamp(),
-    });
-    _titleController.clear();
-    _amountInput = '';
-    _loadExpenses();
-  }
-
-  void _showNumpad() {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.grey[900],
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      isScrollControlled: true, // Allows modal to adjust height
-      builder: (context) {
-        return Padding(
-          padding: const EdgeInsets.all(8.0), // Reduced padding
-          child: ConstrainedBox(
-            constraints: BoxConstraints(
-              maxHeight: MediaQuery.of(context).size.height * 0.4, // Limit to 40% of screen height
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  _amountInput.isEmpty ? '0.00' : _amountInput,
-                  style: const TextStyle(color: Colors.white, fontSize: 24),
-                ),
-                const SizedBox(height: 8),
-                Expanded(
-                  child: GridView.count(
-                    crossAxisCount: 3,
-                    shrinkWrap: true,
-                    childAspectRatio: 1.2, // Adjusts button size
-                    crossAxisSpacing: 4.0, // Reduced spacing
-                    mainAxisSpacing: 4.0, // Reduced spacing
-                    children: [
-                      for (var digit in ['7', '8', '9', '4', '5', '6', '1', '2', '3', '0', '.', '⌫'])
-                        Padding(
-                          padding: const EdgeInsets.all(2.0), // Reduced padding around buttons
-                          child: ElevatedButton(
-                            onPressed: digit == '⌫'
-                                ? _deleteDigit
-                                : () => _addDigit(digit),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.orange,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(6), // Slightly smaller radius
-                              ),
-                              padding: const EdgeInsets.all(8.0), // Reduced padding
-                            ),
-                            child: Text(
-                              digit,
-                              style: const TextStyle(color: Colors.black, fontSize: 16), // Smaller text
-                            ),
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 8),
-                ElevatedButton(
-                  onPressed: () {
-                    Navigator.pop(context);
-                  },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.orange,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                    padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 16.0),
-                  ),
-                  child: const Text('Done', style: TextStyle(color: Colors.black, fontSize: 16)),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
   }
 
   @override
   void dispose() {
-    _titleController.dispose();
+    _amountController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    final double convertedAmount = _amountInput.isEmpty
+        ? 0.0
+        : _convertCurrency(double.tryParse(_amountInput) ?? 0.0);
+
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Currency Converter', style: TextStyle(color: Colors.orange)),
+        title: const Text('Currency Converter', style: TextStyle(color: Colors.white)),
         backgroundColor: Colors.black,
       ),
       body: Container(
@@ -219,7 +81,6 @@ class _CurrencyConverterScreenState extends State<CurrencyConverterScreen> {
         padding: const EdgeInsets.all(16.0),
         child: Column(
           children: [
-            // Conversion Section
             Card(
               color: Colors.grey[900],
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -228,31 +89,17 @@ class _CurrencyConverterScreenState extends State<CurrencyConverterScreen> {
                 child: Column(
                   children: [
                     TextField(
-                      controller: _titleController,
+                      controller: _amountController,
                       decoration: InputDecoration(
-                        labelText: 'Expense Title',
-                        labelStyle: const TextStyle(color: Colors.orange),
+                        labelText: 'Amount',
+                        labelStyle: const TextStyle(color: Colors.white),
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(8),
                         ),
                       ),
                       style: const TextStyle(color: Colors.white),
-                    ),
-                    const SizedBox(height: 16),
-                    GestureDetector(
-                      onTap: _showNumpad,
-                      child: Container(
-                        padding: const EdgeInsets.all(12.0),
-                        decoration: BoxDecoration(
-                          color: Colors.grey[800],
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: Colors.orange),
-                        ),
-                        child: Text(
-                          _amountInput.isEmpty ? 'Tap to enter amount' : _amountInput,
-                          style: const TextStyle(color: Colors.white, fontSize: 18),
-                        ),
-                      ),
+                      keyboardType: TextInputType.number,
+                      onChanged: _updateAmount,
                     ),
                     const SizedBox(height: 16),
                     Row(
@@ -264,7 +111,7 @@ class _CurrencyConverterScreenState extends State<CurrencyConverterScreen> {
                               .map((String value) {
                             return DropdownMenuItem<String>(
                               value: value,
-                              child: Text(value, style: const TextStyle(color: Colors.orange)),
+                              child: Text(value, style: const TextStyle(color: Colors.white)),
                             );
                           }).toList(),
                           onChanged: (newValue) {
@@ -276,7 +123,7 @@ class _CurrencyConverterScreenState extends State<CurrencyConverterScreen> {
                           dropdownColor: Colors.grey[900],
                         ),
                         IconButton(
-                          icon: const Icon(Icons.swap_horiz, color: Colors.orange),
+                          icon: Icon(Icons.swap_horiz, color: const Color(0xFFB0BEC5)),
                           onPressed: _swapCurrencies,
                         ),
                         DropdownButton<String>(
@@ -285,7 +132,7 @@ class _CurrencyConverterScreenState extends State<CurrencyConverterScreen> {
                               .map((String value) {
                             return DropdownMenuItem<String>(
                               value: value,
-                              child: Text(value, style: const TextStyle(color: Colors.orange)),
+                              child: Text(value, style: const TextStyle(color: Colors.white)),
                             );
                           }).toList(),
                           onChanged: (newValue) {
@@ -301,44 +148,30 @@ class _CurrencyConverterScreenState extends State<CurrencyConverterScreen> {
                     const SizedBox(height: 16),
                     Text(
                       '1 $_baseCurrency = ${_exchangeRate.toStringAsFixed(4)} $_targetCurrency',
-                      style: const TextStyle(color: Colors.orange, fontSize: 16),
+                      style: TextStyle(color: const Color(0xFFB0BEC5), fontSize: 16),
                     ),
                     const SizedBox(height: 16),
-                    ElevatedButton(
-                      onPressed: _addExpense,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.orange,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                      ),
-                      child: const Text('Convert & Save', style: TextStyle(color: Colors.black)),
+                    Text(
+                      'Converted: ${convertedAmount.toStringAsFixed(2)} $_targetCurrency',
+                      style: const TextStyle(color: Colors.white, fontSize: 20),
                     ),
                   ],
                 ),
               ),
             ),
             const SizedBox(height: 16),
-            // Convert History
             Expanded(
               child: Card(
                 color: Colors.grey[900],
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                child: ListView.builder(
-                  itemCount: expenses.length,
-                  itemBuilder: (context, index) {
-                    final expense = expenses[index];
-                    final trend = _getCurrencyTrend(expense['originalCurrency']);
-                    return ListTile(
-                      title: Text(expense['title'], style: const TextStyle(color: Colors.white)),
-                      subtitle: Text(
-                        'Original: ${expense['amount']} ${expense['originalCurrency']}\n'
-                            'Converted: ${expense['convertedAmount'].toStringAsFixed(2)} ${expense['targetCurrency']}\n'
-                            'Trend (7 days): ${trend > 0 ? '+' : ''}${trend * 100}%',
-                        style: const TextStyle(color: Colors.white70),
-                      ),
-                    );
-                  },
+                child: CustomPaint(
+                  painter: ExchangeRateChart(_exchangeRate),
+                  child: Center(
+                    child: Text(
+                      'Exchange Rate Trend (Simulated)',
+                      style: TextStyle(color: const Color(0xFFB0BEC5), fontSize: 16),
+                    ),
+                  ),
                 ),
               ),
             ),
@@ -347,4 +180,53 @@ class _CurrencyConverterScreenState extends State<CurrencyConverterScreen> {
       ),
     );
   }
+}
+
+// Custom Painter for a simple line chart
+class ExchangeRateChart extends CustomPainter {
+  final double currentRate;
+
+  ExchangeRateChart(this.currentRate);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = const Color(0xFFB0BEC5)
+      ..strokeWidth = 2.0
+      ..style = PaintingStyle.stroke;
+
+    // Simulate 5 data points for a trend (e.g., last 5 days)
+    final List<double> rates = [
+      currentRate * 0.98, // -2%
+      currentRate * 0.99, // -1%
+      currentRate,
+      currentRate * 1.01, // +1%
+      currentRate * 1.02, // +2%
+    ];
+
+    final double step = size.width / (rates.length - 1);
+    final double maxRate = rates.reduce((a, b) => a > b ? a : b);
+    final double minRate = rates.reduce((a, b) => a < b ? a : b);
+    final double range = maxRate - minRate;
+
+    final path = Path();
+    for (int i = 0; i < rates.length; i++) {
+      final x = i * step;
+      final y = size.height - ((rates[i] - minRate) / (range > 0 ? range : 1) * size.height);
+      if (i == 0) {
+        path.moveTo(x, y);
+      } else {
+        path.lineTo(x, y);
+      }
+    }
+
+    canvas.drawPath(path, paint);
+
+    // Draw axes
+    canvas.drawLine(Offset(0, size.height), Offset(0, 0), paint..color = const Color(0xFF90A4AE));
+    canvas.drawLine(Offset(0, size.height), Offset(size.width, size.height), paint..color = const Color(0xFF90A4AE));
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
 }
