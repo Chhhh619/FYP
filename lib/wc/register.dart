@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
+import 'package:uuid/uuid.dart'; // Import uuid package
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -20,6 +21,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _confirmPasswordController = TextEditingController();
   String? _errorMessage;
   bool _isLoading = false;
+  final _uuid = Uuid(); // Initialize UUID generator
 
   Future<void> _register() async {
     if (!_formKey.currentState!.validate()) return;
@@ -30,6 +32,19 @@ class _RegisterScreenState extends State<RegisterScreen> {
     });
 
     try {
+      // Generate a random userId
+      String userId = _uuid.v4();
+
+      // Check if userId is unique
+      QuerySnapshot userIdQuery = await FirebaseFirestore.instance
+          .collection('users')
+          .where('userId', isEqualTo: userId)
+          .limit(1)
+          .get();
+      if (userIdQuery.docs.isNotEmpty) {
+        throw Exception('Generated userId is already in use.');
+      }
+
       // Create user with Firebase Authentication
       UserCredential userCredential =
       await FirebaseAuth.instance.createUserWithEmailAndPassword(
@@ -54,10 +69,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
             code: 'username-in-use', message: 'Username is already taken.');
       }
 
+
       await FirebaseFirestore.instance
           .collection('users')
           .doc(userCredential.user!.uid)
           .set({
+        'userId': userId, // Store the random userId
         'firstName': _firstNameController.text.trim(),
         'lastName': _lastNameController.text.trim(),
         'email': _emailController.text.trim(),
@@ -142,7 +159,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         controller: _firstNameController,
                         decoration: InputDecoration(
                           labelText: 'First Name',
-                          labelStyle: const TextStyle(color: Colors.orange),
+                          labelStyle: const TextStyle(color: Colors.white),
                           filled: true,
                           fillColor: Colors.grey[900],
                           border: OutlineInputBorder(
@@ -163,7 +180,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         controller: _lastNameController,
                         decoration: InputDecoration(
                           labelText: 'Last Name',
-                          labelStyle: const TextStyle(color: Colors.orange),
+                          labelStyle: const TextStyle(color: Colors.white),
                           filled: true,
                           fillColor: Colors.grey[900],
                           border: OutlineInputBorder(
@@ -184,7 +201,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         controller: _usernameController,
                         decoration: InputDecoration(
                           labelText: 'Username',
-                          labelStyle: const TextStyle(color: Colors.orange),
+                          labelStyle: const TextStyle(color: Colors.white),
                           filled: true,
                           fillColor: Colors.grey[900],
                           border: OutlineInputBorder(
@@ -208,7 +225,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         controller: _emailController,
                         decoration: InputDecoration(
                           labelText: 'Email',
-                          labelStyle: const TextStyle(color: Colors.orange),
+                          labelStyle: const TextStyle(color: Colors.white),
                           filled: true,
                           fillColor: Colors.grey[900],
                           border: OutlineInputBorder(
@@ -234,7 +251,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         controller: _passwordController,
                         decoration: InputDecoration(
                           labelText: 'Password',
-                          labelStyle: const TextStyle(color: Colors.orange),
+                          labelStyle: const TextStyle(color: Colors.white),
                           filled: true,
                           fillColor: Colors.grey[900],
                           border: OutlineInputBorder(
@@ -262,7 +279,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         controller: _confirmPasswordController,
                         decoration: InputDecoration(
                           labelText: 'Confirm Password',
-                          labelStyle: const TextStyle(color: Colors.orange),
+                          labelStyle: const TextStyle(color: Colors.white),
                           filled: true,
                           fillColor: Colors.grey[900],
                           border: OutlineInputBorder(
@@ -286,17 +303,17 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       if (_errorMessage != null)
                         Text(
                           _errorMessage!,
-                          style: const TextStyle(color: Colors.red),
+                          style: const TextStyle(color: Color(0xFFB0BEC5)),
                         ),
                       const SizedBox(height: 16),
                       _isLoading
-                          ? const CircularProgressIndicator(
-                        color: Colors.orange,
+                          ? CircularProgressIndicator(
+                        color: Colors.grey[700],
                       )
                           : ElevatedButton(
                         onPressed: _register,
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.orange,
+                          backgroundColor: Colors.grey[700],
                           minimumSize: const Size(double.infinity, 50),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(8),
@@ -306,7 +323,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           'Register',
                           style: TextStyle(
                             fontSize: 16,
-                            color: Colors.black,
+                            color: Colors.white,
                           ),
                         ),
                       ),
@@ -316,7 +333,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         },
                         child: const Text(
                           'Already have an account? Sign In',
-                          style: TextStyle(color: Colors.orange),
+                          style: TextStyle(color: Color(0xFFB0BEC5)),
                         ),
                       ),
                     ],
