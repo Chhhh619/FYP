@@ -28,33 +28,43 @@ class _LoginScreenState extends State<LoginScreen> {
     try {
       String identifier = _usernameOrEmailController.text.trim();
       String email = identifier;
+      print('Attempting login with identifier: $identifier'); // Debug
 
       // Check if input is a username and map to email
       if (!RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(identifier)) {
+        print('Treating input as username'); // Debug
         QuerySnapshot userQuery = await FirebaseFirestore.instance
             .collection('users')
             .where('username', isEqualTo: identifier)
             .limit(1)
             .get();
+        print('Users query result: ${userQuery.docs.length} documents'); // Debug
         if (userQuery.docs.isNotEmpty) {
           email = userQuery.docs.first['email'];
+          print('Mapped email: $email'); // Debug
         } else {
           throw FirebaseAuthException(
-              code: 'user-not-found', message: 'User not found.');
+              code: 'user-not-found', message: 'No user found with this username.');
         }
+      } else {
+        print('Treating input as email: $email'); // Debug
       }
 
+      print('Attempting sign-in with email: $email'); // Debug
       await FirebaseAuth.instance.signInWithEmailAndPassword(
         email: email,
         password: _passwordController.text.trim(),
       );
+      print('Sign-in successful, navigating to /home'); // Debug
       if (!mounted) return;
       Navigator.pushReplacementNamed(context, '/home');
     } on FirebaseAuthException catch (e) {
+      print('FirebaseAuthException: ${e.code} - ${e.message}'); // Debug
       setState(() {
         _errorMessage = _getErrorMessage(e.code);
       });
     } catch (e) {
+      print('Unexpected error: $e'); // Debug
       setState(() {
         _errorMessage = 'An unexpected error occurred. Please try again.';
       });
@@ -167,9 +177,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         ),
                       const SizedBox(height: 16),
                       _isLoading
-                          ? const CircularProgressIndicator(
-                        color: Colors.orange,
-                      )
+                          ? const CircularProgressIndicator(color: Colors.orange)
                           : ElevatedButton(
                         onPressed: _login,
                         style: ElevatedButton.styleFrom(
@@ -206,4 +214,4 @@ class _LoginScreenState extends State<LoginScreen> {
       ),
     );
   }
-}
+  }

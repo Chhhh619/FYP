@@ -19,6 +19,10 @@ dependencies:
   firebase_storage: ^12.4.9
   image_picker: ^1.0.4
   http: ^1.2.1
+  intl: ^0.20.2
+  flutter_svg: ^2.2.0
+  google_fonts: ^6.2.1
+  draggable_widget: ^2.0.0
 
 dev_dependencies:
   flutter_test:
@@ -27,3 +31,14 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  assets:
+    - assets/images/
+
+  fonts:
+     - family: Poppins
+       fonts:
+         - asset: assets/fonts/Poppins-Regular.ttf
+         - asset: assets/fonts/Poppins-Thin.ttf
+         - asset: assets/fonts/Poppins-SemiBold.ttf
+           weight: 500
+         - asset: assets/fonts/Poppins-Regular.ttf

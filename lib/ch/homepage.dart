@@ -1,19 +1,27 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart'; // For user authentication
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:fyp/ch/record_transaction.dart';
+import 'package:intl/intl.dart';
 
 class HomePage extends StatefulWidget {
+  const HomePage({super.key});
+
   @override
   _HomePageState createState() => _HomePageState();
 }
 
 class _HomePageState extends State<HomePage> {
-  String currentPeriod = '23 Jun - 22 Jul';
-  bool showExpenses = true;
+  String currentPeriod = '';
+  String displayText = DateFormat('MMM').format(DateTime.now());
+  bool? showExpenses = null;
   double availableScreenWidth = 0;
+  double availableScreenHeight = 0;
   int selectedIndex = 0;
+  String viewMode = 'month';
+  DateTime selectedDate = DateTime.now();
+  String popupMode = 'month';
 
-  // Reference to Firestore and Auth
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final FirebaseAuth _auth = FirebaseAuth.instance;
 
@@ -21,20 +29,170 @@ class _HomePageState extends State<HomePage> {
   void initState() {
     super.initState();
     _updateCurrentPeriod();
+    print('HomePage initialized, User ID: ${_auth.currentUser?.uid}'); // Debug
   }
 
-  void _updateCurrentPeriod() {
-    final now = DateTime.now();
-    currentPeriod = '${now.day} ${now.month} - ${now.day} ${now.month}';
+  void _updateCurrentPeriod([DateTime? startDate]) {
+    selectedDate = startDate ?? DateTime.now();
+    final formatter = DateFormat('d MMM');
+    if (viewMode == 'month') {
+      displayText = DateFormat('MMM').format(selectedDate); // Show selected month
+      final start = DateTime(selectedDate.year, selectedDate.month, 1); // Start of month
+      final end = DateTime(selectedDate.year, selectedDate.month + 1, 0); // End of month
+      currentPeriod = '${formatter.format(start)} - ${formatter.format(end)}';
+    } else { // year mode
+      displayText = selectedDate.year.toString(); // Show year
+      final start = DateTime(selectedDate.year, 1, 1); // Start of year
+      final end = DateTime(selectedDate.year, 12, 31); // End of year
+      currentPeriod = '${formatter.format(start)} - ${formatter.format(end)}';
+    }
+    setState(() {}); // Update UI
+  }
+
+  void _showCustomDatePicker() {
+    availableScreenWidth = MediaQuery.of(context).size.width;
+    availableScreenHeight = MediaQuery.of(context).size.height;
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return StatefulBuilder(
+          builder: (BuildContext context, StateSetter setState) {
+            return Dialog(
+              backgroundColor: Color.fromRGBO(28, 28, 28, 0),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              child: Container(
+                decoration: BoxDecoration(
+                  color: Color.fromRGBO(33, 35, 34, 1),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                padding: EdgeInsets.all(16),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          'Select Period',
+                          style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
+                        ),
+                        Row(
+                          children: [
+                            ElevatedButton(
+                              onPressed: () {
+                                setState(() {
+                                  popupMode = 'month';
+                                });
+                              },
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: popupMode == 'month' ? Colors.teal : Color.fromRGBO(33, 35, 34, 1),
+                                foregroundColor: Colors.white,
+                              ),
+                              child: Text('Month'),
+                            ),
+                            SizedBox(width: 8),
+                            ElevatedButton(
+                              onPressed: () {
+                                setState(() {
+                                  popupMode = 'year';
+                                });
+                              },
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: popupMode == 'year' ? Colors.teal : Color.fromRGBO(33, 35, 34, 1),
+                                foregroundColor: Colors.white,
+                              ),
+                              child: Text('Year'),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                    SizedBox(height: 16),
+                    Container(
+                      height: 210,
+                      child: GridView.count(
+                        crossAxisCount: 3,
+                        crossAxisSpacing: 8,
+                        mainAxisSpacing: 8,
+                        children: [
+                          if (popupMode == 'month')
+                            ...List.generate(12, (index) {
+                              final month = DateTime(selectedDate.year, index + 1);
+                              return ElevatedButton(
+                                onPressed: () {
+                                  _updateCurrentPeriod(DateTime(selectedDate.year, index + 1));
+                                  Navigator.pop(context);
+                                },
+                                style: ElevatedButton.styleFrom(
+                                  minimumSize: Size(60, 60), // Adjust this to make the button smaller
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  backgroundColor: selectedDate.month == index + 1 ? Colors.teal : Color.fromRGBO(33, 35, 34, 1),
+                                  foregroundColor: Colors.white,
+                                ),
+                                child: Text(DateFormat('MMM').format(month)),
+                              );
+                            }),
+                          if (popupMode == 'year')
+                            ...List.generate(3, (index) {
+                              final year = selectedDate.year + (index - 1);
+                              return ElevatedButton(
+                                onPressed: () {
+                                  _updateCurrentPeriod(DateTime(year, selectedDate.month));
+                                  Navigator.pop(context);
+                                },
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: selectedDate.year == year ? Colors.teal : Color.fromRGBO(33, 35, 34, 1),
+                                  foregroundColor: Colors.white,
+                                ),
+                                child: Text(year.toString()),
+                              );
+                            }),
+                        ],
+                      ),
+                    ),
+                    SizedBox(height: 16),
+                    ElevatedButton(
+                      onPressed: () {
+                        Navigator.pop(context);
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.teal,
+                        foregroundColor: Colors.white,
+                      ),
+                      child: Text('Confirm'),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  void _toggleViewMode() {
+    setState(() {
+      viewMode = viewMode == 'month' ? 'year' : 'month';
+      _updateCurrentPeriod(selectedDate);
+    });
+  }
+
+  void _setTransactionType(bool? type) {
+    setState(() {
+      showExpenses = type; // Directly set to null (all), true (expenses), or false (income)
+    });
   }
 
   @override
   Widget build(BuildContext context) {
     availableScreenWidth = MediaQuery.of(context).size.width - 50;
 
-    // Get the current user's ID
     String? userId = _auth.currentUser?.uid;
     if (userId == null) {
+      print('No user logged in'); // Debug
       return Scaffold(
         body: Center(child: Text('Please log in to view transactions')),
       );
@@ -48,47 +206,100 @@ class _HomePageState extends State<HomePage> {
           .snapshots(),
       builder: (context, snapshot) {
         if (!snapshot.hasData) {
+          print('StreamBuilder: No data yet, waiting...'); // Debug
+          return Scaffold(body: Center(child: CircularProgressIndicator()));
+        }
+
+        if (snapshot.hasError) {
+          print('StreamBuilder Error: ${snapshot.error}'); // Debug
           return Scaffold(
-            body: Center(child: CircularProgressIndicator()),
+            body: Center(child: Text('Error loading data: ${snapshot.error}')),
           );
         }
 
-        final transactions = snapshot.data!.docs.map((doc) {
+        final transactions = snapshot.data!.docs
+            .map((doc) {
+          print('Document data: ${doc.data()}'); // Debug
           return {
             'id': doc.id,
-            'type': doc['type'], // Directly use 'type' from Firestore
-            'category': doc['category'],
-            'amount': doc['amount'] as double,
-            'timestamp': doc['timestamp'] as Timestamp,
+            'type': doc['type'] as String?,
+            'category': doc['category'] as DocumentReference,
+            'amount': (doc['amount'] is int)
+                ? (doc['amount'] as int).toDouble()
+                : (doc['amount'] as double?),
+            'timestamp': doc['timestamp'] as Timestamp?,
           };
-        }).toList();
+        })
+            .whereType<Map<String, dynamic>>()
+            .toList();
 
-        final double totalExpenses = transactions
-            .where((tx) => tx['type'] == 'expense')
-            .map((tx) => tx['amount'] as double)
-            .reduce((a, b) => a + b)
-            .abs();
-        final double totalIncome = transactions
-            .where((tx) => tx['type'] == 'income')
-            .map((tx) => tx['amount'] as double)
-            .reduce((a, b) => a + b);
+        if (transactions.isEmpty) {
+          print('No transactions found for user: $userId'); // Debug
+          return Scaffold(body: Center(child: Text('No transactions found')));
+        }
 
         final filteredTransactions = transactions.where((tx) {
-          if (showExpenses) return tx['type'] == 'expense';
-          return tx['type'] == 'income';
+          final txDate = tx['timestamp']?.toDate();
+          if (txDate == null) return false;
+          if (viewMode == 'month') {
+            return txDate.year == selectedDate.year &&
+                txDate.month == selectedDate.month;
+          } else { // year mode
+            return txDate.year == selectedDate.year;
+          }
         }).toList();
 
+        final displayedTransactions = filteredTransactions.where((tx) {
+          if (showExpenses == null) return true; // Show all by default
+          if (showExpenses == true) return tx['type'] == 'expense';
+          if (showExpenses == false) return tx['type'] == 'income';
+          return true; // Fallback to all
+        }).toList();
+
+        // Calculate totals based on displayed transactions
+        final double totalExpenses = displayedTransactions
+            .where((tx) => tx['type'] == 'expense')
+            .map((tx) => (tx['amount'] as double?) ?? 0.0)
+            .fold(0.0, (a, b) => a + b)
+            .abs();
+        final double totalIncome = displayedTransactions
+            .where((tx) => tx['type'] == 'income')
+            .map((tx) => (tx['amount'] as double?) ?? 0.0)
+            .fold(0.0, (a, b) => a + b);
+
         return Scaffold(
+          backgroundColor: Color.fromRGBO(28, 28, 28, 0),
           appBar: AppBar(
-            title: Text('Jun'),
+            backgroundColor: Color.fromRGBO(28, 28, 28, 0),
+            title: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(
+                  displayText,
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                  ),
+                ),
+                Text(
+                  currentPeriod,
+                  style: TextStyle(
+                    fontSize: 16,
+                    color: Colors.white,
+                  ),
+                ),
+              ],
+            ),
+            centerTitle: true,
             actions: [
               IconButton(
-                icon: Icon(Icons.calendar_today),
-                onPressed: () {
-                  setState(() {
-                    _updateCurrentPeriod();
-                  });
-                },
+                icon: Icon(Icons.calendar_today, color: Colors.white),
+                onPressed: _showCustomDatePicker,
+              ),
+              IconButton(
+                icon: Icon(viewMode == 'month' ? Icons.view_agenda : Icons.view_week, color: Colors.white),
+                onPressed: _toggleViewMode,
               ),
             ],
           ),
@@ -97,19 +308,16 @@ class _HomePageState extends State<HomePage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  currentPeriod,
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                ),
-                SizedBox(height: 10),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     Expanded(
                       child: GestureDetector(
-                        onTap: () => setState(() => showExpenses = true),
+                        onTap: () => _setTransactionType(showExpenses == true ? null : true),
                         child: Card(
-                          color: showExpenses ? Colors.blue[700] : Colors.grey[800],
+                          color: showExpenses == true
+                              ? Colors.blue[700]
+                              : Color.fromRGBO(33, 35, 34, 1),
                           child: Padding(
                             padding: const EdgeInsets.all(12),
                             child: Column(
@@ -117,18 +325,22 @@ class _HomePageState extends State<HomePage> {
                               children: [
                                 Row(
                                   children: [
-                                    Icon(Icons.attach_money, color: Colors.white),
-                                    SizedBox(width: 8),
+                                    Icon(
+                                      Icons.attach_money,
+                                      color: Colors.yellow,
+                                    ),
+                                    const SizedBox(width: 8),
                                     Text(
                                       'Expenses',
                                       style: TextStyle(
                                         color: Colors.white,
-                                        fontSize: 18,
+                                        fontSize: 20,
+                                        fontWeight: FontWeight.w500,
                                       ),
                                     ),
                                   ],
                                 ),
-                                SizedBox(height: 5),
+                                const SizedBox(height: 8),
                                 Text(
                                   'RM${totalExpenses.toStringAsFixed(1)}',
                                   style: TextStyle(
@@ -142,12 +354,14 @@ class _HomePageState extends State<HomePage> {
                         ),
                       ),
                     ),
-                    SizedBox(width: 10),
+                    const SizedBox(width: 10),
                     Expanded(
                       child: GestureDetector(
-                        onTap: () => setState(() => showExpenses = false),
+                        onTap: () => _setTransactionType(showExpenses == false ? null : false),
                         child: Card(
-                          color: !showExpenses ? Colors.green[700] : Colors.grey[800],
+                          color: showExpenses == false
+                              ? Colors.green[700]
+                              : Color.fromRGBO(33, 35, 34, 1),
                           child: Padding(
                             padding: const EdgeInsets.all(12),
                             child: Column(
@@ -155,18 +369,22 @@ class _HomePageState extends State<HomePage> {
                               children: [
                                 Row(
                                   children: [
-                                    Icon(Icons.monetization_on, color: Colors.white),
-                                    SizedBox(width: 8),
+                                    Icon(
+                                      Icons.monetization_on,
+                                      color: Colors.yellow,
+                                    ),
+                                    const SizedBox(width: 8),
                                     Text(
                                       'Income',
                                       style: TextStyle(
                                         color: Colors.white,
-                                        fontSize: 18,
+                                        fontSize: 20,
+                                        fontWeight: FontWeight.w500,
                                       ),
                                     ),
                                   ],
                                 ),
-                                SizedBox(height: 5),
+                                const SizedBox(height: 8),
                                 Text(
                                   'RM${totalIncome.toStringAsFixed(1)}',
                                   style: TextStyle(
@@ -182,61 +400,47 @@ class _HomePageState extends State<HomePage> {
                     ),
                   ],
                 ),
-                SizedBox(height: 18),
+                const SizedBox(height: 18),
                 Expanded(
                   child: ListView.builder(
-                    itemCount: filteredTransactions.length +
-                        (filteredTransactions.isNotEmpty ? 1 : 0),
+                    itemCount: displayedTransactions.length,
                     itemBuilder: (context, index) {
-                      if (index == 0 && filteredTransactions.isNotEmpty) {
-                        return Padding(
-                          padding: const EdgeInsets.only(top: 8.0),
-                          child: Text(
-                            DateTime.fromMillisecondsSinceEpoch(
-                                filteredTransactions[0]['timestamp'].millisecondsSinceEpoch)
-                                .toString()
-                                .split(' ')[0],
-                            style: TextStyle(fontWeight: FontWeight.bold),
-                          ),
-                        );
-                      }
-                      final i = index - (filteredTransactions.isNotEmpty ? 1 : 0);
-                      if (i >= 0 && i < filteredTransactions.length) {
-                        final tx = filteredTransactions[i];
-                        if (index > 0 &&
-                            i > 0 &&
-                            DateTime.fromMillisecondsSinceEpoch(
-                                tx['timestamp'].millisecondsSinceEpoch)
-                                .toString()
-                                .split(' ')[0] !=
-                                DateTime.fromMillisecondsSinceEpoch(
-                                    filteredTransactions[i - 1]['timestamp']
-                                        .millisecondsSinceEpoch)
-                                    .toString()
-                                    .split(' ')[0]) {
+                      final tx = displayedTransactions[index];
+                      final txDate = tx['timestamp']?.toDate();
+                      if (txDate == null) return const SizedBox.shrink();
+
+                      return FutureBuilder<DocumentSnapshot>(
+                        future: tx['category'].get(),
+                        builder: (context, categorySnapshot) {
+                          final categoryIcon = categorySnapshot.hasData
+                              ? categorySnapshot.data!.get('icon') as String? ?? '🍔'
+                              : '🍔';
+                          final categoryName = categorySnapshot.hasData
+                              ? categorySnapshot.data!.get('name') as String? ?? 'Unknown'
+                              : 'Loading...';
+
                           return Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text(
-                                DateTime.fromMillisecondsSinceEpoch(
-                                    tx['timestamp'].millisecondsSinceEpoch)
-                                    .toString()
-                                    .split(' ')[0],
-                                style: TextStyle(fontWeight: FontWeight.bold),
-                              ),
-                              _buildTransactionItem(tx),
-                              SizedBox(height: 10),
+                              if (index == 0 ||
+                                  (index > 0 &&
+                                      (viewMode == 'month' ||
+                                          DateTime(txDate.year, txDate.month)
+                                              .difference(DateTime(displayedTransactions[index - 1]['timestamp']!.toDate().year, displayedTransactions[index - 1]['timestamp']!.toDate().month))
+                                              .inDays != 0)))
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 8.0),
+                                  child: Text(
+                                    DateFormat(viewMode == 'month' ? 'yyyy-MM-dd' : 'MMMM yyyy').format(txDate),
+                                    style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
+                                  ),
+                                ),
+                              _buildTransactionItem(tx, categoryIcon, categoryName),
+                              const SizedBox(height: 10),
                             ],
                           );
-                        }
-                        return Column(
-                          children: [
-                            _buildTransactionItem(tx),
-                            SizedBox(height: 10),
-                          ],
-                        );
-                      }
-                      return SizedBox.shrink();
+                        },
+                      );
                     },
                   ),
                 ),
@@ -244,15 +448,21 @@ class _HomePageState extends State<HomePage> {
             ),
           ),
           floatingActionButton: SizedBox(
-            width: 180,
+            width: 100,
             height: 60,
             child: FloatingActionButton.extended(
               onPressed: () {
-                // Add navigation or transaction addition logic here
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => RecordTransactionPage()),
+                );
               },
               backgroundColor: Colors.teal,
               icon: Icon(Icons.add, color: Colors.white, size: 24),
-              label: Text('Add', style: TextStyle(color: Colors.white, fontSize: 16)),
+              label: Text(
+                'Add',
+                style: TextStyle(color: Colors.white, fontSize: 16),
+              ),
               elevation: 4.0,
             ),
           ),
@@ -267,10 +477,22 @@ class _HomePageState extends State<HomePage> {
               },
               currentIndex: selectedIndex,
               items: [
-                BottomNavigationBarItem(icon: Icon(Icons.receipt), label: 'Details'),
-                BottomNavigationBarItem(icon: Icon(Icons.trending_up), label: 'Trending'),
-                BottomNavigationBarItem(icon: Icon(Icons.insights), label: 'Insights'),
-                BottomNavigationBarItem(icon: Icon(Icons.person), label: 'Mine'),
+                BottomNavigationBarItem(
+                  icon: Icon(Icons.receipt),
+                  label: 'Details',
+                ),
+                BottomNavigationBarItem(
+                  icon: Icon(Icons.trending_up),
+                  label: 'Trending',
+                ),
+                BottomNavigationBarItem(
+                  icon: Icon(Icons.insights),
+                  label: 'Insights',
+                ),
+                BottomNavigationBarItem(
+                  icon: Icon(Icons.person),
+                  label: 'Mine',
+                ),
               ],
               selectedItemColor: Colors.white,
               unselectedItemColor: Colors.white,
@@ -286,23 +508,27 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  Widget _buildTransactionItem(Map<String, dynamic> tx) {
+  Widget _buildTransactionItem(Map<String, dynamic> tx, String categoryIcon, String categoryName) {
+    final txDate = tx['timestamp']?.toDate();
     return Card(
-      color: Colors.grey[800],
+      color: Color.fromRGBO(33, 35, 34, 1),
       child: ListTile(
-        leading: Icon(
-          Icons.fastfood,
-          color: tx['type'] == 'expense' ? Colors.orange : Colors.green,
+        leading: Text(
+          categoryIcon,
+          style: TextStyle(fontSize: 24),
         ),
-        title: Text(tx['category']),
-        subtitle: Text(DateTime.fromMillisecondsSinceEpoch(
-            tx['timestamp'].millisecondsSinceEpoch)
-            .toString()
-            .split(' ')[1]
-            .substring(0, 5)), // Show only time (HH:MM)
+        title: Text(
+          categoryName,
+          style: TextStyle(color: Colors.white),
+        ),
+        subtitle: Text(
+          txDate != null ? DateFormat('HH:mm').format(txDate) : 'N/A',
+          style: TextStyle(color: Colors.white),
+        ),
         trailing: Text(
-          'RM${tx['amount'].toStringAsFixed(1)}',
+          'RM${(tx['amount'] as double).toStringAsFixed(1)}',
           style: TextStyle(
+            fontSize: 16,
             color: tx['type'] == 'expense' ? Colors.red : Colors.green,
           ),
         ),
