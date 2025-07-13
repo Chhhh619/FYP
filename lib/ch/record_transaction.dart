@@ -16,7 +16,7 @@ class _RecordTransactionPageState extends State<RecordTransactionPage> {
   final _amountController = TextEditingController();
   String? _selectedCategoryId;
   DateTime _selectedDate = DateTime.now();
-  String _type = 'expense';
+  String _type = 'expense'; // Default to expense
   String _calculatorInput = '0';
   double _calculatorResult = 0;
   bool _isCalculatorOpen = false;
@@ -43,11 +43,16 @@ class _RecordTransactionPageState extends State<RecordTransactionPage> {
     final snapshot = await _firestore.collection('categories').get();
     setState(() {
       _categories = snapshot.docs.map((doc) => {
-        'id': doc.id,
+        'id': doc.id, // Use Firestore document ID as the category ID
         'name': doc['name'],
         'icon': doc['icon'],
+        'type': doc['type'], // Type is exclusive to categories
       }).toList();
-      if (_categories.isNotEmpty) _selectedCategoryId = _categories.first['id'];
+      if (_categories.isNotEmpty) {
+        // Set initial selected category to the first matching the default type
+        final defaultCategory = _categories.firstWhere((cat) => cat['type'] == _type, orElse: () => _categories.first);
+        _selectedCategoryId = defaultCategory['id'];
+      }
     });
   }
 
@@ -63,10 +68,9 @@ class _RecordTransactionPageState extends State<RecordTransactionPage> {
         .collection('transactions')
         .add({
       'userid': userId,
-      'type': _type,
       'amount': double.tryParse(_amountController.text.replaceAll(',', '')) ?? 0.0,
       'timestamp': Timestamp.fromDate(_selectedDate),
-      'category': _firestore.collection('categories').doc(_selectedCategoryId),
+      'category': _firestore.collection('categories').doc(_selectedCategoryId), // Reference determines type
     })
         .then((value) {
       Navigator.pop(context);
@@ -229,6 +233,8 @@ class _RecordTransactionPageState extends State<RecordTransactionPage> {
 
   @override
   Widget build(BuildContext context) {
+    final filteredCategories = _categories.where((category) => category['type'] == _type).toList();
+
     return Scaffold(
       backgroundColor: const Color.fromRGBO(28, 28, 28, 0),
       appBar: AppBar(
@@ -263,39 +269,45 @@ class _RecordTransactionPageState extends State<RecordTransactionPage> {
                 ),
                 const SizedBox(height: 16),
                 Text(
-                  'Categories',
+                  'Select Category',
                   style: TextStyle(color: Colors.white, fontSize: 16),
                 ),
-                SizedBox(
-                  height: 100,
-                  child: ListView.builder(
-                    scrollDirection: Axis.horizontal,
-                    itemCount: _categories.length,
-                    itemBuilder: (context, index) {
-                      final category = _categories[index];
-                      return Padding(
-                        padding: const EdgeInsets.only(right: 8.0),
-                        child: ElevatedButton(
-                          onPressed: () {
-                            setState(() {
-                              _selectedCategoryId = category['id'];
-                            });
-                          },
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: _selectedCategoryId == category['id'] ? Colors.teal : const Color.fromRGBO(33, 35, 34, 1),
-                            foregroundColor: Colors.white,
-                          ),
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Text(category['icon'], style: const TextStyle(fontSize: 24)),
-                              const SizedBox(height: 4),
-                              Text(category['name'], style: const TextStyle(fontSize: 12)),
-                            ],
-                          ),
+                const SizedBox(height: 8),
+                Expanded(
+                  child: GridView.count(
+                    crossAxisCount: 3,
+                    crossAxisSpacing: 16,
+                    mainAxisSpacing: 16,
+                    children: filteredCategories.map((category) {
+                      return ElevatedButton(
+                        onPressed: () {
+                          setState(() {
+                            _selectedCategoryId = category['id'];
+                          });
+                        },
+                        style: ElevatedButton.styleFrom(
+                          shape: const CircleBorder(),
+                          padding: const EdgeInsets.all(16),
+                          backgroundColor: _selectedCategoryId == category['id'] ? Colors.teal : const Color.fromRGBO(33, 35, 34, 1),
+                          foregroundColor: Colors.white,
+                        ),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Text(
+                              category['icon'],
+                              style: const TextStyle(fontSize: 24),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              category['name'],
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(fontSize: 12),
+                            ),
+                          ],
                         ),
                       );
-                    },
+                    }).toList(),
                   ),
                 ),
                 const SizedBox(height: 16),
@@ -313,6 +325,9 @@ class _RecordTransactionPageState extends State<RecordTransactionPage> {
                       onChanged: (String? newValue) {
                         setState(() {
                           _type = newValue ?? 'expense';
+                          // Reset selected category to the first of the new type, if any
+                          final newDefault = filteredCategories.isNotEmpty ? filteredCategories.first['id'] : null;
+                          _selectedCategoryId = newDefault;
                         });
                       },
                       dropdownColor: const Color.fromRGBO(33, 35, 34, 1),
@@ -328,7 +343,7 @@ class _RecordTransactionPageState extends State<RecordTransactionPage> {
                     ),
                   ],
                 ),
-                const Spacer(),
+                const SizedBox(height: 16),
                 ElevatedButton(
                   onPressed: _saveTransaction,
                   style: ElevatedButton.styleFrom(
