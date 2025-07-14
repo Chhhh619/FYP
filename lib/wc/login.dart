@@ -16,6 +16,7 @@ class _LoginScreenState extends State<LoginScreen> {
   final _passwordController = TextEditingController();
   String? _errorMessage;
   bool _isLoading = false;
+  bool _obscurePassword = true; // Added to toggle password visibility
 
   Future<void> _login() async {
     if (!_formKey.currentState!.validate()) return;
@@ -149,9 +150,20 @@ class _LoginScreenState extends State<LoginScreen> {
                             borderRadius: BorderRadius.circular(8),
                             borderSide: BorderSide.none,
                           ),
+                          suffixIcon: IconButton(
+                            icon: Icon(
+                              _obscurePassword ? Icons.visibility : Icons.visibility_off,
+                              color: Colors.grey,
+                            ),
+                            onPressed: () {
+                              setState(() {
+                                _obscurePassword = !_obscurePassword;
+                              });
+                            },
+                          ),
                         ),
                         style: const TextStyle(color: Colors.white),
-                        obscureText: true,
+                        obscureText: _obscurePassword, // Toggle visibility
                         validator: (value) {
                           if (value == null || value.isEmpty) {
                             return 'Please enter your password';
@@ -163,7 +175,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       if (_errorMessage != null)
                         Text(
                           _errorMessage!,
-                          style: const TextStyle(color: const Color(0xFFB0BEC5)),
+                          style: const TextStyle(color: Colors.red),
                         ),
                       const SizedBox(height: 16),
                       _isLoading

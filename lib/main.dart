@@ -1,14 +1,24 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
-import 'ch/homepage.dart';
+import 'package:flutter/material.dart';
+import 'package:fyp/wc/bill/bill_payment_screen.dart';
 import 'firebase_options.dart';
 import 'wc/login.dart';
 import 'wc/register.dart';
 import 'wc/currencyconverter.dart';
+import 'wc/splash.dart';
+import 'wc/home.dart';
+import 'ch/homepage.dart';
+import 'wc/financial_planning_advisor.dart';
+import 'wc/financial_tips.dart';
+import 'wc/bill/bill_payment_screen.dart';
+import 'wc/bill/bill.dart';
+import 'wc/bill/payment_history_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  await Firebase.initializeApp();
   runApp(const MyApp());
 }
 
@@ -18,17 +28,85 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      debugShowCheckedModeBanner: false,
-      theme: ThemeData(fontFamily: 'Poppins'),
       title: 'Financial App',
-      initialRoute: '/login',
-      // Start at login screen
+      theme: ThemeData(
+        primarySwatch: Colors.blue,
+        visualDensity: VisualDensity.adaptivePlatformDensity,
+        elevatedButtonTheme: ElevatedButtonThemeData(
+          style: ElevatedButton.styleFrom(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+            padding: const EdgeInsets.symmetric(vertical: 16),
+          ),
+        ),
+        inputDecorationTheme: const InputDecorationTheme(
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.all(Radius.circular(12)),
+          ),
+        ),
+      ),
+      debugShowCheckedModeBanner: false, // Remove debug banner
+      home: StreamBuilder<User?>(
+        stream: FirebaseAuth.instance.authStateChanges(),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return CircularProgressIndicator();
+          }
+          if (snapshot.hasData && snapshot.data != null) {
+            final userId = snapshot.data!.uid;
+            return BillPaymentScreen(userId: userId);
+          }
+          return LoginScreen(); // Show login if no user is authenticated
+        },
+      ),
       routes: {
+        '/splash': (context) => SplashScreen(),
+        '/converter': (context) => const CurrencyConverterScreen(),
         '/login': (context) => const LoginScreen(),
         '/register': (context) => const RegisterScreen(),
         '/home': (context) => HomePage(),
-        '/currencyconverter': (context) => const CurrencyConverterScreen(),
+        '/advisor': (context) => FinancialPlanningScreen(),
+        '/tips': (context) => const FinancialTipsScreen(),
+        '/bill': (context) {
+          final userId = ModalRoute.of(context)!.settings.arguments as String?;
+          if (userId == null) {
+            return LoginScreen(); // Handle null userId
+          }
+          return BillPaymentScreen(userId: userId);
+        },
+        '/payment_history': (context) {
+          final userId = ModalRoute.of(context)!.settings.arguments as String;
+          return PaymentHistoryScreen(userId: userId);
+        },
       },
+
+    );
+  }
+}
+
+// Placeholder HomeScreen for navigation
+class HomeScreen extends StatelessWidget {
+  const HomeScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Home'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.logout),
+            onPressed: () async {
+              await FirebaseAuth.instance.signOut();
+              Navigator.pushReplacementNamed(context, '/login');
+            },
+          ),
+        ],
+      ),
+      body: const Center(
+        child: Text('Welcome to Your Financial App!'),
+      ),
     );
   }
 }
