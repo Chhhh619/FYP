@@ -22,6 +22,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
   String? _errorMessage;
   bool _isLoading = false;
   final _uuid = Uuid(); // Initialize UUID generator
+  bool _obscurePassword = true; // Added to toggle password visibility
+  bool _obscureConfirmPassword = true; // Added to toggle confirm password visibility
 
   Future<void> _register() async {
     if (!_formKey.currentState!.validate()) return;
@@ -69,7 +71,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
             code: 'username-in-use', message: 'Username is already taken.');
       }
 
-
       await FirebaseFirestore.instance
           .collection('users')
           .doc(userCredential.user!.uid)
@@ -83,7 +84,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
       });
 
       if (!mounted) return;
-      Navigator.pushReplacementNamed(context, '/home');
+      Navigator.pushReplacementNamed(context, '/login');
     } on FirebaseAuthException catch (e) {
       setState(() {
         _errorMessage = _getErrorMessage(e.code);
@@ -258,9 +259,20 @@ class _RegisterScreenState extends State<RegisterScreen> {
                             borderRadius: BorderRadius.circular(8),
                             borderSide: BorderSide.none,
                           ),
+                          suffixIcon: IconButton(
+                            icon: Icon(
+                              _obscurePassword ? Icons.visibility : Icons.visibility_off,
+                              color: Colors.grey,
+                            ),
+                            onPressed: () {
+                              setState(() {
+                                _obscurePassword = !_obscurePassword;
+                              });
+                            },
+                          ),
                         ),
                         style: const TextStyle(color: Colors.white),
-                        obscureText: true,
+                        obscureText: _obscurePassword, // Toggle visibility
                         validator: (value) {
                           if (value == null || value.isEmpty) {
                             return 'Please enter your password';
@@ -286,9 +298,20 @@ class _RegisterScreenState extends State<RegisterScreen> {
                             borderRadius: BorderRadius.circular(8),
                             borderSide: BorderSide.none,
                           ),
+                          suffixIcon: IconButton(
+                            icon: Icon(
+                              _obscureConfirmPassword ? Icons.visibility : Icons.visibility_off,
+                              color: Colors.grey,
+                            ),
+                            onPressed: () {
+                              setState(() {
+                                _obscureConfirmPassword = !_obscureConfirmPassword;
+                              });
+                            },
+                          ),
                         ),
                         style: const TextStyle(color: Colors.white),
-                        obscureText: true,
+                        obscureText: _obscureConfirmPassword, // Toggle visibility
                         validator: (value) {
                           if (value == null || value.isEmpty) {
                             return 'Please confirm your password';
