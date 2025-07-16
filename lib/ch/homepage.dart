@@ -1,3 +1,4 @@
+import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -104,135 +105,131 @@ class _HomePageState extends State<HomePage> {
         return StatefulBuilder(
           builder: (BuildContext context, StateSetter setState) {
             return Dialog(
-              backgroundColor: Color.fromRGBO(28, 28, 28, 0),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Container(
-                decoration: BoxDecoration(
-                  color: Color.fromRGBO(33, 35, 34, 1),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                padding: EdgeInsets.all(16),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          'Select Period',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 20,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        Row(
-                          children: [
-                            ElevatedButton(
-                              onPressed: () {
-                                setState(() {
-                                  popupMode = 'month';
-                                });
-                              },
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: popupMode == 'month'
-                                    ? Colors.teal
-                                    : Color.fromRGBO(33, 35, 34, 1),
-                                foregroundColor: Colors.white,
-                              ),
-                              child: Text('Month'),
-                            ),
-                            SizedBox(width: 8),
-                            ElevatedButton(
-                              onPressed: () {
-                                setState(() {
-                                  popupMode = 'year';
-                                });
-                              },
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: popupMode == 'year'
-                                    ? Colors.teal
-                                    : Color.fromRGBO(33, 35, 34, 1),
-                                foregroundColor: Colors.white,
-                              ),
-                              child: Text('Year'),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                    SizedBox(height: 16),
-                    Container(
-                      height: 210,
-                      child: GridView.count(
-                        crossAxisCount: 3,
-                        crossAxisSpacing: 8,
-                        mainAxisSpacing: 8,
+              insetPadding: EdgeInsets.symmetric(horizontal: 16.0), // Add some padding
+              child: SizedBox(
+                width: availableScreenWidth * 0.85, // 90% of screen width
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: Color.fromRGBO(33, 35, 34, 1),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  padding: EdgeInsets.all(15),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          if (popupMode == 'month')
-                            ...List.generate(12, (index) {
-                              final month = DateTime(
-                                selectedDate.year,
-                                index + 1,
-                              );
-                              return ElevatedButton(
+                          Text(
+                            'Select Period',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          Row(
+                            children: [
+                              ElevatedButton(
                                 onPressed: () {
-                                  _updateCurrentPeriod(
-                                    DateTime(selectedDate.year, index + 1),
-                                  );
-                                  Navigator.pop(context);
+                                  setState(() {
+                                    popupMode = 'month';
+                                  });
                                 },
                                 style: ElevatedButton.styleFrom(
-                                  minimumSize: Size(60, 60),
-                                  // Adjust this to make the button smaller
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                  backgroundColor:
-                                      selectedDate.month == index + 1
+                                  backgroundColor: popupMode == 'month'
                                       ? Colors.teal
                                       : Color.fromRGBO(33, 35, 34, 1),
                                   foregroundColor: Colors.white,
                                 ),
-                                child: Text(DateFormat('MMM').format(month)),
-                              );
-                            }),
-                          if (popupMode == 'year')
-                            ...List.generate(3, (index) {
-                              final year = selectedDate.year + (index - 1);
-                              return ElevatedButton(
+                                child: Text('Month'),
+                              ),
+                              SizedBox(width: 8),
+                              ElevatedButton(
                                 onPressed: () {
-                                  _updateCurrentPeriod(
-                                    DateTime(year, selectedDate.month),
-                                  );
-                                  Navigator.pop(context);
+                                  setState(() {
+                                    popupMode = 'year';
+                                  });
                                 },
                                 style: ElevatedButton.styleFrom(
-                                  backgroundColor: selectedDate.year == year
+                                  backgroundColor: popupMode == 'year'
                                       ? Colors.teal
                                       : Color.fromRGBO(33, 35, 34, 1),
                                   foregroundColor: Colors.white,
                                 ),
-                                child: Text(year.toString()),
-                              );
-                            }),
+                                child: Text('Year'),
+                              ),
+                            ],
+                          ),
                         ],
                       ),
-                    ),
-                    SizedBox(height: 16),
-                    ElevatedButton(
-                      onPressed: () {
-                        Navigator.pop(context);
-                      },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.teal,
-                        foregroundColor: Colors.white,
+                      SizedBox(height: 16),
+                      Container(
+                        height: 210,
+                        child: GridView.count(
+                          crossAxisCount: 3,
+                          crossAxisSpacing: 8,
+                          mainAxisSpacing: 8,
+                          children: [
+                            if (popupMode == 'month')
+                              ...List.generate(12, (index) {
+                                final month = DateTime(
+                                  selectedDate.year,
+                                  index + 1,
+                                );
+                                return ElevatedButton(
+                                  onPressed: () {
+                                    _updateCurrentPeriod(
+                                      DateTime(selectedDate.year, index + 1),
+                                    );
+                                    Navigator.pop(context);
+                                  },
+                                  style: ElevatedButton.styleFrom(
+                                    minimumSize: Size(60, 60),
+                                    backgroundColor:
+                                    selectedDate.month == index + 1
+                                        ? Colors.teal
+                                        : Color.fromRGBO(33, 35, 34, 1),
+                                    foregroundColor: Colors.white,
+                                  ),
+                                  child: Text(DateFormat('MMM').format(month)),
+                                );
+                              }),
+                            if (popupMode == 'year')
+                              ...List.generate(3, (index) {
+                                final year = selectedDate.year + (index - 1);
+                                return ElevatedButton(
+                                  onPressed: () {
+                                    _updateCurrentPeriod(
+                                      DateTime(year, selectedDate.month),
+                                    );
+                                    Navigator.pop(context);
+                                  },
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: selectedDate.year == year
+                                        ? Colors.teal
+                                        : Color.fromRGBO(33, 35, 34, 1),
+                                    foregroundColor: Colors.white,
+                                  ),
+                                  child: Text(year.toString()),
+                                );
+                              }),
+                          ],
+                        ),
                       ),
-                      child: Text('Confirm'),
-                    ),
-                  ],
+                      SizedBox(height: 16),
+                      ElevatedButton(
+                        onPressed: () {
+                          Navigator.pop(context);
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.teal,
+                          foregroundColor: Colors.white,
+                        ),
+                        child: Text('Confirm'),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             );
