@@ -4,6 +4,9 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/rendering.dart';
 import 'package:fyp/ch/record_transaction.dart';
+import 'package:fyp/ch/settings.dart';
+import 'package:fyp/bottom_nav_bar.dart';
+import 'package:fyp/ch/persistent_add_button.dart';
 import 'package:intl/intl.dart';
 
 class HomePage extends StatefulWidget {
@@ -13,13 +16,13 @@ class HomePage extends StatefulWidget {
   _HomePageState createState() => _HomePageState();
 }
 
-class _HomePageState extends State<HomePage> {
+class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin {
   String currentPeriod = '';
   String displayText = DateFormat('MMM').format(DateTime.now());
   bool? showExpenses = null;
   double availableScreenWidth = 0;
   double availableScreenHeight = 0;
-  int selectedIndex = 0;
+  int selectedIndex = 0; // Default to "Details" (HomePage)
   String viewMode = 'month';
   DateTime selectedDate = DateTime.now();
   String popupMode = 'month';
@@ -44,6 +47,9 @@ class _HomePageState extends State<HomePage> {
     _scrollController.dispose();
     super.dispose();
   }
+
+  @override
+  bool get wantKeepAlive => true; // Preserve state across navigation
 
   void _scrollListener() {
     print(
@@ -72,19 +78,9 @@ class _HomePageState extends State<HomePage> {
     selectedDate = startDate ?? DateTime.now();
     final formatter = DateFormat('d MMM');
     if (viewMode == 'month') {
-      displayText = DateFormat(
-        'MMM',
-      ).format(selectedDate); // Show selected month
-      final start = DateTime(
-        selectedDate.year,
-        selectedDate.month,
-        1,
-      ); // Start of month
-      final end = DateTime(
-        selectedDate.year,
-        selectedDate.month + 1,
-        0,
-      ); // End of month
+      displayText = DateFormat('MMM').format(selectedDate); // Show selected month
+      final start = DateTime(selectedDate.year, selectedDate.month, 1); // Start of month
+      final end = DateTime(selectedDate.year, selectedDate.month + 1, 0); // End of month
       currentPeriod = '${formatter.format(start)} - ${formatter.format(end)}';
     } else {
       // year mode
@@ -265,6 +261,7 @@ class _HomePageState extends State<HomePage> {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context); // Required for AutomaticKeepAliveClientMixin
     availableScreenWidth = MediaQuery.of(context).size.width - 50;
 
     String? userId = _auth.currentUser?.uid;
@@ -283,8 +280,7 @@ class _HomePageState extends State<HomePage> {
           .snapshots(),
       builder: (context, snapshot) {
         if (!snapshot.hasData) {
-          print('StreamBuilder: No data yet, waiting...'); // Debug
-          return Scaffold(body: Center(child: CircularProgressIndicator()));
+          return _buildLoadingSkeleton(); // Show skeleton during initial load
         }
 
         if (snapshot.hasError) {
@@ -296,23 +292,18 @@ class _HomePageState extends State<HomePage> {
 
         final transactions = snapshot.data!.docs
             .map((doc) {
-              print('Document data: ${doc.data()}'); // Debug
-              return {
-                'id': doc.id,
-                'category': doc['category'] as DocumentReference,
-                'amount': (doc['amount'] is int)
-                    ? (doc['amount'] as int).toDouble()
-                    : (doc['amount'] as double?),
-                'timestamp': doc['timestamp'] as Timestamp?,
-              };
-            })
+          print('Document data: ${doc.data()}'); // Debug
+          return {
+            'id': doc.id,
+            'category': doc['category'] as DocumentReference,
+            'amount': (doc['amount'] is int)
+                ? (doc['amount'] as int).toDouble()
+                : (doc['amount'] as double?),
+            'timestamp': doc['timestamp'] as Timestamp?,
+          };
+        })
             .whereType<Map<String, dynamic>>()
             .toList();
-
-        if (transactions.isEmpty) {
-          print('No transactions found for user: $userId'); // Debug
-          return Scaffold(body: Center(child: Text('No transactions found')));
-        }
 
         final filteredTransactions = transactions.where((tx) {
           final txDate = tx['timestamp']?.toDate();
@@ -321,7 +312,6 @@ class _HomePageState extends State<HomePage> {
             return txDate.year == selectedDate.year &&
                 txDate.month == selectedDate.month;
           } else {
-            // year mode
             return txDate.year == selectedDate.year;
           }
         }).toList();
@@ -337,7 +327,7 @@ class _HomePageState extends State<HomePage> {
           ),
           builder: (context, categorySnapshot) {
             if (!categorySnapshot.hasData) {
-              return Scaffold(body: Center(child: CircularProgressIndicator()));
+              return _buildLoadingSkeleton(); // Show skeleton during data fetch
             }
 
             final displayedTransactions = categorySnapshot.data!.where((tx) {
@@ -357,6 +347,96 @@ class _HomePageState extends State<HomePage> {
               } else if (tx['categoryType'] == 'income') {
                 totalIncome += amount;
               }
+            }
+
+            // Show welcome message if no transactions
+            if (filteredTransactions.isEmpty) {
+              return Scaffold(
+                backgroundColor: Color.fromRGBO(28, 28, 28, 0),
+                appBar: AppBar(
+                  backgroundColor: Color.fromRGBO(28, 28, 28, 0),
+                  title: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        displayText,
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                        ),
+                      ),
+                      Text(
+                        currentPeriod,
+                        style: TextStyle(fontSize: 16, color: Colors.white),
+                      ),
+                    ],
+                  ),
+                  centerTitle: true,
+                  actions: [
+                    IconButton(
+                      icon: Icon(Icons.calendar_today, color: Colors.white),
+                      onPressed: _showCustomDatePicker,
+                    ),
+                    IconButton(
+                      icon: Icon(
+                        viewMode == 'month' ? Icons.view_agenda : Icons.view_week,
+                        color: Colors.white,
+                      ),
+                      onPressed: _toggleViewMode,
+                    ),
+                  ],
+                ),
+                body: Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        'Welcome! No transactions yet.',
+                        style: TextStyle(color: Colors.white, fontSize: 20),
+                        textAlign: TextAlign.center,
+                      ),
+                      SizedBox(height: 20),
+                      ElevatedButton(
+                        onPressed: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => RecordTransactionPage(),
+                            ),
+                          );
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.teal,
+                          foregroundColor: Colors.white,
+                        ),
+                        child: Text('Add Your First Transaction'),
+                      ),
+                    ],
+                  ),
+                ),
+                floatingActionButton: PersistentAddButton(),
+                floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
+                bottomNavigationBar: BottomNavBar(
+                  currentIndex: selectedIndex,
+                  onTap: (index) {
+                    setState(() {
+                      if (index == 0) {
+                        // "Details" selected - reset to HomePage state (do nothing or reset if needed)
+                        selectedIndex = 0;
+                      } else if (index == 3) {
+                        // "Mine" selected - navigate to SettingsPage
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(builder: (context) => SettingsPage()),
+                        );
+                      } else {
+                        selectedIndex = index; // Update for other tabs
+                      }
+                    });
+                  },
+                ),
+              );
             }
 
             return Scaffold(
@@ -506,10 +586,10 @@ class _HomePageState extends State<HomePage> {
                             final txDate = tx['timestamp']!.toDate();
                             final groupKey = viewMode == 'month'
                                 ? DateTime(
-                                    txDate.year,
-                                    txDate.month,
-                                    txDate.day,
-                                  )
+                              txDate.year,
+                              txDate.month,
+                              txDate.day,
+                            )
                                 : DateTime(txDate.year, txDate.month);
                             groupedTransactions
                                 .putIfAbsent(groupKey, () => [])
@@ -552,7 +632,7 @@ class _HomePageState extends State<HomePage> {
                                     ),
                                     child: Row(
                                       mainAxisAlignment:
-                                          MainAxisAlignment.spaceBetween,
+                                      MainAxisAlignment.spaceBetween,
                                       children: [
                                         Text(
                                           groupLabel,
@@ -584,19 +664,19 @@ class _HomePageState extends State<HomePage> {
                                     ),
                                   ),
                                   ...groupTxs.map(
-                                    (tx) => FutureBuilder<DocumentSnapshot>(
+                                        (tx) => FutureBuilder<DocumentSnapshot>(
                                       future: tx['category'].get(),
                                       builder: (context, snapshot) {
                                         if (!snapshot.hasData)
                                           return SizedBox.shrink();
                                         final icon =
-                                            snapshot.data!.get('icon') ?? '💰';
+                                            snapshot.data!.get('icon') ?? 'ðŸ’°';
                                         final name =
                                             snapshot.data!.get('name') ??
-                                            'Unknown';
+                                                'Unknown';
                                         final type =
                                             snapshot.data!.get('type') ??
-                                            'unknown';
+                                                'unknown';
                                         return Column(
                                           children: [
                                             _buildTransactionItem(
@@ -621,85 +701,26 @@ class _HomePageState extends State<HomePage> {
                   ],
                 ),
               ),
-              floatingActionButton: AnimatedContainer(
-                duration: Duration(milliseconds: 200),
-                width: _isScrollingDown ? 56.0 : 120.0,
-                height: 56.0,
-                child: FloatingActionButton(
-                  onPressed: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => RecordTransactionPage(),
-                      ),
-                    );
-                  },
-                  backgroundColor: Colors.teal,
-                  elevation: 4.0,
-                  child: AnimatedSwitcher(
-                    duration: Duration(milliseconds: 200),
-                    transitionBuilder: (Widget child, Animation<double> animation) {
-                      return FadeTransition(opacity: animation, child: child);
-                    },
-                    child: _isScrollingDown
-                        ? Icon(Icons.add, color: Colors.white, size: 30, key: ValueKey('icon'))
-                        : FittedBox( // ✅ Wrap Row here
-                      key: ValueKey('textRow'),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(Icons.add, color: Colors.white, size: 24),
-                          SizedBox(width: 6),
-                          Text(
-                            'Add',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 16,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-              floatingActionButtonLocation:
-                  FloatingActionButtonLocation.endFloat,
-              bottomNavigationBar: Container(
-                height: 100,
-                child: BottomNavigationBar(
-                  onTap: (index) {
-                    setState(() {
-                      selectedIndex = index;
-                    });
-                  },
-                  currentIndex: selectedIndex,
-                  items: [
-                    BottomNavigationBarItem(
-                      icon: Icon(Icons.receipt),
-                      label: 'Details',
-                    ),
-                    BottomNavigationBarItem(
-                      icon: Icon(Icons.trending_up),
-                      label: 'Trending',
-                    ),
-                    BottomNavigationBarItem(
-                      icon: Icon(Icons.insights),
-                      label: 'Insights',
-                    ),
-                    BottomNavigationBarItem(
-                      icon: Icon(Icons.person),
-                      label: 'Mine',
-                    ),
-                  ],
-                  selectedItemColor: Colors.white,
-                  unselectedItemColor: Colors.white,
-                  backgroundColor: Colors.grey[850],
-                  type: BottomNavigationBarType.fixed,
-                  selectedFontSize: 12,
-                  unselectedFontSize: 12,
-                  iconSize: 20,
-                ),
+              floatingActionButton: PersistentAddButton(),
+              floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
+              bottomNavigationBar: BottomNavBar(
+                currentIndex: selectedIndex,
+                onTap: (index) {
+                  setState(() {
+                    if (index == 0) {
+                      // "Details" selected - reset to HomePage state (do nothing or reset if needed)
+                      selectedIndex = 0;
+                    } else if (index == 3) {
+                      // "Mine" selected - navigate to SettingsPage
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (context) => SettingsPage()),
+                      );
+                    } else {
+                      selectedIndex = index; // Update for other tabs
+                    }
+                  });
+                },
               ),
             );
           },
@@ -709,11 +730,11 @@ class _HomePageState extends State<HomePage> {
   }
 
   Widget _buildTransactionItem(
-    Map<String, dynamic> tx,
-    String categoryIcon,
-    String categoryName,
-    String categoryType,
-  ) {
+      Map<String, dynamic> tx,
+      String categoryIcon,
+      String categoryName,
+      String categoryType,
+      ) {
     final txDate = tx['timestamp']?.toDate();
     return GestureDetector(
       onLongPress: () {
@@ -762,6 +783,155 @@ class _HomePageState extends State<HomePage> {
             ),
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildLoadingSkeleton() {
+    return Scaffold(
+      backgroundColor: Color.fromRGBO(28, 28, 28, 0),
+      appBar: AppBar(
+        backgroundColor: Color.fromRGBO(28, 28, 28, 0),
+        title: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(
+              displayText,
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+                color: Colors.white,
+              ),
+            ),
+            Text(
+              currentPeriod,
+              style: TextStyle(fontSize: 16, color: Colors.white),
+            ),
+          ],
+        ),
+        centerTitle: true,
+        actions: [
+          IconButton(
+            icon: Icon(Icons.calendar_today, color: Colors.white),
+            onPressed: null, // Disable during loading
+          ),
+          IconButton(
+            icon: Icon(
+              viewMode == 'month' ? Icons.view_agenda : Icons.view_week,
+              color: Colors.white,
+            ),
+            onPressed: null, // Disable during loading
+          ),
+        ],
+      ),
+      body: Padding(
+        padding: const EdgeInsets.all(18),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Expanded(
+                  child: Card(
+                    color: Color.fromRGBO(33, 35, 34, 1),
+                    child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Container(
+                            width: 60,
+                            height: 20,
+                            color: Colors.grey[700],
+                          ),
+                          SizedBox(height: 8),
+                          Container(
+                            width: 40,
+                            height: 16,
+                            color: Colors.grey[700],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Card(
+                    color: Color.fromRGBO(33, 35, 34, 1),
+                    child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Container(
+                            width: 60,
+                            height: 20,
+                            color: Colors.grey[700],
+                          ),
+                          SizedBox(height: 8),
+                          Container(
+                            width: 40,
+                            height: 16,
+                            color: Colors.grey[700],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 18),
+            Expanded(
+              child: ListView.builder(
+                itemCount: 5, // Placeholder for loading items
+                itemBuilder: (context, index) {
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 8.0),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Container(
+                          width: 100,
+                          height: 16,
+                          color: Colors.grey[700],
+                        ),
+                        Container(
+                          width: 80,
+                          height: 16,
+                          color: Colors.grey[700],
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+      floatingActionButton: PersistentAddButton(),
+      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
+      bottomNavigationBar: BottomNavBar(
+        currentIndex: selectedIndex,
+        onTap: (index) {
+          setState(() {
+            if (index == 0) {
+              // "Details" selected - reset to HomePage state (do nothing or reset if needed)
+              selectedIndex = 0;
+            } else if (index == 3) {
+              // "Mine" selected - navigate to SettingsPage
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => SettingsPage()),
+              );
+            } else {
+              selectedIndex = index; // Update for other tabs
+            }
+          });
+        },
       ),
     );
   }
