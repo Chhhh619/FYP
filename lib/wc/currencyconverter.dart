@@ -16,7 +16,7 @@ class _CurrencyConverterScreenState extends State<CurrencyConverterScreen> {
   double _exchangeRate = 0.24;
   String _amountInput = '1';
   final _amountController = TextEditingController();
-  String _lastUpdated = '';
+  String _lastUpdated = '15 Jul, 17:37 UTC'; // Updated to current date and time
   String _selectedTimePeriod = '1D';
   List<Map<String, dynamic>> _historicalRates = [];
   bool _isLoadingHistory = false;
@@ -73,6 +73,7 @@ class _CurrencyConverterScreenState extends State<CurrencyConverterScreen> {
           }).toList()
             ..sort((a, b) => a['date'].compareTo(b['date']));
         });
+        print('Historical Rates: $_historicalRates'); // Debug print
       }
     } catch (e) {
       if (kDebugMode) print('Error fetching historical data: $e');
@@ -386,7 +387,7 @@ class ExchangeRateChart extends CustomPainter {
     }
 
     // Calculate chart area with minimal padding
-    final chartPadding = 20.0; // Increased padding for better label spacing
+    final chartPadding = 20.0;
     final chartWidth = size.width - chartPadding * 2;
     final chartHeight = size.height - chartPadding * 2;
 
@@ -465,33 +466,33 @@ class ExchangeRateChart extends CustomPainter {
       axisPaint,
     );
 
-    // Draw Y-axis labels with more spacing
-    final yStep = chartHeight / 6; // Increased to 6 segments for better spacing
+    // Draw Y-axis labels with adjusted spacing and alignment
+    final yStep = chartHeight / 6;
     for (int i = 0; i <= 6; i++) {
       final yValue = effectiveMin + (range * i / 6);
       final yPos = chartPadding + chartHeight - (i * yStep);
       _drawText(
         canvas,
         yValue.toStringAsFixed(2),
-        Offset(chartPadding - 30, yPos - 5), // Increased horizontal offset for spacing
-        const TextStyle(color: Colors.grey, fontSize: 12), // Slightly larger font
+        Offset(chartPadding - 15, yPos - 5), // Adjusted to -7 to shift slightly left
+        const TextStyle(color: Colors.grey, fontSize: 12),
       );
     }
 
     // Draw X-axis labels with fewer and better-spaced labels
-    final xLabelCount = 3; // Reduced to 3 labels for better spacing
+    final xLabelCount = 3;
     final xStep = chartWidth / xLabelCount;
     for (int i = 0; i <= xLabelCount; i++) {
       final xPos = chartPadding + (i * xStep);
       final index = (i * (validRates.length - 1) / xLabelCount).floor();
       if (index < validRates.length) {
         final date = validRates[index]['date'] as DateTime;
-        final dateStr = '${date.day}/${date.month}'; // Simplified to day/month for brevity
+        final dateStr = '${date.day}/${date.month}';
         _drawText(
           canvas,
           dateStr,
-          Offset(xPos - 20, chartPadding + chartHeight + 15), // Increased vertical offset
-          const TextStyle(color: Colors.grey, fontSize: 12), // Slightly larger font
+          Offset(xPos - 20, chartPadding + chartHeight + 15),
+          const TextStyle(color: Colors.grey, fontSize: 12),
         );
       }
     }
