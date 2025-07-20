@@ -55,14 +55,14 @@ class _RecordTransactionPageState extends State<RecordTransactionPage> {
           'name': data['name'],
           'icon': data['icon'],
           'type': data['type'],
-          'userId': data['userId'], // Will be null if absent
+          'userId': data['userId'] ?? data['userid'] ?? null, // Handle both fields
         };
       }).toList();
 
-      // Filter for prebuilt (userId is null or absent) and custom (userId matches current user)
+      // Filter for prebuilt (userId is null or '') and custom (userId matches current user)
       final filteredCategories = _categories.where((cat) {
         final catUserId = cat['userId'];
-        return catUserId == null || (userId != null && catUserId == userId);
+        return catUserId == null || catUserId == '' || (userId != null && catUserId == userId);
       }).toList();
       _categories = filteredCategories;
       print('Filtered categories count: ${_categories.length}');

@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:flutter/foundation.dart';
-import 'package:uuid/uuid.dart'; // Import uuid package
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -21,9 +19,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _confirmPasswordController = TextEditingController();
   String? _errorMessage;
   bool _isLoading = false;
-  final _uuid = Uuid(); // Initialize UUID generator
-  bool _obscurePassword = true; // Added to toggle password visibility
-  bool _obscureConfirmPassword = true; // Added to toggle confirm password visibility
+  bool _obscurePassword = true;
+  bool _obscureConfirmPassword = true;
 
   Future<void> _register() async {
     if (!_formKey.currentState!.validate()) return;
@@ -34,64 +31,51 @@ class _RegisterScreenState extends State<RegisterScreen> {
     });
 
     try {
-      // Generate a random userId
-      String userId = _uuid.v4();
-
-      // Check if userId is unique
-      QuerySnapshot userIdQuery = await FirebaseFirestore.instance
-          .collection('users')
-          .where('userId', isEqualTo: userId)
-          .limit(1)
-          .get();
-      if (userIdQuery.docs.isNotEmpty) {
-        throw Exception('Generated userId is already in use.');
-      }
-
-      // Create user with Firebase Authentication
-      UserCredential userCredential =
-      await FirebaseAuth.instance.createUserWithEmailAndPassword(
-        email: _emailController.text.trim(),
-        password: _passwordController.text.trim(),
-      );
-      if (kDebugMode) print('Authenticated User UID: ${userCredential.user!.uid}');
-
-      // Wait briefly for authentication to propagate
-      await Future.delayed(const Duration(milliseconds: 500));
-
-      // Check if username is unique
+      // Check if username is unique in the users collection
+      String username = _usernameController.text.trim().toLowerCase();
+      print('Checking username: $username');
       QuerySnapshot usernameQuery = await FirebaseFirestore.instance
           .collection('users')
-          .where('username', isEqualTo: _usernameController.text.trim().toLowerCase())
+          .where('username', isEqualTo: username)
           .limit(1)
           .get();
-      if (kDebugMode) print('Username query result: ${usernameQuery.docs.map((doc) => doc.data())}');
       if (usernameQuery.docs.isNotEmpty) {
-        await userCredential.user!.delete();
         throw FirebaseAuthException(
             code: 'username-in-use', message: 'Username is already taken.');
       }
 
-      await FirebaseFirestore.instance
-          .collection('users')
-          .doc(userCredential.user!.uid)
-          .set({
-        'userId': userId, // Store the random userId
+      // Create user with Firebase Authentication
+      print('Creating user with Firebase Authentication');
+      UserCredential userCredential = await FirebaseAuth.instance
+          .createUserWithEmailAndPassword(
+        email: _emailController.text.trim(),
+        password: _passwordController.text.trim(),
+      );
+      String userId = userCredential.user!.uid;
+      print('Authenticated User UID: $userId');
+
+      // Store user data in users collection using Firebase Auth UID
+      print('Writing to users collection: $userId');
+      await FirebaseFirestore.instance.collection('users').doc(userId).set({
+        'userId': userId, // Use Firebase Auth UID as userId
         'firstName': _firstNameController.text.trim(),
         'lastName': _lastNameController.text.trim(),
         'email': _emailController.text.trim(),
-        'username': _usernameController.text.trim().toLowerCase(),
+        'username': username,
         'created_at': FieldValue.serverTimestamp(),
       });
 
       if (!mounted) return;
+      print('Navigating to login screen');
       Navigator.pushReplacementNamed(context, '/login');
     } on FirebaseAuthException catch (e) {
       setState(() {
         _errorMessage = _getErrorMessage(e.code);
       });
     } catch (e) {
+      print('Error during registration: $e');
       setState(() {
-        _errorMessage = 'An unexpected error occurred. Please try again.';
+        _errorMessage = 'An unexpected error occurred: $e';
       });
     } finally {
       setState(() {
@@ -138,10 +122,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
               mainAxisAlignment: MainAxisAlignment.center,
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                Image.asset(
-                  'assets/images/lesun.jpg',
-                  height: 100,
-                ),
+                Image.asset('assets/images/lesun.jpg', height: 100),
                 const SizedBox(height: 20),
                 const Text(
                   'Cookies',
@@ -261,7 +242,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           ),
                           suffixIcon: IconButton(
                             icon: Icon(
-                              _obscurePassword ? Icons.visibility : Icons.visibility_off,
+                              _obscurePassword
+                                  ? Icons.visibility
+                                  : Icons.visibility_off,
                               color: Colors.grey,
                             ),
                             onPressed: () {
@@ -272,7 +255,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           ),
                         ),
                         style: const TextStyle(color: Colors.white),
-                        obscureText: _obscurePassword, // Toggle visibility
+                        obscureText: _obscurePassword,
                         validator: (value) {
                           if (value == null || value.isEmpty) {
                             return 'Please enter your password';
@@ -280,7 +263,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           if (value.length < 8) {
                             return 'Password must be at least 8 characters';
                           }
-                          if (!RegExp(r'^(?=.*[A-Za-z])(?=.*\d)').hasMatch(value)) {
+                          if (!RegExp(r'^(?=.*[A-Za-z])(?=.*\d)')
+                              .hasMatch(value)) {
                             return 'Password must contain letters and numbers';
                           }
                           return null;
@@ -300,18 +284,21 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           ),
                           suffixIcon: IconButton(
                             icon: Icon(
-                              _obscureConfirmPassword ? Icons.visibility : Icons.visibility_off,
+                              _obscureConfirmPassword
+                                  ? Icons.visibility
+                                  : Icons.visibility_off,
                               color: Colors.grey,
                             ),
                             onPressed: () {
                               setState(() {
-                                _obscureConfirmPassword = !_obscureConfirmPassword;
+                                _obscureConfirmPassword =
+                                !_obscureConfirmPassword;
                               });
                             },
                           ),
                         ),
                         style: const TextStyle(color: Colors.white),
-                        obscureText: _obscureConfirmPassword, // Toggle visibility
+                        obscureText: _obscureConfirmPassword,
                         validator: (value) {
                           if (value == null || value.isEmpty) {
                             return 'Please confirm your password';
@@ -326,7 +313,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       if (_errorMessage != null)
                         Text(
                           _errorMessage!,
-                          style: const TextStyle(color: Color(0xFFB0BEC5)),
+                          style: const TextStyle(color: Colors.red),
                         ),
                       const SizedBox(height: 16),
                       _isLoading

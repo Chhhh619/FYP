@@ -6,8 +6,10 @@ import 'package:flutter/rendering.dart';
 import 'package:fyp/ch/record_transaction.dart';
 import 'package:fyp/ch/settings.dart';
 import 'package:fyp/bottom_nav_bar.dart';
+import 'package:fyp/wc/financial_tips.dart'; // Added import for FinancialTipsScreen
 import 'package:fyp/ch/persistent_add_button.dart';
 import 'package:intl/intl.dart';
+import 'package:fyp/wc/bill/bill_payment_screen.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -422,8 +424,16 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
                   onTap: (index) {
                     setState(() {
                       if (index == 0) {
-                        // "Details" selected - reset to HomePage state (do nothing or reset if needed)
+                        // "Details" selected - stay on HomePage
                         selectedIndex = 0;
+                      } else if (index == 2) {
+                        // "Tips" selected - navigate to FinancialTipsScreen
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => const FinancialTipsScreen(),
+                          ),
+                        );
                       } else if (index == 3) {
                         // "Mine" selected - navigate to SettingsPage
                         Navigator.push(
@@ -431,7 +441,7 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
                           MaterialPageRoute(builder: (context) => SettingsPage()),
                         );
                       } else {
-                        selectedIndex = index; // Update for other tabs
+                        selectedIndex = index; // Update for "Trending" tab
                       }
                     });
                   },
@@ -670,7 +680,7 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
                                         if (!snapshot.hasData)
                                           return SizedBox.shrink();
                                         final icon =
-                                            snapshot.data!.get('icon') ?? 'ðŸ’°';
+                                            snapshot.data!.get('icon') ?? '💰';
                                         final name =
                                             snapshot.data!.get('name') ??
                                                 'Unknown';
@@ -708,8 +718,16 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
                 onTap: (index) {
                   setState(() {
                     if (index == 0) {
-                      // "Details" selected - reset to HomePage state (do nothing or reset if needed)
+                      // "Details" selected - stay on HomePage
                       selectedIndex = 0;
+                    } else if (index == 2) {
+                      // "Tips" selected - navigate to FinancialTipsScreen
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => const FinancialTipsScreen(),
+                        ),
+                      );
                     } else if (index == 3) {
                       // "Mine" selected - navigate to SettingsPage
                       Navigator.push(
@@ -717,7 +735,7 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
                         MaterialPageRoute(builder: (context) => SettingsPage()),
                       );
                     } else {
-                      selectedIndex = index; // Update for other tabs
+                      selectedIndex = index; // Update for "Trending" tab
                     }
                   });
                 },
@@ -919,8 +937,16 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
         onTap: (index) {
           setState(() {
             if (index == 0) {
-              // "Details" selected - reset to HomePage state (do nothing or reset if needed)
+              // "Details" selected - stay on HomePage
               selectedIndex = 0;
+            } else if (index == 2) {
+              // "Tips" selected - navigate to FinancialTipsScreen
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const FinancialTipsScreen(),
+                ),
+              );
             } else if (index == 3) {
               // "Mine" selected - navigate to SettingsPage
               Navigator.push(
@@ -928,7 +954,7 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
                 MaterialPageRoute(builder: (context) => SettingsPage()),
               );
             } else {
-              selectedIndex = index; // Update for other tabs
+              selectedIndex = index; // Update for "Trending" tab
             }
           });
         },

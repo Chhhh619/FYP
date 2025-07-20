@@ -1,15 +1,19 @@
 import 'package:flutter/material.dart';
-import 'package:fyp/ch/subscription.dart'; // Adjust import path
-import 'package:fyp/bottom_nav_bar.dart'; // Import BottomNavBar
+import 'package:fyp/ch/subscription.dart';
+import 'package:fyp/bottom_nav_bar.dart';
 import 'package:fyp/ch/persistent_add_button.dart';
-
-import 'homepage.dart'; // Import PersistentAddButton
+import 'package:fyp/wc/bill/bill_payment_screen.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:fyp/wc/bill/bill_payment_screen.dart';
+import 'package:fyp/ch/homepage.dart';
 
 class SettingsPage extends StatelessWidget {
   const SettingsPage({super.key});
 
   @override
   Widget build(BuildContext context) {
+    final userId = FirebaseAuth.instance.currentUser?.uid;
+
     return Scaffold(
       backgroundColor: const Color.fromRGBO(28, 28, 28, 1),
       appBar: AppBar(
@@ -85,12 +89,25 @@ class SettingsPage extends StatelessWidget {
                     );
                   },
                 ),
+                ListTile(
+                  leading: const Icon(Icons.receipt, color: Colors.white70),
+                  title: const Text('Bills', style: TextStyle(color: Colors.white)),
+                  trailing: const Icon(Icons.chevron_right, color: Colors.white70),
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => BillPaymentScreen(userId: userId!),
+                      ),
+                    );
+                  },
+                ),
               ],
             ),
           ),
         ],
       ),
-      floatingActionButton: PersistentAddButton(), // Use the same button as Homepage
+      floatingActionButton: PersistentAddButton(),
       floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
       bottomNavigationBar: BottomNavBar(
         currentIndex: 3, // Set to "Mine" tab (index 3) as default

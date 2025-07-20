@@ -59,13 +59,13 @@ class _CategoriesListPageState extends State<CategoriesListPage>
         'name': data['name'],
         'icon': data['icon'],
         'type': data['type'],
-        'userId': data['userId'], // Now includes null for default categories
+        'userId': data['userId'] ?? data['userid'] ?? null, // Handle both fields
       };
     }).toList();
 
     final filteredCategories = categories.where((cat) {
       final catUserId = cat['userId'];
-      return catUserId == null || catUserId == userId;
+      return catUserId == null || catUserId == '' || catUserId == userId;
     }).toList();
     print('Filtered categories count at ${DateTime.now()}: ${filteredCategories.length} '
         'with data: ${filteredCategories.map((c) => c['name']).toList()}');
@@ -162,13 +162,15 @@ class _CategoriesListPageState extends State<CategoriesListPage>
                     );
                   }
 
-                  // Remove _slideAnimation == null check to ensure rendering
                   return AnimatedSwitcher(
                     duration: const Duration(milliseconds: 300),
                     transitionBuilder:
                         (Widget child, Animation<double> animation) {
                       return SlideTransition(
-                        position: _slideAnimation ?? Tween<Offset>(begin: Offset.zero, end: Offset.zero).animate(animation),
+                        position: _slideAnimation ??
+                            Tween<Offset>(
+                                begin: Offset.zero, end: Offset.zero)
+                                .animate(animation),
                         child: child,
                       );
                     },

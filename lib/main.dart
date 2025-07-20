@@ -47,19 +47,7 @@ class MyApp extends StatelessWidget {
         ),
       ),
       debugShowCheckedModeBanner: false, // Remove debug banner
-      home: StreamBuilder<User?>(
-        stream: FirebaseAuth.instance.authStateChanges(),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return CircularProgressIndicator();
-          }
-          if (snapshot.hasData && snapshot.data != null) {
-            final userId = snapshot.data!.uid;
-            return BillPaymentScreen(userId: userId);
-          }
-          return LoginScreen(); // Show login if no user is authenticated
-        },
-      ),
+      initialRoute: '/login',
       routes: {
         '/splash': (context) => SplashScreen(),
         '/converter': (context) => const CurrencyConverterScreen(),
