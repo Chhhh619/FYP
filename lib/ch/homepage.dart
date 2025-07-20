@@ -6,7 +6,7 @@ import 'package:flutter/rendering.dart';
 import 'package:fyp/ch/record_transaction.dart';
 import 'package:fyp/ch/settings.dart';
 import 'package:fyp/bottom_nav_bar.dart';
-import 'package:fyp/wc/financial_tips.dart'; // Added import for FinancialTipsScreen
+import 'package:fyp/wc/financial_tips.dart';
 import 'package:fyp/ch/persistent_add_button.dart';
 import 'package:intl/intl.dart';
 import 'package:fyp/wc/bill/bill_payment_screen.dart';
@@ -28,6 +28,7 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
   String viewMode = 'month';
   DateTime selectedDate = DateTime.now();
   String popupMode = 'month';
+  bool _hasShownPopup = false; // Flag to prevent repeated popups
 
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final FirebaseAuth _auth = FirebaseAuth.instance;
@@ -261,6 +262,105 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
     }
   }
 
+  Future<void> _showTipPopup() async {
+    final userId = _auth.currentUser?.uid;
+    if (userId == null || _hasShownPopup) {
+      print('No user logged in or popup already shown');
+      return;
+    }
+
+    try {
+      // Check if the "Cook at Home" tip is marked irrelevant
+      final feedbackSnapshot = await _firestore
+          .collection('users')
+          .doc(userId)
+          .collection('tips_feedback')
+          .doc('1')
+          .get();
+      final feedbackData = feedbackSnapshot.data();
+      final isIrrelevant = feedbackData != null && feedbackData['isIrrelevant'] is bool
+          ? feedbackData['isIrrelevant'] as bool
+          : false;
+      print('Cook at Home tip isIrrelevant: $isIrrelevant'); // Debug
+
+      if (isIrrelevant) {
+        print('Tip suppressed, skipping popup');
+        return;
+      }
+
+      // Fetch transactions for the current month
+      final now = DateTime.now();
+      final startOfMonth = DateTime(now.year, now.month, 1);
+      final endOfMonth = DateTime(now.year, now.month + 1, 0);
+      print('Popup: Querying transactions from $startOfMonth to $endOfMonth');
+
+      final transactionSnapshot = await _firestore
+          .collection('transactions')
+          .where('userid', isEqualTo: userId)
+          .where('timestamp', isGreaterThanOrEqualTo: Timestamp.fromDate(startOfMonth))
+          .where('timestamp', isLessThanOrEqualTo: Timestamp.fromDate(endOfMonth))
+          .get();
+      print('Popup: Transactions found: ${transactionSnapshot.docs.length}');
+
+      double diningSpending = 0.0;
+      for (var doc in transactionSnapshot.docs) {
+        final data = doc.data();
+        final categoryRef = data['category'] as DocumentReference;
+        final categorySnapshot = await categoryRef.get();
+        final categoryName = categorySnapshot.get('name') as String? ?? 'unknown';
+        final categoryType = categorySnapshot.get('type') as String? ?? 'unknown';
+        final amount = (data['amount'] is int)
+            ? (data['amount'] as int).toDouble()
+            : (data['amount'] as double? ?? 0.0);
+        print('Popup: Transaction: category=$categoryName, amount=$amount, type=$categoryType');
+
+        if (categoryName == 'Dining' && categoryType == 'expense') {
+          diningSpending += amount.abs();
+        }
+      }
+      print('Popup: Dining Spending: $diningSpending');
+
+      if (diningSpending > 300.0) {
+        _hasShownPopup = true; // Prevent repeated popups
+        showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            backgroundColor: const Color.fromRGBO(33, 35, 34, 1),
+            title: const Text('Cook at Home', style: TextStyle(color: Colors.white)),
+            content: const Text(
+              'Your dining expenses are high this month. Try cooking at home to save RM200.',
+              style: TextStyle(color: Colors.white),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Close', style: TextStyle(color: Colors.teal)),
+              ),
+              TextButton(
+                onPressed: () {
+                  _firestore
+                      .collection('users')
+                      .doc(userId)
+                      .collection('tips_feedback')
+                      .doc('1')
+                      .set({
+                    'isHelpful': false,
+                    'isIrrelevant': true,
+                    'timestamp': Timestamp.now(),
+                  });
+                  Navigator.pop(context);
+                },
+                child: const Text('Dismiss', style: TextStyle(color: Colors.red)),
+              ),
+            ],
+          ),
+        );
+      }
+    } catch (e) {
+      print('Error in _showTipPopup: $e');
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     super.build(context); // Required for AutomaticKeepAliveClientMixin
@@ -273,6 +373,11 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
         body: Center(child: Text('Please log in to view transactions')),
       );
     }
+
+    // Trigger popup after widget build
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _showTipPopup();
+    });
 
     return StreamBuilder<QuerySnapshot>(
       stream: _firestore
@@ -680,7 +785,7 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
                                         if (!snapshot.hasData)
                                           return SizedBox.shrink();
                                         final icon =
-                                            snapshot.data!.get('icon') ?? '💰';
+                                            snapshot.data!.get('icon') ?? 'ðŸ’°';
                                         final name =
                                             snapshot.data!.get('name') ??
                                                 'Unknown';

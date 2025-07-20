@@ -31,33 +31,47 @@ class _RegisterScreenState extends State<RegisterScreen> {
     });
 
     try {
-      // Check if username is unique in the users collection
+      // Validate password strength
+      String password = _passwordController.text.trim();
+      if (!_isPasswordStrong(password)) {
+        throw FirebaseAuthException(
+            code: 'weak-password',
+            message: 'Password must be stronger');
+      }
+
+      // Check if username is unique
       String username = _usernameController.text.trim().toLowerCase();
-      print('Checking username: $username');
+      if (username.length < 3) {
+        throw FirebaseAuthException(
+            code: 'invalid-username',
+            message: 'Username must be at least 3 characters');
+      }
+
       QuerySnapshot usernameQuery = await FirebaseFirestore.instance
           .collection('users')
           .where('username', isEqualTo: username)
           .limit(1)
           .get();
+
       if (usernameQuery.docs.isNotEmpty) {
         throw FirebaseAuthException(
-            code: 'username-in-use', message: 'Username is already taken.');
+            code: 'username-in-use',
+            message: 'Username is already taken.');
       }
 
-      // Create user with Firebase Authentication
-      print('Creating user with Firebase Authentication');
+      // Create user
       UserCredential userCredential = await FirebaseAuth.instance
           .createUserWithEmailAndPassword(
         email: _emailController.text.trim(),
-        password: _passwordController.text.trim(),
+        password: password,
       );
-      String userId = userCredential.user!.uid;
-      print('Authenticated User UID: $userId');
 
-      // Store user data in users collection using Firebase Auth UID
-      print('Writing to users collection: $userId');
-      await FirebaseFirestore.instance.collection('users').doc(userId).set({
-        'userId': userId, // Use Firebase Auth UID as userId
+      // Store user data
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(userCredential.user!.uid)
+          .set({
+        'userId': userCredential.user!.uid,
         'firstName': _firstNameController.text.trim(),
         'lastName': _lastNameController.text.trim(),
         'email': _emailController.text.trim(),
@@ -66,22 +80,29 @@ class _RegisterScreenState extends State<RegisterScreen> {
       });
 
       if (!mounted) return;
-      print('Navigating to login screen');
       Navigator.pushReplacementNamed(context, '/login');
     } on FirebaseAuthException catch (e) {
       setState(() {
         _errorMessage = _getErrorMessage(e.code);
       });
     } catch (e) {
-      print('Error during registration: $e');
       setState(() {
-        _errorMessage = 'An unexpected error occurred: $e';
+        _errorMessage = 'An unexpected error occurred: ${e.toString()}';
       });
     } finally {
       setState(() {
         _isLoading = false;
       });
     }
+  }
+
+  bool _isPasswordStrong(String password) {
+    if (password.length < 8) return false;
+    if (!password.contains(RegExp(r'[A-Z]'))) return false;
+    if (!password.contains(RegExp(r'[a-z]'))) return false;
+    if (!password.contains(RegExp(r'[0-9]'))) return false;
+    if (!password.contains(RegExp(r'[!@#$%^&*(),.?":{}|<>]'))) return false;
+    return true;
   }
 
   String _getErrorMessage(String code) {
@@ -91,9 +112,15 @@ class _RegisterScreenState extends State<RegisterScreen> {
       case 'invalid-email':
         return 'Invalid email format.';
       case 'weak-password':
-        return 'Password must be at least 8 characters long and include letters and numbers.';
+        return 'Password must be at least 8 characters with:\n- Uppercase & lowercase letters\n- Numbers\n- Special characters';
       case 'username-in-use':
         return 'Username is already taken.';
+      case 'invalid-username':
+        return 'Username must be at least 3 characters.';
+      case 'operation-not-allowed':
+        return 'Email/password accounts are not enabled.';
+      case 'network-request-failed':
+        return 'Network error. Please check your connection.';
       default:
         return 'Registration failed. Please try again.';
     }
@@ -199,6 +226,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           if (value.length < 3) {
                             return 'Username must be at least 3 characters';
                           }
+                          if (!RegExp(r'^[a-zA-Z0-9_]+$').hasMatch(value)) {
+                            return 'Only letters, numbers and underscore allowed';
+                          }
                           return null;
                         },
                       ),
@@ -263,9 +293,17 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           if (value.length < 8) {
                             return 'Password must be at least 8 characters';
                           }
-                          if (!RegExp(r'^(?=.*[A-Za-z])(?=.*\d)')
-                              .hasMatch(value)) {
-                            return 'Password must contain letters and numbers';
+                          if (!RegExp(r'[A-Z]').hasMatch(value)) {
+                            return 'Include at least one uppercase letter';
+                          }
+                          if (!RegExp(r'[a-z]').hasMatch(value)) {
+                            return 'Include at least one lowercase letter';
+                          }
+                          if (!RegExp(r'[0-9]').hasMatch(value)) {
+                            return 'Include at least one number';
+                          }
+                          if (!RegExp(r'[!@#$%^&*(),.?":{}|<>]').hasMatch(value)) {
+                            return 'Include at least one special character';
                           }
                           return null;
                         },
@@ -291,8 +329,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                             ),
                             onPressed: () {
                               setState(() {
-                                _obscureConfirmPassword =
-                                !_obscureConfirmPassword;
+                                _obscureConfirmPassword = !_obscureConfirmPassword;
                               });
                             },
                           ),
