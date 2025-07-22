@@ -4,8 +4,9 @@ import 'package:fyp/bottom_nav_bar.dart';
 import 'package:fyp/ch/persistent_add_button.dart';
 import 'package:fyp/wc/bill/bill_payment_screen.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:fyp/wc/bill/bill_payment_screen.dart';
 import 'package:fyp/ch/homepage.dart';
+import 'package:fyp/wc/rewards_page.dart';
+import 'package:fyp/wc/currencyconverter.dart';
 
 class SettingsPage extends StatelessWidget {
   const SettingsPage({super.key});
@@ -94,11 +95,34 @@ class SettingsPage extends StatelessWidget {
                   title: const Text('Bills', style: TextStyle(color: Colors.white)),
                   trailing: const Icon(Icons.chevron_right, color: Colors.white70),
                   onTap: () {
+                    if (userId != null) {
+                      Navigator.pushNamed(context, '/bill', arguments: userId);
+                    } else {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('User not logged in'), backgroundColor: Colors.red),
+                      );
+                    }
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.currency_exchange, color: Colors.white70), // Icon for currency
+                  title: const Text('Currency Converter', style: TextStyle(color: Colors.white)),
+                  trailing: const Icon(Icons.chevron_right, color: Colors.white70),
+                  onTap: () {
                     Navigator.push(
                       context,
-                      MaterialPageRoute(
-                        builder: (context) => BillPaymentScreen(userId: userId!),
-                      ),
+                      MaterialPageRoute(builder: (context) => const CurrencyConverterScreen()),
+                    );
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.emoji_events, color: Colors.white70),
+                  title: const Text('Rewards', style: TextStyle(color: Colors.white)),
+                  trailing: const Icon(Icons.chevron_right, color: Colors.white70),
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (context) => const RewardsPage()),
                     );
                   },
                 ),

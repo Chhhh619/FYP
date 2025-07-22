@@ -9,7 +9,8 @@ import 'package:fyp/bottom_nav_bar.dart';
 import 'package:fyp/wc/financial_tips.dart';
 import 'package:fyp/ch/persistent_add_button.dart';
 import 'package:intl/intl.dart';
-import 'package:fyp/wc/bill/bill_payment_screen.dart';
+
+import 'package:fyp/wc/gamification_page.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -247,8 +248,7 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
 
   void _setTransactionType(bool? type) {
     setState(() {
-      showExpenses =
-          type; // Directly set to null (all), true (expenses), or false (income)
+      showExpenses = type; // Directly set to null (all), true (expenses), or false (income)
     });
   }
 
@@ -528,25 +528,33 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
                   currentIndex: selectedIndex,
                   onTap: (index) {
                     setState(() {
+                      selectedIndex = index; // Update selected index
                       if (index == 0) {
                         // "Details" selected - stay on HomePage
-                        selectedIndex = 0;
-                      } else if (index == 2) {
-                        // "Tips" selected - navigate to FinancialTipsScreen
+                      } else if (index == 1) {
+                        // "Trending" selected - navigate to FinancialTipsScreen
                         Navigator.push(
                           context,
                           MaterialPageRoute(
                             builder: (context) => const FinancialTipsScreen(),
                           ),
                         );
+                      } else if (index == 2) {
+                        // "Insights" selected - navigate to GamificationPage
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => const GamificationPage(),
+                          ),
+                        );
                       } else if (index == 3) {
                         // "Mine" selected - navigate to SettingsPage
                         Navigator.push(
                           context,
-                          MaterialPageRoute(builder: (context) => SettingsPage()),
+                          MaterialPageRoute(
+                            builder: (context) => const SettingsPage(),
+                          ),
                         );
-                      } else {
-                        selectedIndex = index; // Update for "Trending" tab
                       }
                     });
                   },
@@ -785,7 +793,7 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
                                         if (!snapshot.hasData)
                                           return SizedBox.shrink();
                                         final icon =
-                                            snapshot.data!.get('icon') ?? 'ðŸ’°';
+                                            snapshot.data!.get('icon') ?? '💰';
                                         final name =
                                             snapshot.data!.get('name') ??
                                                 'Unknown';
@@ -822,25 +830,33 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
                 currentIndex: selectedIndex,
                 onTap: (index) {
                   setState(() {
+                    selectedIndex = index; // Update selected index
                     if (index == 0) {
                       // "Details" selected - stay on HomePage
-                      selectedIndex = 0;
-                    } else if (index == 2) {
-                      // "Tips" selected - navigate to FinancialTipsScreen
+                    } else if (index == 1) {
+                      // "Trending" selected - navigate to FinancialTipsScreen
                       Navigator.push(
                         context,
                         MaterialPageRoute(
                           builder: (context) => const FinancialTipsScreen(),
                         ),
                       );
+                    } else if (index == 2) {
+                      // "Insights" selected - navigate to GamificationPage
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => const GamificationPage(),
+                        ),
+                      );
                     } else if (index == 3) {
                       // "Mine" selected - navigate to SettingsPage
                       Navigator.push(
                         context,
-                        MaterialPageRoute(builder: (context) => SettingsPage()),
+                        MaterialPageRoute(
+                          builder: (context) => const SettingsPage(),
+                        ),
                       );
-                    } else {
-                      selectedIndex = index; // Update for "Trending" tab
                     }
                   });
                 },
@@ -856,8 +872,7 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
       Map<String, dynamic> tx,
       String categoryIcon,
       String categoryName,
-      String categoryType,
-      ) {
+      String categoryType) {
     final txDate = tx['timestamp']?.toDate();
     return GestureDetector(
       onLongPress: () {
@@ -1041,25 +1056,33 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
         currentIndex: selectedIndex,
         onTap: (index) {
           setState(() {
+            selectedIndex = index; // Update selected index
             if (index == 0) {
               // "Details" selected - stay on HomePage
-              selectedIndex = 0;
-            } else if (index == 2) {
-              // "Tips" selected - navigate to FinancialTipsScreen
+            } else if (index == 1) {
+              // "Trending" selected - navigate to FinancialTipsScreen
               Navigator.push(
                 context,
                 MaterialPageRoute(
                   builder: (context) => const FinancialTipsScreen(),
                 ),
               );
+            } else if (index == 2) {
+              // "Insights" selected - navigate to GamificationPage
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const GamificationPage(),
+                ),
+              );
             } else if (index == 3) {
               // "Mine" selected - navigate to SettingsPage
               Navigator.push(
                 context,
-                MaterialPageRoute(builder: (context) => SettingsPage()),
+                MaterialPageRoute(
+                  builder: (context) => const SettingsPage(),
+                ),
               );
-            } else {
-              selectedIndex = index; // Update for "Trending" tab
             }
           });
         },

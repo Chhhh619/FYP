@@ -19,7 +19,6 @@ class Bill {
     this.paymentHistory = const [],
   });
 
-  // Convert to JSON for Firestore
   Map<String, dynamic> toJson() => {
     'id': id,
     'title': title,
@@ -33,18 +32,17 @@ class Bill {
     }).toList(),
   };
 
-  // Create Bill from Firestore snapshot
   factory Bill.fromJson(Map<String, dynamic> json) => Bill(
-    id: json['id'],
-    title: json['title'],
-    amount: json['amount'],
-    dueDate: (json['dueDate'] as Timestamp).toDate(),
-    category: json['category'],
-    isPaid: json['isPaid'],
-    paymentHistory: (json['paymentHistory'] as List).map((record) => PaymentRecord(
-      paymentDate: (record['paymentDate'] as Timestamp).toDate(),
-      amount: record['amount'],
-    )).toList(),
+    id: json['id'] as String? ?? 'Unknown ID',
+    title: json['title'] as String? ?? 'Untitled',
+    amount: (json['amount'] as num?)?.toDouble() ?? 0.0,
+    dueDate: (json['dueDate'] as Timestamp?)?.toDate() ?? DateTime.now(),
+    category: json['category'] as String? ?? 'Uncategorized',
+    isPaid: json['isPaid'] as bool? ?? false,
+    paymentHistory: (json['paymentHistory'] as List<dynamic>?)?.map((record) => PaymentRecord(
+      paymentDate: (record['paymentDate'] as Timestamp?)?.toDate() ?? DateTime.now(),
+      amount: (record['amount'] as num?)?.toDouble() ?? 0.0,
+    )).toList() ?? [],
   );
 }
 

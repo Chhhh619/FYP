@@ -1,11 +1,32 @@
-import 'package:flutter/material.dart';
 
-class SplashScreen extends StatelessWidget {
+import 'package:flutter/material.dart';
+import 'package:fyp/wc/Onboard/app_settings.dart';
+
+class SplashScreen extends StatefulWidget {
+  const SplashScreen({super.key});
+
+  @override
+  _SplashScreenState createState() => _SplashScreenState();
+}
+
+class _SplashScreenState extends State<SplashScreen> {
+  @override
+  void initState() {
+    super.initState();
+    // Check onboarding status after delay
+    Future.delayed(const Duration(seconds: 2), () async {
+      final isOnboardingCompleted = await AppSettings.isOnboardingCompleted();
+      if (!mounted) return; // Check if widget is still mounted
+
+      Navigator.pushReplacementNamed(
+        context,
+        isOnboardingCompleted ? '/login' : '/onboarding',
+      );
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
-    Future.delayed(Duration(seconds: 3), () {
-      Navigator.pushReplacementNamed(context, '/login');
-    });
     return Scaffold(
       backgroundColor: Colors.black,
       body: Center(
@@ -16,9 +37,9 @@ class SplashScreen extends StatelessWidget {
               'assets/images/light.png',
               height: 100,
             ),
-            SizedBox(height: 20),
-            Text(
-              'Cookies',
+            const SizedBox(height: 20),
+            const Text(
+              'Crumbs',
               style: TextStyle(
                 fontSize: 32,
                 fontWeight: FontWeight.bold,
