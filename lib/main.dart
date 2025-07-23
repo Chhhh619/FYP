@@ -1,8 +1,8 @@
+// lib/main.dart
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
-import 'package:flutter/material.dart';
-import 'package:fyp/wc/bill/bill_payment_screen.dart';
+import 'package:firebase_app_check/firebase_app_check.dart';
 import 'firebase_options.dart';
 import 'wc/login.dart';
 import 'wc/register.dart';
@@ -12,13 +12,31 @@ import 'wc/home.dart';
 import 'ch/homepage.dart';
 import 'wc/financial_planning_advisor.dart';
 import 'wc/financial_tips.dart';
+import 'wc/bills/notification_service.dart';
+import 'wc/bills/bill_repository.dart';
+import 'wc/bills/firebase_service.dart';
 import 'wc/bill/bill_payment_screen.dart';
-import 'wc/bill/bill.dart';
+import 'wc/Onboard/Onboarding.dart';
 import 'wc/bill/payment_history_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp();
+  // Initialize Firebase
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
+  // Initialize Firebase App Check
+  await FirebaseAppCheck.instance.activate(
+    androidProvider: AndroidProvider.safetyNet,
+    appleProvider: AppleProvider.deviceCheck,
+  );
+  // Initialize Notification Service
+  final notificationService = NotificationService();
+  await notificationService.initialize();
+  // Initialize Firebase Service and Bill Repository
+  final firebaseService = FirebaseService();
+  final billRepository = BillRepository(firebaseService, notificationService);
+
   runApp(const MyApp());
 }
 
@@ -47,54 +65,33 @@ class MyApp extends StatelessWidget {
         ),
       ),
       debugShowCheckedModeBanner: false, // Remove debug banner
-      initialRoute: '/login',
+      initialRoute: '/splash', // Set splash screen as initial route
       routes: {
-        '/splash': (context) => SplashScreen(),
-        '/converter': (context) => const CurrencyConverterScreen(),
+        '/splash': (context) => const SplashScreen(),
+        '/onboarding': (context) => const OnboardingScreen(),
         '/login': (context) => const LoginScreen(),
         '/register': (context) => const RegisterScreen(),
-        '/home': (context) => HomePage(),
-        '/advisor': (context) => FinancialPlanningScreen(),
+        '/home': (context) => const HomePage(),
+        '/converter': (context) => const CurrencyConverterScreen(),
+        '/advisor': (context) => const FinancialPlanningScreen(),
         '/tips': (context) => const FinancialTipsScreen(),
         '/bill': (context) {
-          final userId = ModalRoute.of(context)!.settings.arguments as String?;
+          final userId = FirebaseAuth.instance.currentUser?.uid;
           if (userId == null) {
-            return LoginScreen(); // Handle null userId
+            return Scaffold(
+              body: Center(child: Text('Please log in')),
+            );
           }
           return BillPaymentScreen(userId: userId);
         },
         '/payment_history': (context) {
-          final userId = ModalRoute.of(context)!.settings.arguments as String;
-          return PaymentHistoryScreen(userId: userId);
-        },
-      },
-
-    );
-  }
-}
-
-// Placeholder HomeScreen for navigation
-class HomeScreen extends StatelessWidget {
-  const HomeScreen({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Home'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.logout),
-            onPressed: () async {
-              await FirebaseAuth.instance.signOut();
-              Navigator.pushReplacementNamed(context, '/login');
-            },
-          ),
-        ],
-      ),
-      body: const Center(
-        child: Text('Welcome to Your Financial App!'),
-      ),
+          final userId = ModalRoute.of(context)!.settings.arguments as String?;
+          if (userId == null) {
+          return Scaffold(
+          body: Center(child: Text('User ID not provided')),
+          );
+          }return PaymentHistoryScreen(userId: userId);
+      },}
     );
   }
 }

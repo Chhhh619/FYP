@@ -8,6 +8,8 @@ import 'package:fyp/ch/homepage.dart';
 import 'package:fyp/ch/budget.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
+import 'package:fyp/wc/rewards_page.dart';
+import 'package:fyp/wc/currencyconverter.dart';
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key});
@@ -143,7 +145,6 @@ class _SettingsPageState extends State<SettingsPage> {
           ),
           Expanded(
             child: ListView(
-              padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
               children: [
                 _buildListTile(
                   leadingIcon: Icons.edit,
@@ -183,13 +184,39 @@ class _SettingsPageState extends State<SettingsPage> {
                 _buildListTile(
                   leadingIcon: Icons.receipt,
                   title: 'Bills',
+                ListTile(
+                  leading: const Icon(Icons.receipt, color: Colors.white70),
+                  title: const Text('Bills', style: TextStyle(color: Colors.white)),
+                  trailing: const Icon(Icons.chevron_right, color: Colors.white70),
+                  onTap: () {
+                    if (userId != null) {
+                      Navigator.pushNamed(context, '/bill', arguments: userId);
+                    } else {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('User not logged in'), backgroundColor: Colors.red),
+                      );
+                    }
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.currency_exchange, color: Colors.white70), // Icon for currency
+                  title: const Text('Currency Converter', style: TextStyle(color: Colors.white)),
                   trailing: const Icon(Icons.chevron_right, color: Colors.white70),
                   onTap: () {
                     Navigator.push(
                       context,
-                      MaterialPageRoute(
-                        builder: (context) => BillPaymentScreen(userId: userId!),
-                      ),
+                      MaterialPageRoute(builder: (context) => const CurrencyConverterScreen()),
+                    );
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.emoji_events, color: Colors.white70),
+                  title: const Text('Rewards', style: TextStyle(color: Colors.white)),
+                  trailing: const Icon(Icons.chevron_right, color: Colors.white70),
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (context) => const RewardsPage()),
                     );
                   },
                 ),
@@ -217,17 +244,18 @@ class _SettingsPageState extends State<SettingsPage> {
       floatingActionButton: PersistentAddButton(),
       floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
       bottomNavigationBar: BottomNavBar(
-        currentIndex: 3,
+        currentIndex: 3, // Set to "Mine" tab (index 3) as default
         onTap: (index) {
           if (index == 0) {
+            // Navigate to HomePage
             Navigator.pushReplacement(
               context,
               MaterialPageRoute(builder: (context) => HomePage()),
             );
           } else if (index == 3) {
-            // Stay on SettingsPage
+            // Stay on SettingsPage (do nothing or reset if needed)
           } else {
-            // Handle other tabs
+            // Handle other tabs (e.g., navigate to other pages if implemented)
           }
         },
       ),

@@ -6,10 +6,11 @@ import 'package:flutter/rendering.dart';
 import 'package:fyp/ch/record_transaction.dart';
 import 'package:fyp/ch/settings.dart';
 import 'package:fyp/bottom_nav_bar.dart';
-import 'package:fyp/wc/financial_tips.dart'; // Added import for FinancialTipsScreen
+import 'package:fyp/wc/financial_tips.dart';
 import 'package:fyp/ch/persistent_add_button.dart';
 import 'package:intl/intl.dart';
-import 'package:fyp/wc/bill/bill_payment_screen.dart';
+
+import 'package:fyp/wc/gamification_page.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -28,6 +29,7 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
   String viewMode = 'month';
   DateTime selectedDate = DateTime.now();
   String popupMode = 'month';
+  bool _hasShownPopup = false; // Flag to prevent repeated popups
 
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final FirebaseAuth _auth = FirebaseAuth.instance;
@@ -246,8 +248,7 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
 
   void _setTransactionType(bool? type) {
     setState(() {
-      showExpenses =
-          type; // Directly set to null (all), true (expenses), or false (income)
+      showExpenses = type; // Directly set to null (all), true (expenses), or false (income)
     });
   }
 
@@ -258,6 +259,105 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Failed to delete transaction: $e')),
       );
+    }
+  }
+
+  Future<void> _showTipPopup() async {
+    final userId = _auth.currentUser?.uid;
+    if (userId == null || _hasShownPopup) {
+      print('No user logged in or popup already shown');
+      return;
+    }
+
+    try {
+      // Check if the "Cook at Home" tip is marked irrelevant
+      final feedbackSnapshot = await _firestore
+          .collection('users')
+          .doc(userId)
+          .collection('tips_feedback')
+          .doc('1')
+          .get();
+      final feedbackData = feedbackSnapshot.data();
+      final isIrrelevant = feedbackData != null && feedbackData['isIrrelevant'] is bool
+          ? feedbackData['isIrrelevant'] as bool
+          : false;
+      print('Cook at Home tip isIrrelevant: $isIrrelevant'); // Debug
+
+      if (isIrrelevant) {
+        print('Tip suppressed, skipping popup');
+        return;
+      }
+
+      // Fetch transactions for the current month
+      final now = DateTime.now();
+      final startOfMonth = DateTime(now.year, now.month, 1);
+      final endOfMonth = DateTime(now.year, now.month + 1, 0);
+      print('Popup: Querying transactions from $startOfMonth to $endOfMonth');
+
+      final transactionSnapshot = await _firestore
+          .collection('transactions')
+          .where('userid', isEqualTo: userId)
+          .where('timestamp', isGreaterThanOrEqualTo: Timestamp.fromDate(startOfMonth))
+          .where('timestamp', isLessThanOrEqualTo: Timestamp.fromDate(endOfMonth))
+          .get();
+      print('Popup: Transactions found: ${transactionSnapshot.docs.length}');
+
+      double diningSpending = 0.0;
+      for (var doc in transactionSnapshot.docs) {
+        final data = doc.data();
+        final categoryRef = data['category'] as DocumentReference;
+        final categorySnapshot = await categoryRef.get();
+        final categoryName = categorySnapshot.get('name') as String? ?? 'unknown';
+        final categoryType = categorySnapshot.get('type') as String? ?? 'unknown';
+        final amount = (data['amount'] is int)
+            ? (data['amount'] as int).toDouble()
+            : (data['amount'] as double? ?? 0.0);
+        print('Popup: Transaction: category=$categoryName, amount=$amount, type=$categoryType');
+
+        if (categoryName == 'Dining' && categoryType == 'expense') {
+          diningSpending += amount.abs();
+        }
+      }
+      print('Popup: Dining Spending: $diningSpending');
+
+      if (diningSpending > 300.0) {
+        _hasShownPopup = true; // Prevent repeated popups
+        showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            backgroundColor: const Color.fromRGBO(33, 35, 34, 1),
+            title: const Text('Cook at Home', style: TextStyle(color: Colors.white)),
+            content: const Text(
+              'Your dining expenses are high this month. Try cooking at home to save RM200.',
+              style: TextStyle(color: Colors.white),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Close', style: TextStyle(color: Colors.teal)),
+              ),
+              TextButton(
+                onPressed: () {
+                  _firestore
+                      .collection('users')
+                      .doc(userId)
+                      .collection('tips_feedback')
+                      .doc('1')
+                      .set({
+                    'isHelpful': false,
+                    'isIrrelevant': true,
+                    'timestamp': Timestamp.now(),
+                  });
+                  Navigator.pop(context);
+                },
+                child: const Text('Dismiss', style: TextStyle(color: Colors.red)),
+              ),
+            ],
+          ),
+        );
+      }
+    } catch (e) {
+      print('Error in _showTipPopup: $e');
     }
   }
 
@@ -273,6 +373,11 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
         body: Center(child: Text('Please log in to view transactions')),
       );
     }
+
+    // Trigger popup after widget build
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _showTipPopup();
+    });
 
     return StreamBuilder<QuerySnapshot>(
       stream: _firestore
@@ -423,25 +528,33 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
                   currentIndex: selectedIndex,
                   onTap: (index) {
                     setState(() {
+                      selectedIndex = index; // Update selected index
                       if (index == 0) {
                         // "Details" selected - stay on HomePage
-                        selectedIndex = 0;
-                      } else if (index == 2) {
-                        // "Tips" selected - navigate to FinancialTipsScreen
+                      } else if (index == 1) {
+                        // "Trending" selected - navigate to FinancialTipsScreen
                         Navigator.push(
                           context,
                           MaterialPageRoute(
                             builder: (context) => const FinancialTipsScreen(),
                           ),
                         );
+                      } else if (index == 2) {
+                        // "Insights" selected - navigate to GamificationPage
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => const GamificationPage(),
+                          ),
+                        );
                       } else if (index == 3) {
                         // "Mine" selected - navigate to SettingsPage
                         Navigator.push(
                           context,
-                          MaterialPageRoute(builder: (context) => SettingsPage()),
+                          MaterialPageRoute(
+                            builder: (context) => const SettingsPage(),
+                          ),
                         );
-                      } else {
-                        selectedIndex = index; // Update for "Trending" tab
                       }
                     });
                   },
@@ -717,25 +830,33 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
                 currentIndex: selectedIndex,
                 onTap: (index) {
                   setState(() {
+                    selectedIndex = index; // Update selected index
                     if (index == 0) {
                       // "Details" selected - stay on HomePage
-                      selectedIndex = 0;
-                    } else if (index == 2) {
-                      // "Tips" selected - navigate to FinancialTipsScreen
+                    } else if (index == 1) {
+                      // "Trending" selected - navigate to FinancialTipsScreen
                       Navigator.push(
                         context,
                         MaterialPageRoute(
                           builder: (context) => const FinancialTipsScreen(),
                         ),
                       );
+                    } else if (index == 2) {
+                      // "Insights" selected - navigate to GamificationPage
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => const GamificationPage(),
+                        ),
+                      );
                     } else if (index == 3) {
                       // "Mine" selected - navigate to SettingsPage
                       Navigator.push(
                         context,
-                        MaterialPageRoute(builder: (context) => SettingsPage()),
+                        MaterialPageRoute(
+                          builder: (context) => const SettingsPage(),
+                        ),
                       );
-                    } else {
-                      selectedIndex = index; // Update for "Trending" tab
                     }
                   });
                 },
@@ -751,8 +872,7 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
       Map<String, dynamic> tx,
       String categoryIcon,
       String categoryName,
-      String categoryType,
-      ) {
+      String categoryType) {
     final txDate = tx['timestamp']?.toDate();
     return GestureDetector(
       onLongPress: () {
@@ -936,25 +1056,33 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
         currentIndex: selectedIndex,
         onTap: (index) {
           setState(() {
+            selectedIndex = index; // Update selected index
             if (index == 0) {
               // "Details" selected - stay on HomePage
-              selectedIndex = 0;
-            } else if (index == 2) {
-              // "Tips" selected - navigate to FinancialTipsScreen
+            } else if (index == 1) {
+              // "Trending" selected - navigate to FinancialTipsScreen
               Navigator.push(
                 context,
                 MaterialPageRoute(
                   builder: (context) => const FinancialTipsScreen(),
                 ),
               );
+            } else if (index == 2) {
+              // "Insights" selected - navigate to GamificationPage
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const GamificationPage(),
+                ),
+              );
             } else if (index == 3) {
               // "Mine" selected - navigate to SettingsPage
               Navigator.push(
                 context,
-                MaterialPageRoute(builder: (context) => SettingsPage()),
+                MaterialPageRoute(
+                  builder: (context) => const SettingsPage(),
+                ),
               );
-            } else {
-              selectedIndex = index; // Update for "Trending" tab
             }
           });
         },
