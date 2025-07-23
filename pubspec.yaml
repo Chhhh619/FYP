@@ -50,6 +50,7 @@ dependencies:
   shared_preferences: ^2.3.0
   tflite_flutter: ^0.11.0
   smooth_page_indicator: ^1.2.1
+  google_sign_in: ^6.2.1
 
 dev_dependencies:
   flutter_test:

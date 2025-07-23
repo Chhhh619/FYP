@@ -90,11 +90,14 @@ class _CategoriesListPageState extends State<CategoriesListPage>
 
   @override
   Widget build(BuildContext context) {
-    print('Building with _currentPage: $_currentPage, _slideAnimation: $_slideAnimation');
+    final availableScreenWidth = MediaQuery.of(context).size.width;
+    final availableScreenHeight = MediaQuery.of(context).size.height;
+    print('Building with _currentPage: $_currentPage, _slideAnimation: $_slideAnimation, '
+        'Screen: $availableScreenWidth x $availableScreenHeight');
     return Scaffold(
-      backgroundColor: const Color.fromRGBO(28, 28, 28, 0),
+      backgroundColor: Colors.black,
       appBar: AppBar(
-        backgroundColor: const Color.fromRGBO(28, 28, 28, 0),
+        backgroundColor: Colors.black,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back, color: Colors.white),
           onPressed: () => Navigator.pop(context),
@@ -123,98 +126,104 @@ class _CategoriesListPageState extends State<CategoriesListPage>
           ),
         ],
       ),
-      body: Column(
-        children: [
-          Expanded(
-            child: Container(
-              color: _currentPage == 0
-                  ? Colors.red.withOpacity(0.1)
-                  : Colors.green.withOpacity(0.1),
-              child: FutureBuilder<List<Map<String, dynamic>>>(
-                future: _categoryFuture,
-                builder: (context, snapshot) {
-                  if (snapshot.connectionState == ConnectionState.waiting) {
-                    return const Center(child: CircularProgressIndicator());
-                  }
-                  if (snapshot.hasError) {
-                    return const Center(
-                      child: Text(
-                        'Error loading categories',
-                        style: TextStyle(color: Colors.white, fontSize: 16),
-                      ),
-                    );
-                  }
-                  final categories = snapshot.data ?? [];
-                  final filteredCategories = categories
-                      .where((category) =>
-                  category['type'] ==
-                      (_currentPage == 0 ? 'expense' : 'income'))
-                      .toList();
-                  print('Rendering with _currentPage: $_currentPage, '
-                      'filtered count: ${filteredCategories.length}');
-
-                  if (filteredCategories.isEmpty) {
-                    return const Center(
-                      child: Text(
-                        'No categories available',
-                        style: TextStyle(color: Colors.white, fontSize: 16),
-                      ),
-                    );
-                  }
-
-                  return AnimatedSwitcher(
-                    duration: const Duration(milliseconds: 300),
-                    transitionBuilder:
-                        (Widget child, Animation<double> animation) {
-                      return SlideTransition(
-                        position: _slideAnimation ??
-                            Tween<Offset>(
-                                begin: Offset.zero, end: Offset.zero)
-                                .animate(animation),
-                        child: child,
+      body: SafeArea(
+        child: Column(
+          children: [
+            Expanded(
+              flex: 8, // 80% for the grid
+              child: Container(
+                color: Colors.black,
+                child: FutureBuilder<List<Map<String, dynamic>>>(
+                  future: _categoryFuture,
+                  builder: (context, snapshot) {
+                    if (snapshot.connectionState == ConnectionState.waiting) {
+                      return const Center(child: CircularProgressIndicator());
+                    }
+                    if (snapshot.hasError) {
+                      return const Center(
+                        child: Text(
+                          'Error loading categories',
+                          style: TextStyle(color: Colors.white, fontSize: 16),
+                        ),
                       );
-                    },
-                    child: _buildCategoryGrid(
-                      _currentPage == 0 ? 'expense' : 'income',
-                      filteredCategories,
+                    }
+                    final categories = snapshot.data ?? [];
+                    final filteredCategories = categories
+                        .where((category) =>
+                    category['type'] ==
+                        (_currentPage == 0 ? 'expense' : 'income'))
+                        .toList();
+                    print('Rendering with _currentPage: $_currentPage, '
+                        'filtered count: ${filteredCategories.length}');
+
+                    if (filteredCategories.isEmpty) {
+                      return const Center(
+                        child: Text(
+                          'No categories available',
+                          style: TextStyle(color: Colors.white, fontSize: 16),
+                        ),
+                      );
+                    }
+
+                    return AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 300),
+                      transitionBuilder:
+                          (Widget child, Animation<double> animation) {
+                        return SlideTransition(
+                          position: _slideAnimation ??
+                              Tween<Offset>(
+                                  begin: Offset.zero, end: Offset.zero)
+                                  .animate(animation),
+                          child: child,
+                        );
+                      },
+                      child: _buildCategoryGrid(
+                        _currentPage == 0 ? 'expense' : 'income',
+                        filteredCategories,
+                        availableScreenWidth,
+                        availableScreenHeight,
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ),
+            Expanded(
+              flex: 2, // 20% for the toggle buttons
+              child: Padding(
+                padding: const EdgeInsets.all(8.0),
+                child: ToggleButtons(
+                  isSelected: [_currentPage == 0, _currentPage == 1],
+                  onPressed: (index) {
+                    setState(() {
+                      _currentPage = index;
+                      _updateSlideAnimation();
+                    });
+                  },
+                  color: Colors.white,
+                  selectedColor: Colors.white,
+                  fillColor: Colors.teal.withOpacity(0.8),
+                  splashColor: Colors.teal.withOpacity(0.4),
+                  borderRadius: BorderRadius.circular(8),
+                  constraints: const BoxConstraints(
+                    minWidth: 100,
+                    minHeight: 30,
+                  ),
+                  children: const [
+                    Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 12),
+                      child: Text('Expenses', style: TextStyle(fontSize: 14)),
                     ),
-                  );
-                },
+                    Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 12),
+                      child: Text('Income', style: TextStyle(fontSize: 14)),
+                    ),
+                  ],
+                ),
               ),
             ),
-          ),
-          Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: SizedBox(
-              height: 100,
-              child: ToggleButtons(
-                isSelected: [_currentPage == 0, _currentPage == 1],
-                onPressed: (index) {
-                  setState(() {
-                    _currentPage = index;
-                    _updateSlideAnimation();
-                  });
-                },
-                color: Colors.white,
-                selectedColor: Colors.white,
-                fillColor: Colors.teal.withOpacity(0.8),
-                splashColor: Colors.teal.withOpacity(0.4),
-                borderRadius: BorderRadius.circular(8),
-                constraints: const BoxConstraints(minWidth: 120, minHeight: 40),
-                children: const [
-                  Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 16),
-                    child: Text('Expenses', style: TextStyle(fontSize: 16)),
-                  ),
-                  Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 16),
-                    child: Text('Income', style: TextStyle(fontSize: 16)),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -222,33 +231,53 @@ class _CategoriesListPageState extends State<CategoriesListPage>
   Widget _buildCategoryGrid(
       String type,
       List<Map<String, dynamic>> categories,
+      double availableScreenWidth,
+      double availableScreenHeight,
       ) {
     final categoryList = categories
         .where((category) => category['type'] == type)
         .toList();
+
     return GridView.builder(
       key: ValueKey<String>(type),
       padding: const EdgeInsets.all(8.0),
       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 4,
-        crossAxisSpacing: 12,
-        mainAxisSpacing: 12,
-        childAspectRatio: 1.0,
+        crossAxisCount: 4, // Match record_transaction.dart
+        crossAxisSpacing: 12, // Match record_transaction.dart
+        mainAxisSpacing: 12, // Match record_transaction.dart
+        childAspectRatio: 1.0, // Match record_transaction.dart
       ),
       itemCount: categoryList.length,
       itemBuilder: (context, index) {
         final category = categoryList[index];
         return Column(
           mainAxisSize: MainAxisSize.min,
+          mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            Text(category['icon'], style: const TextStyle(fontSize: 24)),
+            Container(
+              width: 64, // Match the approximate size from record_transaction.dart (32px icon + 16px padding on each side)
+              height: 64, // Match the approximate size
+              decoration: BoxDecoration(
+                color: const Color.fromRGBO(33, 35, 34, 1), // Match record_transaction.dart background
+                shape: BoxShape.circle,
+              ),
+              child: Center(
+                child: Text(
+                  category['icon'],
+                  style: const TextStyle(fontSize: 24, color: Colors.white), // Match record_transaction.dart
+                ),
+              ),
+            ),
             const SizedBox(height: 8),
-            Text(
-              category['name'],
-              textAlign: TextAlign.center,
-              style: const TextStyle(color: Colors.white, fontSize: 12),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
+            Flexible(
+              child: Text(
+                category['name'],
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Colors.white, fontSize: 12), // Match record_transaction.dart
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
             ),
           ],
         );
