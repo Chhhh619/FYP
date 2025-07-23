@@ -5,11 +5,11 @@ import 'package:fyp/ch/persistent_add_button.dart';
 import 'package:fyp/wc/bill/bill_payment_screen.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:fyp/ch/homepage.dart';
+import 'package:fyp/wc/rewards_page.dart';
+import 'package:fyp/wc/currencyconverter.dart';
 import 'package:fyp/ch/budget.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
-import 'package:fyp/wc/rewards_page.dart';
-import 'package:fyp/wc/currencyconverter.dart';
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key});
@@ -145,6 +145,7 @@ class _SettingsPageState extends State<SettingsPage> {
           ),
           Expanded(
             child: ListView(
+              padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
               children: [
                 _buildListTile(
                   leadingIcon: Icons.edit,
@@ -244,18 +245,17 @@ class _SettingsPageState extends State<SettingsPage> {
       floatingActionButton: PersistentAddButton(),
       floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
       bottomNavigationBar: BottomNavBar(
-        currentIndex: 3, // Set to "Mine" tab (index 3) as default
+        currentIndex: 3,
         onTap: (index) {
           if (index == 0) {
-            // Navigate to HomePage
             Navigator.pushReplacement(
               context,
               MaterialPageRoute(builder: (context) => HomePage()),
             );
           } else if (index == 3) {
-            // Stay on SettingsPage (do nothing or reset if needed)
+            // Stay on SettingsPage
           } else {
-            // Handle other tabs (e.g., navigate to other pages if implemented)
+            // Handle other tabs
           }
         },
       ),
