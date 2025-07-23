@@ -27,6 +27,7 @@ class _BudgetPageState extends State<BudgetPage> {
   bool _isCalculatorOpen = false;
   bool _isLoading = true;
   String? _errorMessage;
+  bool _isYearView = false;
 
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final FirebaseAuth _auth = FirebaseAuth.instance;
@@ -519,8 +520,12 @@ class _BudgetPageState extends State<BudgetPage> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             ToggleButtons(
-              isSelected: const [true, false],
-              onPressed: (_) {},
+              isSelected: [_isYearView == false, _isYearView == true],
+              onPressed: (int index) {
+                setState(() {
+                  _isYearView = index == 1;
+                });
+              },
               borderRadius: BorderRadius.circular(8),
               selectedColor: Colors.teal,
               fillColor: Colors.teal.withOpacity(0.2),
@@ -537,28 +542,34 @@ class _BudgetPageState extends State<BudgetPage> {
               ],
             ),
             const SizedBox(height: 16),
-            _buildMainBudgetCard(),
-            const SizedBox(height: 16),
-            Row(
+            _isYearView
+                ? _buildYearlyBudgetCard()
+                : Column(
               children: [
-                Expanded(
-                  child: _buildSmallBudgetCard(
-                    'Week',
-                    weeklyBudget ?? 0,
-                    weeklySpending,
-                  ),
+                _buildMainBudgetCard(),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _buildSmallBudgetCard(
+                        'Week',
+                        weeklyBudget ?? 0,
+                        weeklySpending,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: _buildSmallBudgetCard(
+                        'Today',
+                        dailyBudget ?? 0,
+                        dailySpending,
+                      ),
+                    ),
+                  ],
                 ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: _buildSmallBudgetCard(
-                    'Today',
-                    dailyBudget ?? 0,
-                    dailySpending,
-                  ),
-                ),
+                const SizedBox(height: 16),
               ],
             ),
-            const SizedBox(height: 16),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -690,6 +701,74 @@ class _BudgetPageState extends State<BudgetPage> {
           ),
         );
       },
+    );
+  }
+
+  Widget _buildYearlyBudgetCard() {
+    final selectedDate = widget.selectedDate ?? DateTime.now();
+    final year = selectedDate.year;
+
+    // You can improve this logic to actually fetch total yearly budget/spending
+    final yearlyBudget = (monthlyBudget ?? 0) * 12;
+    final yearlySpent = totalSpending * 12;
+    final remaining = yearlyBudget - yearlySpent;
+    final progress = yearlyBudget > 0 ? (yearlySpent / yearlyBudget).clamp(0.0, 1.0) : 0.0;
+    final percentage = (progress * 100).toStringAsFixed(1);
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFF2C2C2C),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Year $year',
+            style: const TextStyle(color: Colors.white70),
+          ),
+          const SizedBox(height: 8),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'Budget\nRM${yearlyBudget.toStringAsFixed(0)}',
+                style: const TextStyle(color: Colors.white, fontSize: 18),
+              ),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(
+                    remaining >= 0 ? 'Remaining' : 'Over Budget',
+                    style: TextStyle(
+                      color: remaining >= 0 ? Colors.white70 : Colors.redAccent,
+                    ),
+                  ),
+                  Text(
+                    'RM${remaining.abs().toStringAsFixed(2)}',
+                    style: TextStyle(
+                      color: remaining >= 0 ? Colors.white70 : Colors.redAccent,
+                      fontSize: 18,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          LinearProgressIndicator(
+            value: progress,
+            backgroundColor: Colors.grey[800],
+            valueColor: const AlwaysStoppedAnimation<Color>(Colors.tealAccent),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            '$percentage% | Exp RM${yearlySpent.toStringAsFixed(2)}',
+            style: const TextStyle(color: Colors.white70),
+          ),
+        ],
+      ),
     );
   }
 
@@ -1052,7 +1131,7 @@ class _BudgetPageState extends State<BudgetPage> {
         child: Row(
           children: [
             CircleAvatar(
-              backgroundColor: Colors.orange,
+              backgroundColor: Colors.grey[800],
               child: Text(
                 icon,
                 style: const TextStyle(color: Colors.white),
