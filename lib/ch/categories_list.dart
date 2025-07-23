@@ -27,13 +27,16 @@ class _CategoriesListPageState extends State<CategoriesListPage>
       vsync: this,
       duration: const Duration(milliseconds: 300),
     );
-    _slideAnimation = Tween<Offset>(
-      begin: const Offset(1.0, 0.0),
-      end: const Offset(0.0, 0.0),
-    ).animate(CurvedAnimation(
-      parent: _animationController!,
-      curve: Curves.easeInOut,
-    ));
+    _slideAnimation =
+        Tween<Offset>(
+          begin: const Offset(1.0, 0.0),
+          end: const Offset(0.0, 0.0),
+        ).animate(
+          CurvedAnimation(
+            parent: _animationController!,
+            curve: Curves.easeInOut,
+          ),
+        );
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _updateSlideAnimation();
@@ -48,9 +51,19 @@ class _CategoriesListPageState extends State<CategoriesListPage>
 
   Future<List<Map<String, dynamic>>> _loadCategories() async {
     final userId = _auth.currentUser?.uid;
-    final snapshot = await _firestore.collection('categories').get();
-    print('Total categories fetched at ${DateTime.now()}: ${snapshot.docs.length} '
-        'with docs: ${snapshot.docs.map((d) => d.data()).toList()}');
+    final snapshot = await _firestore
+        .collection('categories')
+        .where(
+          Filter.or(
+            Filter('userId', isEqualTo: userId),
+            Filter('userId', isNull: true),
+          ),
+        )
+        .get();
+    print(
+      'Total categories fetched at ${DateTime.now()}: ${snapshot.docs.length} '
+      'with docs: ${snapshot.docs.map((d) => d.data()).toList()}',
+    );
 
     final categories = snapshot.docs.map((doc) {
       final data = doc.data();
@@ -59,7 +72,8 @@ class _CategoriesListPageState extends State<CategoriesListPage>
         'name': data['name'],
         'icon': data['icon'],
         'type': data['type'],
-        'userId': data['userId'] ?? data['userid'] ?? null, // Handle both fields
+        'userId': data['userId'] ?? data['userid'] ?? null,
+        // Handle both fields
       };
     }).toList();
 
@@ -67,22 +81,27 @@ class _CategoriesListPageState extends State<CategoriesListPage>
       final catUserId = cat['userId'];
       return catUserId == null || catUserId == '' || catUserId == userId;
     }).toList();
-    print('Filtered categories count at ${DateTime.now()}: ${filteredCategories.length} '
-        'with data: ${filteredCategories.map((c) => c['name']).toList()}');
+    print(
+      'Filtered categories count at ${DateTime.now()}: ${filteredCategories.length} '
+      'with data: ${filteredCategories.map((c) => c['name']).toList()}',
+    );
     return filteredCategories;
   }
 
   void _updateSlideAnimation() {
     if (_animationController == null) return;
-    _slideAnimation = Tween<Offset>(
-      begin: _currentPage == 1
-          ? const Offset(-1.0, 0.0)
-          : const Offset(1.0, 0.0),
-      end: const Offset(0.0, 0.0),
-    ).animate(CurvedAnimation(
-      parent: _animationController!,
-      curve: Curves.easeInOut,
-    ));
+    _slideAnimation =
+        Tween<Offset>(
+          begin: _currentPage == 1
+              ? const Offset(-1.0, 0.0)
+              : const Offset(1.0, 0.0),
+          end: const Offset(0.0, 0.0),
+        ).animate(
+          CurvedAnimation(
+            parent: _animationController!,
+            curve: Curves.easeInOut,
+          ),
+        );
     if (!_animationController!.isAnimating) {
       _animationController!.forward(from: 0.0);
     }
@@ -92,8 +111,10 @@ class _CategoriesListPageState extends State<CategoriesListPage>
   Widget build(BuildContext context) {
     final availableScreenWidth = MediaQuery.of(context).size.width;
     final availableScreenHeight = MediaQuery.of(context).size.height;
-    print('Building with _currentPage: $_currentPage, _slideAnimation: $_slideAnimation, '
-        'Screen: $availableScreenWidth x $availableScreenHeight');
+    print(
+      'Building with _currentPage: $_currentPage, _slideAnimation: $_slideAnimation, '
+      'Screen: $availableScreenWidth x $availableScreenHeight',
+    );
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
@@ -149,12 +170,16 @@ class _CategoriesListPageState extends State<CategoriesListPage>
                     }
                     final categories = snapshot.data ?? [];
                     final filteredCategories = categories
-                        .where((category) =>
-                    category['type'] ==
-                        (_currentPage == 0 ? 'expense' : 'income'))
+                        .where(
+                          (category) =>
+                              category['type'] ==
+                              (_currentPage == 0 ? 'expense' : 'income'),
+                        )
                         .toList();
-                    print('Rendering with _currentPage: $_currentPage, '
-                        'filtered count: ${filteredCategories.length}');
+                    print(
+                      'Rendering with _currentPage: $_currentPage, '
+                      'filtered count: ${filteredCategories.length}',
+                    );
 
                     if (filteredCategories.isEmpty) {
                       return const Center(
@@ -169,14 +194,16 @@ class _CategoriesListPageState extends State<CategoriesListPage>
                       duration: const Duration(milliseconds: 300),
                       transitionBuilder:
                           (Widget child, Animation<double> animation) {
-                        return SlideTransition(
-                          position: _slideAnimation ??
-                              Tween<Offset>(
-                                  begin: Offset.zero, end: Offset.zero)
-                                  .animate(animation),
-                          child: child,
-                        );
-                      },
+                            return SlideTransition(
+                              position:
+                                  _slideAnimation ??
+                                  Tween<Offset>(
+                                    begin: Offset.zero,
+                                    end: Offset.zero,
+                                  ).animate(animation),
+                              child: child,
+                            );
+                          },
                       child: _buildCategoryGrid(
                         _currentPage == 0 ? 'expense' : 'income',
                         filteredCategories,
@@ -229,11 +256,11 @@ class _CategoriesListPageState extends State<CategoriesListPage>
   }
 
   Widget _buildCategoryGrid(
-      String type,
-      List<Map<String, dynamic>> categories,
-      double availableScreenWidth,
-      double availableScreenHeight,
-      ) {
+    String type,
+    List<Map<String, dynamic>> categories,
+    double availableScreenWidth,
+    double availableScreenHeight,
+  ) {
     final categoryList = categories
         .where((category) => category['type'] == type)
         .toList();
@@ -256,16 +283,22 @@ class _CategoriesListPageState extends State<CategoriesListPage>
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
             Container(
-              width: 64, // Match the approximate size from record_transaction.dart (32px icon + 16px padding on each side)
-              height: 64, // Match the approximate size
+              width: 64,
+              // Match the approximate size from record_transaction.dart (32px icon + 16px padding on each side)
+              height: 64,
+              // Match the approximate size
               decoration: BoxDecoration(
-                color: const Color.fromRGBO(33, 35, 34, 1), // Match record_transaction.dart background
+                color: const Color.fromRGBO(33, 35, 34, 1),
+                // Match record_transaction.dart background
                 shape: BoxShape.circle,
               ),
               child: Center(
                 child: Text(
                   category['icon'],
-                  style: const TextStyle(fontSize: 24, color: Colors.white), // Match record_transaction.dart
+                  style: const TextStyle(
+                    fontSize: 24,
+                    color: Colors.white,
+                  ), // Match record_transaction.dart
                 ),
               ),
             ),
@@ -274,7 +307,8 @@ class _CategoriesListPageState extends State<CategoriesListPage>
               child: Text(
                 category['name'],
                 textAlign: TextAlign.center,
-                style: const TextStyle(color: Colors.white, fontSize: 12), // Match record_transaction.dart
+                style: const TextStyle(color: Colors.white, fontSize: 12),
+                // Match record_transaction.dart
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
               ),
