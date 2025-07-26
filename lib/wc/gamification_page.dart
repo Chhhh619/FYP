@@ -2,10 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
-import 'package:fyp/bottom_nav_bar.dart';
-import 'package:fyp/ch/homepage.dart';
-import 'package:fyp/wc/rewards_page.dart';
-import 'package:fyp/ch/settings.dart';
 import 'package:fyp/wc/completed_challenges_page.dart';
 
 class GamificationPage extends StatefulWidget {
@@ -18,17 +14,101 @@ class GamificationPage extends StatefulWidget {
 class _GamificationPageState extends State<GamificationPage> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final FirebaseAuth _auth = FirebaseAuth.instance;
-  List<Map<String, dynamic>> _challenges = [];
+  List<Map<String, dynamic>> userChallenges = [];
   bool _isLoading = true;
 
   @override
   void initState() {
     super.initState();
-    _loadChallenges();
+    _initializeChallenges();
     _listenToTransactions();
+    _listenToBudgets();
+    _listenToNoSpendChallenge();
   }
 
-  void _listenToTransactions() {
+  Future<void> _initializeChallenges() async {
+    final userId = _auth.currentUser?.uid;
+    if (userId == null) return;
+
+    await _startDefaultChallenges(userId);
+    await _loadChallenges();
+  }
+
+  Future<void> _startDefaultChallenges(String userId) async {
+    final now = DateTime.now();
+    final defaultChallenges = [
+      {
+        'id': 'first_transaction',
+        'title': 'Add Your First Transaction',
+        'description': 'Record your first income or expense in the app.',
+        'type': 'onboarding',
+        'targetAmount': 1,
+        'progress': 0.0,
+        'points': 10,
+        'badge': {
+          'id': 'badge_first_transaction',
+          'name': 'First Step',
+          'description': 'Recorded your first transaction',
+          'icon': '🎉',
+        },
+        'completed': false,
+        'createdAt': Timestamp.fromDate(now),
+      },
+      {
+        'id': 'set_budget',
+        'title': 'Set Your First Budget',
+        'description': 'Set a monthly budget to start tracking your spending.',
+        'type': 'onboarding',
+        'targetAmount': 1,
+        'progress': 0.0,
+        'points': 15,
+        'badge': {
+          'id': 'badge_budget_setter',
+          'name': 'Budget Beginner',
+          'description': 'Set your first budget',
+          'icon': '💰',
+        },
+        'completed': false,
+        'createdAt': Timestamp.fromDate(now),
+      },
+      {
+        'id': 'no_spend_day',
+        'title': 'No-Spend Day',
+        'description': 'Avoid spending for one day to earn this challenge.',
+        'type': 'no_spend',
+        'targetAmount': 1,
+        'progress': 0.0,
+        'points': 5,
+        'badge': {
+          'id': 'badge_no_spend',
+          'name': 'Frugal Day',
+          'description': 'Completed a no-spend day',
+          'icon': '🛑',
+        },
+        'completed': false,
+        'createdAt': Timestamp.fromDate(now),
+        'lastChecked': Timestamp.fromDate(now),
+      },
+    ];
+
+    for (var challenge in defaultChallenges) {
+      try {
+        await _firestore
+            .collection('users')
+            .doc(userId)
+            .collection('challenges')
+            .doc(challenge['id'] as String?) // Cast to String?
+            .set(challenge, SetOptions(merge: true));
+      } catch (e) {
+        print('Error saving challenge: $e');
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to save challenge: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _listenToTransactions() async {
     final userId = _auth.currentUser?.uid;
     if (userId == null) return;
 
@@ -36,328 +116,196 @@ class _GamificationPageState extends State<GamificationPage> {
         .collection('transactions')
         .where('userid', isEqualTo: userId)
         .snapshots()
-        .listen((snapshot) {
-      if (snapshot.docChanges.isNotEmpty) {
-        _loadChallenges();
-      }
-    });
-  }
-
-  Future<void> _startChallenges() async {
-    final userId = _auth.currentUser?.uid;
-    if (userId == null) return;
-
-    try {
-      final defaultChallenges = <Map<String, dynamic>>[
-        {
-          'id': 'save_fixed',
-          'title': 'Save RM200',
-          'description': 'Add RM200 to your savings via any income transaction this month.',
-          'type': 'savings',
-          'targetAmount': 200.0,
-          'category': 'Savings',
-          'progress': 0.0,
-          'badge': {
-            'id': 'badge_savings_hero',
-            'name': 'Savings Hero',
-            'description': 'Saved RM200 in income transactions',
-            'icon': '💰',
-          },
-          'completed': false,
-          'createdAt': Timestamp.now(),
-        },
-        {
-          'id': 'streak_logging',
-          'title': '3-Day Logging Streak',
-          'description': 'Log transactions for 3 consecutive days.',
-          'type': 'streak',
-          'targetDays': 3,
-          'progress': 0,
-          'badge': {
-            'id': 'badge_logging_streak',
-            'name': 'Logging Streak',
-            'description': 'Logged transactions for 3 consecutive days',
-            'icon': '📅',
-          },
-          'completed': false,
-          'createdAt': Timestamp.now(),
-        },
-      ];
-
-      for (var challenge in defaultChallenges) {
-        final challengeId = challenge['id'] as String?;
-        if (challengeId != null) {
-          await _firestore
-              .collection('users')
-              .doc(userId)
-              .collection('challenges')
-              .doc(challengeId)
-              .set(challenge, SetOptions(merge: true));
-        }
-      }
-
-      await _generateDynamicChallenges(userId);
-      await _loadChallenges();
-    } catch (e) {
-      print('Error starting challenges: $e');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to start challenges: $e'), backgroundColor: Colors.red),
-      );
-    }
-  }
-
-  Future<void> _generateDynamicChallenges(String userId) async {
-    try {
-      final now = DateTime.now();
-      final startOfMonth = DateTime(now.year, now.month, 1);
-      final endOfMonth = DateTime(now.year, now.month + 1, 0);
-
-      final transactionSnapshot = await _firestore
-          .collection('transactions')
-          .where('userid', isEqualTo: userId)
-          .where('timestamp', isGreaterThanOrEqualTo: Timestamp.fromDate(startOfMonth))
-          .where('timestamp', isLessThanOrEqualTo: Timestamp.fromDate(endOfMonth))
-          .get();
-
-      Map<String, double> categorySpending = {};
-      for (var doc in transactionSnapshot.docs) {
-        final data = doc.data();
-        final categoryRef = data['category'] as DocumentReference;
-        final categorySnapshot = await categoryRef.get();
-        final categoryName = categorySnapshot.get('name') as String? ?? 'unknown';
-        final categoryType = categorySnapshot.get('type') as String? ?? 'unknown';
-        final amount = (data['amount'] is int)
-            ? (data['amount'] as int).toDouble()
-            : (data['amount'] as double? ?? 0.0);
-        if (categoryType == 'expense') {
-          categorySpending[categoryName] = (categorySpending[categoryName] ?? 0.0) + amount.abs();
-        }
-      }
-
-      List<Map<String, dynamic>> dynamicChallenges = [];
-      if (categorySpending.isNotEmpty) {
-        final highestCategory = categorySpending.entries
-            .reduce((a, b) => a.value > b.value ? a : b);
-        if (highestCategory.value > 50) {
-          dynamicChallenges.add({
-            'id': 'reduce_${highestCategory.key.toLowerCase()}',
-            'title': 'Reduce ${highestCategory.key} Spending',
-            'description':
-            'Spend less than RM${(highestCategory.value * 0.75).toStringAsFixed(0)} on ${highestCategory.key} this month.',
-            'type': 'spending',
-            'targetAmount': highestCategory.value * 0.75,
-            'category': highestCategory.key,
-            'progress': 0.0,
-            'badge': {
-              'id': 'badge_${highestCategory.key.toLowerCase()}_saver',
-              'name': '${highestCategory.key} Saver',
-              'description': 'Reduced ${highestCategory.key} spending by 25%',
-              'icon': '🏅',
-            },
-            'completed': false,
-            'createdAt': Timestamp.now(),
-          });
-        }
-
-        if (categorySpending.length > 1) {
-          final lowestCategory = categorySpending.entries
-              .reduce((a, b) => a.value < b.value ? a : b);
-          if (lowestCategory.value > 0) {
-            dynamicChallenges.add({
-              'id': 'no_spend_${lowestCategory.key.toLowerCase()}',
-              'title': 'No ${lowestCategory.key} Spending',
-              'description':
-              'Avoid spending on ${lowestCategory.key} for the rest of the month.',
-              'type': 'no_spend',
-              'targetAmount': 0.0,
-              'category': lowestCategory.key,
-              'progress': 0.0,
-              'badge': {
-                'id': 'badge_no_${lowestCategory.key.toLowerCase()}',
-                'name': 'No ${lowestCategory.key} Champion',
-                'description': 'Avoided spending on ${lowestCategory.key}',
-                'icon': '🚫',
-              },
-              'completed': false,
-              'createdAt': Timestamp.now(),
-            });
-          }
-        }
-      }
-
-      for (var challenge in dynamicChallenges) {
-        final challengeId = challenge['id'] as String?;
-        if (challengeId != null) {
-          await _firestore
-              .collection('users')
-              .doc(userId)
-              .collection('challenges')
-              .doc(challengeId)
-              .set(challenge, SetOptions(merge: true));
-        }
-      }
-    } catch (e) {
-      print('Error generating dynamic challenges: $e');
-    }
-  }
-
-  Future<void> _loadChallenges() async {
-    final userId = _auth.currentUser?.uid;
-    if (userId == null) {
-      setState(() {
-        _isLoading = false;
-      });
-      return;
-    }
-
-    try {
-      final now = DateTime.now();
-      final startOfMonth = DateTime(now.year, now.month, 1);
-      final endOfMonth = DateTime(now.year, now.month + 1, 0);
-      final isEndOfMonth = now.day == endOfMonth.day;
-
-      final transactionSnapshot = await _firestore
-          .collection('transactions')
-          .where('userid', isEqualTo: userId)
-          .where('timestamp', isGreaterThanOrEqualTo: Timestamp.fromDate(startOfMonth))
-          .where('timestamp', isLessThanOrEqualTo: Timestamp.fromDate(endOfMonth))
-          .get();
-
-      Map<String, double> categorySpending = {};
-      Map<String, int> categoryCounts = {};
-      List<DateTime> transactionDays = [];
-
-      for (var doc in transactionSnapshot.docs) {
-        final data = doc.data();
-        final categoryRef = data['category'] as DocumentReference;
-        final categorySnapshot = await categoryRef.get();
-        final categoryName = categorySnapshot.get('name') as String? ?? 'unknown';
-        final categoryType = categorySnapshot.get('type') as String? ?? 'unknown';
-        final amount = (data['amount'] is int)
-            ? (data['amount'] as int).toDouble()
-            : (data['amount'] as double? ?? 0.0);
-        final timestamp = (data['timestamp'] as Timestamp).toDate();
-        final transactionDay =
-        DateTime(timestamp.year, timestamp.month, timestamp.day);
-
-        if (categoryType == 'expense') {
-          categorySpending[categoryName] =
-              (categorySpending[categoryName] ?? 0.0) + amount.abs();
-          categoryCounts[categoryName] = (categoryCounts[categoryName] ?? 0) + 1;
-        } else if (categoryType == 'income') {
-          categorySpending['Savings'] =
-              (categorySpending['Savings'] ?? 0.0) + amount;
-        }
-
-        if (!transactionDays.any((day) =>
-        day.year == transactionDay.year &&
-            day.month == transactionDay.month &&
-            day.day == transactionDay.day)) {
-          transactionDays.add(transactionDay);
-        }
-      }
-
-      transactionDays.sort((a, b) => b.compareTo(a));
-      int streak = 0;
-      if (transactionDays.isNotEmpty) {
-        DateTime current = transactionDays.first;
-        streak = 1;
-        for (int i = 1; i < transactionDays.length; i++) {
-          final prevDay = transactionDays[i];
-          if (current.difference(prevDay).inDays == 1) {
-            streak++;
-            current = prevDay;
-          } else {
-            break;
-          }
-        }
-      }
-
-      final challengeSnapshot = await _firestore
+        .listen((snapshot) async {
+      final transactions = snapshot.docs;
+      final challengesSnapshot = await _firestore
           .collection('users')
           .doc(userId)
           .collection('challenges')
           .get();
 
-      List<Map<String, dynamic>> challenges = challengeSnapshot.docs
-          .map((doc) => {...doc.data() as Map<String, dynamic>, 'id': doc.id})
-          .toList();
+      for (var challengeDoc in challengesSnapshot.docs) {
+        final challenge = challengeDoc.data();
+        if (challenge['type'] == 'onboarding' &&
+            challenge['id'] == 'first_transaction') {
+          final progress = transactions.isNotEmpty ? 1.0 : 0.0;
+          final completed = progress >= 1.0;
+          await _updateChallengeProgress(
+            userId,
+            challenge['id'],
+            progress,
+            completed,
+            challenge,
+          );
+        }
+      }
+      await _loadChallenges();
+    });
+  }
 
-      for (var challenge in challenges) {
-        final challengeId = challenge['id'] as String?;
-        if (challengeId == null) continue;
+  Future<void> _listenToBudgets() async {
+    final userId = _auth.currentUser?.uid;
+    if (userId == null) return;
 
-        bool wasPreviouslyCompleted = challenge['completed'] as bool;
+    _firestore
+        .collection('users')
+        .doc(userId)
+        .collection('budgets')
+        .snapshots()
+        .listen((snapshot) async {
+      final budgets = snapshot.docs;
+      final challengeDoc = await _firestore
+          .collection('users')
+          .doc(userId)
+          .collection('challenges')
+          .doc('set_budget')
+          .get();
 
-        if (challenge['type'] == 'spending' || challenge['type'] == 'no_spend') {
-          final currentSpending = categorySpending[challenge['category']] ?? 0.0;
-          challenge['progress'] = currentSpending;
-          if (currentSpending <= (challenge['targetAmount'] as num) &&
-              !wasPreviouslyCompleted &&
-              (isEndOfMonth || transactionSnapshot.docs.isNotEmpty)) {
-            challenge['completed'] = true;
-            await _firestore
-                .collection('users')
-                .doc(userId)
-                .collection('challenges')
-                .doc(challengeId)
-                .update({'completed': true});
+      if (challengeDoc.exists) {
+        final challenge = challengeDoc.data()!;
+        final progress = budgets.isNotEmpty ? 1.0 : 0.0;
+        final completed = progress >= 1.0;
+        await _updateChallengeProgress(
+          userId,
+          'set_budget',
+          progress,
+          completed,
+          challenge,
+        );
+      }
+      await _loadChallenges();
+    });
+  }
+
+  Future<void> _listenToNoSpendChallenge() async {
+    final userId = _auth.currentUser?.uid;
+    if (userId == null) return;
+
+    _firestore
+        .collection('transactions')
+        .where('userid', isEqualTo: userId)
+        .snapshots()
+        .listen((snapshot) async {
+      final transactions = snapshot.docs;
+      final challengeDoc = await _firestore
+          .collection('users')
+          .doc(userId)
+          .collection('challenges')
+          .doc('no_spend_day')
+          .get();
+
+      if (challengeDoc.exists) {
+        final challenge = challengeDoc.data()!;
+        final lastChecked = (challenge['lastChecked'] as Timestamp).toDate();
+        final now = DateTime.now();
+        if (now.day != lastChecked.day) {
+          final todayExpenses = transactions.where((tx) {
+            final txDate = (tx.data()['timestamp'] as Timestamp).toDate();
+            final categoryRef = tx.data()['category'] as DocumentReference;
+            return txDate.day == now.day &&
+                txDate.month == now.month &&
+                txDate.year == now.year &&
+                categoryRef.path.contains('expense');
+          }).toList();
+
+          final progress = todayExpenses.isEmpty ? 1.0 : 0.0;
+          final completed = progress >= 1.0;
+          await _firestore
+              .collection('users')
+              .doc(userId)
+              .collection('challenges')
+              .doc('no_spend_day')
+              .update({
+            'progress': progress,
+            'completed': completed,
+            'lastChecked': Timestamp.fromDate(now),
+          });
+
+          if (completed && challenge['badge'] != null) {
             await _firestore
                 .collection('users')
                 .doc(userId)
                 .collection('badges')
                 .doc(challenge['badge']['id'])
-                .set(challenge['badge'] as Map<String, dynamic>);
-          }
-        } else if (challengeId == 'save_fixed') {
-          final savingsAmount = categorySpending['Savings'] ?? 0.0;
-          challenge['progress'] = savingsAmount;
-          if (savingsAmount >= (challenge['targetAmount'] as num) &&
-              !wasPreviouslyCompleted) {
-            challenge['completed'] = true;
-            await _firestore
-                .collection('users')
-                .doc(userId)
-                .collection('challenges')
-                .doc(challengeId)
-                .update({'completed': true});
-            await _firestore
-                .collection('users')
-                .doc(userId)
-                .collection('badges')
-                .doc(challenge['badge']['id'])
-                .set(challenge['badge'] as Map<String, dynamic>);
-          }
-        } else if (challengeId == 'streak_logging') {
-          challenge['progress'] = streak;
-          if (streak >= (challenge['targetDays'] as num) &&
-              !wasPreviouslyCompleted) {
-            challenge['completed'] = true;
-            await _firestore
-                .collection('users')
-                .doc(userId)
-                .collection('challenges')
-                .doc(challengeId)
-                .update({'completed': true});
-            await _firestore
-                .collection('users')
-                .doc(userId)
-                .collection('badges')
-                .doc(challenge['badge']['id'])
-                .set(challenge['badge'] as Map<String, dynamic>);
+                .set(challenge['badge'], SetOptions(merge: true));
+            if (challenge['points'] != null) {
+              await _awardPoints(userId, challenge['points']);
+            }
           }
         }
       }
+      await _loadChallenges();
+    });
+  }
 
-      // Filter to show only incomplete challenges
-      challenges = challenges.where((challenge) => !(challenge['completed'] as bool)).toList();
+  Future<void> _updateChallengeProgress(String userId,
+      String challengeId,
+      double progress,
+      bool completed,
+      Map<String, dynamic> challenge,) async {
+    final challengeRef = _firestore
+        .collection('users')
+        .doc(userId)
+        .collection('challenges')
+        .doc(challengeId);
 
-      // Sort challenges by creation date
-      challenges.sort((a, b) =>
-          (b['createdAt'] as Timestamp).compareTo(a['createdAt'] as Timestamp));
+    if (completed) {
+      // Move to completed_challenges
+      await _firestore
+          .collection('users')
+          .doc(userId)
+          .collection('completed_challenges')
+          .doc(challengeId)
+          .set({
+        ...challenge,
+        'progress': progress,
+        'completed': true,
+        'completedAt': Timestamp.now(),
+      }, SetOptions(merge: true));
 
+      // Delete from challenges
+      await challengeRef.delete();
+
+      // Award points and badge
+      if (challenge['badge'] != null) {
+        await _firestore
+            .collection('users')
+            .doc(userId)
+            .collection('badges')
+            .doc(challenge['badge']['id'] as String?)
+            .set(challenge['badge'], SetOptions(merge: true));
+      }
+      if (challenge['points'] != null) {
+        await _awardPoints(userId, challenge['points'] as int);
+      }
+    } else {
+      // Update progress in challenges
+      await challengeRef.update({
+        'progress': progress,
+        'completed': completed,
+      });
+    }
+  }
+
+  Future<void> _awardPoints(String userId, int points) async {
+    final userRef = _firestore.collection('users').doc(userId);
+    await userRef.set({
+      'points': FieldValue.increment(points),
+    }, SetOptions(merge: true));
+  }
+
+  Future<void> _loadChallenges() async {
+    final userId = _auth.currentUser?.uid;
+    if (userId == null) return;
+
+    try {
+      final snapshot = await _firestore
+          .collection('users')
+          .doc(userId)
+          .collection('challenges')
+          .get();
       setState(() {
-        _challenges = challenges;
+        userChallenges = snapshot.docs.map((doc) => doc.data()).toList();
         _isLoading = false;
       });
     } catch (e) {
@@ -368,45 +316,249 @@ class _GamificationPageState extends State<GamificationPage> {
     }
   }
 
+  Future<void> _joinCommunityChallenge(String challengeId) async {
+    final userId = _auth.currentUser?.uid;
+    if (userId == null) return;
+
+    final communityChallenge = await _firestore
+        .collection('community_challenges')
+        .doc(challengeId)
+        .get();
+    if (!communityChallenge.exists) return;
+
+    final challengeData = communityChallenge.data()!;
+    await _firestore
+        .collection('users')
+        .doc(userId)
+        .collection('challenges')
+        .doc(challengeId)
+        .set({
+      ...challengeData,
+      'progress': 0.0,
+      'completed': false,
+      'joinedAt': Timestamp.now(),
+    }, SetOptions(merge: true));
+
+    await _firestore
+        .collection('community_challenges')
+        .doc(challengeId)
+        .update({
+      'participants': FieldValue.arrayUnion([userId]),
+    });
+
+    await _loadChallenges();
+  }
+
+  Future<void> _updateLeaderboardChallenge(String challengeId) async {
+    final userId = _auth.currentUser?.uid;
+    if (userId == null) return;
+
+    final challengeDoc = await _firestore
+        .collection('community_challenges')
+        .doc(challengeId)
+        .get();
+    if (!challengeDoc.exists) return;
+
+    final challengeData = challengeDoc.data()!;
+    final participants = challengeData['participants'] as List<dynamic>;
+    final startDate = (challengeData['startDate'] as Timestamp).toDate();
+    final endDate = (challengeData['endDate'] as Timestamp).toDate();
+    final targetCategory = challengeData['targetCategory'] ?? 'Dining';
+
+    final diningSpends = <String, double>{};
+
+    for (var participantId in participants) {
+      final transactions = await _firestore
+          .collection('transactions')
+          .where('userid', isEqualTo: participantId)
+          .where(
+          'timestamp', isGreaterThanOrEqualTo: Timestamp.fromDate(startDate))
+          .where('timestamp', isLessThanOrEqualTo: Timestamp.fromDate(endDate))
+          .get();
+
+      double diningSpend = 0.0;
+      for (var tx in transactions.docs) {
+        final categoryRef = tx.data()['category'] as DocumentReference;
+        final categorySnap = await categoryRef.get();
+        if (categorySnap['name'] == targetCategory &&
+            categorySnap['type'] == 'expense') {
+          diningSpend += (tx.data()['amount'] as num).toDouble().abs();
+        }
+      }
+      diningSpends[participantId] = diningSpend;
+    }
+
+    final sortedUsers = diningSpends.entries.toList()
+      ..sort((a, b) => a.value.compareTo(b.value));
+    final top10Percent = sortedUsers
+        .take((sortedUsers.length * 0.1).ceil())
+        .toList();
+
+    if (top10Percent.any((entry) => entry.key == userId)) {
+      await _firestore
+          .collection('users')
+          .doc(userId)
+          .collection('challenges')
+          .doc(challengeId)
+          .update({
+        'progress': 1.0,
+        'completed': true,
+      });
+
+      final badge = challengeData['badge'];
+      if (badge != null) {
+        await _firestore
+            .collection('users')
+            .doc(userId)
+            .collection('badges')
+            .doc(badge['id'])
+            .set(badge, SetOptions(merge: true));
+      }
+      if (challengeData['points'] != null) {
+        await _awardPoints(userId, challengeData['points']);
+      }
+    }
+  }
+
+  Widget _buildChallengeCard(Map<String, dynamic> challenge) {
+    final progress = (challenge['progress'] as double?)?.clamp(0.0, 1.0) ?? 0.0;
+    return Card(
+      color: Color.fromRGBO(33, 35, 34, 1),
+      margin: EdgeInsets.symmetric(vertical: 8),
+      child: ListTile(
+        title: Text(
+          challenge['title'],
+          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+        ),
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SizedBox(height: 4),
+            Text(
+              challenge['description'],
+              style: TextStyle(color: Colors.grey[400]),
+            ),
+            SizedBox(height: 8),
+            LinearProgressIndicator(
+              value: progress,
+              backgroundColor: Colors.grey[700],
+              valueColor: AlwaysStoppedAnimation(Colors.teal),
+            ),
+            SizedBox(height: 4),
+            Text(
+              '${(progress * 100).toStringAsFixed(1)}% Complete',
+              style: TextStyle(color: Colors.grey[400], fontSize: 12),
+            ),
+          ],
+        ),
+        trailing: challenge['completed']
+            ? Icon(Icons.check_circle, color: Colors.green)
+            : null,
+      ),
+    );
+  }
+
+  Widget _buildCommunityChallenges() {
+    return StreamBuilder<QuerySnapshot>(
+      stream: _firestore.collection('community_challenges').snapshots(),
+      builder: (context, snapshot) {
+        if (!snapshot.hasData) {
+          return Center(child: CircularProgressIndicator());
+        }
+        final challenges = snapshot.data!.docs
+            .map((doc) => doc.data() as Map<String, dynamic>)
+            .toList();
+        if (challenges.isEmpty) {
+          return Text(
+            'No community challenges available',
+            style: TextStyle(color: Colors.grey[400]),
+          );
+        }
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Community Challenges',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            SizedBox(height: 8),
+            ...challenges.map((challenge) =>
+                Card(
+                  color: Color.fromRGBO(33, 35, 34, 1),
+                  margin: EdgeInsets.symmetric(vertical: 4),
+                  child: ListTile(
+                    title: Text(
+                      challenge['title'],
+                      style: TextStyle(color: Colors.white),
+                    ),
+                    subtitle: Text(
+                      challenge['description'],
+                      style: TextStyle(color: Colors.grey[400]),
+                    ),
+                    trailing: ElevatedButton(
+                      onPressed: () async {
+                        await _joinCommunityChallenge(challenge['id']);
+                        if (challenge['type'] == 'leaderboard') {
+                          await _updateLeaderboardChallenge(challenge['id']);
+                        }
+                      },
+                      child: Text('Join'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.teal,
+                        foregroundColor: Colors.white,
+                      ),
+                    ),
+                  ),
+                )),
+          ],
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final userId = _auth.currentUser?.uid;
     if (userId == null) {
       return Scaffold(
-        backgroundColor: const Color.fromRGBO(28, 28, 28, 1),
-        body: const Center(
+        backgroundColor: Color.fromRGBO(28, 28, 28, 1),
+        body: Center(
           child: Text(
-            'Please log in to view challenges.',
-            style: TextStyle(color: Colors.white, fontSize: 16),
+            'Please log in to view challenges',
+            style: TextStyle(color: Colors.white),
           ),
         ),
       );
     }
 
     return Scaffold(
-      backgroundColor: const Color.fromRGBO(28, 28, 28, 1),
+      backgroundColor: Color.fromRGBO(28, 28, 28, 1),
       appBar: AppBar(
-        backgroundColor: const Color.fromRGBO(28, 28, 28, 1),
+        backgroundColor: Color.fromRGBO(28, 28, 28, 1),
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.white),
+          icon: Icon(Icons.arrow_back, color: Colors.white, size: 30),
+          // Brighter, larger back button
           onPressed: () => Navigator.pop(context),
         ),
-        title: const Text(
+        title: Text(
           'Challenges',
-          style: TextStyle(
-            color: Colors.white,
-            fontSize: 20,
-            fontWeight: FontWeight.bold,
-          ),
+          style: TextStyle(color: Colors.white),
         ),
         centerTitle: true,
+        elevation: 0,
         actions: [
           IconButton(
-            icon: const Icon(Icons.history, color: Colors.white),
+            icon: Icon(Icons.history, color: Colors.white, size: 30),
+            // Prominent history button
             onPressed: () {
               Navigator.push(
                 context,
-                MaterialPageRoute(builder: (context) => const CompletedChallengesPage()),
+                MaterialPageRoute(
+                    builder: (context) => CompletedChallengesPage()),
               );
             },
             tooltip: 'View Completed Challenges',
@@ -414,186 +566,36 @@ class _GamificationPageState extends State<GamificationPage> {
         ],
       ),
       body: _isLoading
-          ? _buildLoadingSkeleton()
-          : _challenges.isEmpty
-          ? Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Text(
-              'No active challenges. Start your journey!',
-              style: TextStyle(color: Colors.white, fontSize: 16),
-            ),
-            const SizedBox(height: 16),
-            ElevatedButton(
-              onPressed: _startChallenges,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.teal,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 24, vertical: 12),
-                textStyle: const TextStyle(fontSize: 16),
-              ),
-              child: const Text('Start Challenges'),
-            ),
-          ],
-        ),
-      )
-          : ListView.builder(
-        padding: const EdgeInsets.all(16),
-        itemCount: _challenges.length,
-        itemBuilder: (context, index) {
-          final challenge = _challenges[index];
-          return _buildChallengeCard(challenge);
-        },
-      ),
-      bottomNavigationBar: BottomNavBar(
-        currentIndex: 2,
-        onTap: (index) {
-          if (index == 0) {
-            Navigator.pushReplacement(
-              context,
-              MaterialPageRoute(builder: (context) => const HomePage()),
-            );
-          } else if (index == 1) {
-            // Navigate to FinancialTipsScreen
-          } else if (index == 2) {
-            // Stay on GamificationPage
-          } else if (index == 3) {
-            Navigator.push(
-              context,
-              MaterialPageRoute(builder: (context) => const SettingsPage()),
-            );
-          }
-        },
-      ),
-    );
-  }
-
-  Widget _buildChallengeCard(Map<String, dynamic> challenge) {
-    double progress = 0.0;
-    String progressText = '';
-
-    if (challenge['type'] == 'spending' || challenge['type'] == 'no_spend') {
-      progress = ((challenge['progress'] as num) / (challenge['targetAmount'] as num))
-          .clamp(0.0, 1.0);
-      progressText = 'RM${(challenge['progress'] as num).toStringAsFixed(1)} / RM${(challenge['targetAmount'] as num).toStringAsFixed(1)}';
-    } else if (challenge['type'] == 'savings') {
-      progress = ((challenge['progress'] as num) / (challenge['targetAmount'] as num))
-          .clamp(0.0, 1.0);
-      progressText = 'RM${(challenge['progress'] as num).toStringAsFixed(1)} / RM${(challenge['targetAmount'] as num).toStringAsFixed(1)}';
-    } else if (challenge['type'] == 'streak') {
-      progress = ((challenge['progress'] as num) / (challenge['targetDays'] as num))
-          .clamp(0.0, 1.0);
-      progressText = '${challenge['progress']} / ${challenge['targetDays']} days';
-    }
-
-    return Card(
-      color: const Color.fromRGBO(33, 35, 34, 1),
-      margin: const EdgeInsets.symmetric(vertical: 8),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
+          ? Center(child: CircularProgressIndicator())
+          : SingleChildScrollView(
+        padding: EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Expanded(
-                  child: Text(
-                    challenge['title'] as String,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
+            _buildCommunityChallenges(),
+            SizedBox(height: 24),
             Text(
-              challenge['description'] as String,
-              style: TextStyle(color: Colors.grey[300], fontSize: 14),
-            ),
-            const SizedBox(height: 12),
-            LinearProgressIndicator(
-              value: progress,
-              backgroundColor: Colors.grey[700],
-              valueColor: const AlwaysStoppedAnimation<Color>(Colors.teal),
-              minHeight: 8,
-            ),
-            const SizedBox(height: 8),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  progressText,
-                  style: const TextStyle(color: Colors.white70, fontSize: 14),
-                ),
-                const Text(
-                  'In Progress',
-                  style: TextStyle(color: Colors.grey, fontSize: 14),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  'Reward: ${challenge['badge']['name'] as String} Badge',
-                  style: const TextStyle(color: Colors.yellow, fontSize: 14),
-                ),
-                Text(
-                  challenge['badge']['icon'] as String,
-                  style: const TextStyle(fontSize: 20),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildLoadingSkeleton() {
-    return Padding(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        children: List.generate(
-          3,
-              (index) => Padding(
-            padding: const EdgeInsets.symmetric(vertical: 8),
-            child: Card(
-              color: const Color.fromRGBO(33, 35, 34, 1),
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Container(
-                      width: 150,
-                      height: 18,
-                      color: Colors.grey[700],
-                    ),
-                    const SizedBox(height: 8),
-                    Container(
-                      width: double.infinity,
-                      height: 14,
-                      color: Colors.grey[700],
-                    ),
-                    const SizedBox(height: 12),
-                    Container(
-                      width: double.infinity,
-                      height: 8,
-                      color: Colors.grey[700],
-                    ),
-                  ],
-                ),
+              'Your Challenges',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
               ),
             ),
-          ),
+            SizedBox(height: 8),
+            userChallenges.isEmpty
+                ? Center(
+              child: Text(
+                'No challenges available',
+                style: TextStyle(color: Colors.grey[400]),
+              ),
+            )
+                : Column(
+              children: userChallenges
+                  .map((challenge) => _buildChallengeCard(challenge))
+                  .toList(),
+            ),
+          ],
         ),
       ),
     );

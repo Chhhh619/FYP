@@ -39,8 +39,7 @@ class _CompletedChallengesPageState extends State<CompletedChallengesPage> {
       final challengeSnapshot = await _firestore
           .collection('users')
           .doc(userId)
-          .collection('challenges')
-          .where('completed', isEqualTo: true)
+          .collection('completed_challenges')
           .get();
 
       setState(() {
@@ -138,12 +137,17 @@ class _CompletedChallengesPageState extends State<CompletedChallengesPage> {
 
   Widget _buildChallengeCard(Map<String, dynamic> challenge) {
     String progressText = '';
-    if (challenge['type'] == 'spending' || challenge['type'] == 'no_spend' || challenge['type'] == 'savings') {
-      progressText = 'RM${(challenge['progress'] as num).toStringAsFixed(1)} / RM${(challenge['targetAmount'] as num).toStringAsFixed(1)}';
+    if (challenge['type'] == 'spending' ||
+        challenge['type'] == 'no_spend' ||
+        challenge['type'] == 'savings') {
+      progressText =
+      'RM${(challenge['progress'] as num? ?? 0).toStringAsFixed(1)} / RM${(challenge['targetAmount'] as num? ?? 0).toStringAsFixed(1)}';
     } else if (challenge['type'] == 'limit') {
-      progressText = '${challenge['progress']} / ${challenge['targetCount']} transactions';
+      progressText = '${challenge['progress'] ?? 0} / ${challenge['targetCount'] ?? 0} transactions';
     } else if (challenge['type'] == 'streak') {
-      progressText = '${challenge['progress']} / ${challenge['targetDays']} days';
+      progressText = '${challenge['progress'] ?? 0} / ${challenge['targetDays'] ?? 0} days';
+    } else {
+      progressText = 'Completed';
     }
 
     return Card(
@@ -159,7 +163,7 @@ class _CompletedChallengesPageState extends State<CompletedChallengesPage> {
               children: [
                 Expanded(
                   child: Text(
-                    challenge['title'] as String,
+                    challenge['title'] as String? ?? 'Untitled Challenge',
                     style: const TextStyle(
                       color: Colors.white,
                       fontSize: 18,
@@ -172,7 +176,7 @@ class _CompletedChallengesPageState extends State<CompletedChallengesPage> {
             ),
             const SizedBox(height: 8),
             Text(
-              challenge['description'] as String,
+              challenge['description'] as String? ?? 'No description',
               style: TextStyle(color: Colors.grey[300], fontSize: 14),
             ),
             const SizedBox(height: 12),
@@ -185,11 +189,11 @@ class _CompletedChallengesPageState extends State<CompletedChallengesPage> {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
-                  'Reward: ${challenge['badge']['name'] as String} Badge',
+                  'Reward: ${(challenge['badge'] as Map<String, dynamic>?)?['name'] as String? ?? 'No Badge'} Badge',
                   style: const TextStyle(color: Colors.yellow, fontSize: 14),
                 ),
                 Text(
-                  challenge['badge']['icon'] as String,
+                  (challenge['badge'] as Map<String, dynamic>?)?['icon'] as String? ?? '🏆',
                   style: const TextStyle(fontSize: 20),
                 ),
               ],

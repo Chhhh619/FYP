@@ -1,9 +1,11 @@
+
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
 
-import 'SelectCategoryBudgetPage.dart';
+import 'package:fyp/ch/SelectCategoryBudgetPage.dart';
+import 'budget_calculator_bottom_sheet.dart';
 
 class BudgetPage extends StatefulWidget {
   final DateTime? selectedDate;
@@ -78,32 +80,21 @@ class _BudgetPageState extends State<BudgetPage> {
       final monthSnap = await _firestore
           .collection('transactions')
           .where('userid', isEqualTo: userId)
-          .where(
-        'timestamp',
-        isGreaterThanOrEqualTo: Timestamp.fromDate(startOfMonth),
-      )
-          .where(
-          'timestamp', isLessThanOrEqualTo: Timestamp.fromDate(endOfMonth))
+          .where('timestamp', isGreaterThanOrEqualTo: Timestamp.fromDate(startOfMonth))
+          .where('timestamp', isLessThanOrEqualTo: Timestamp.fromDate(endOfMonth))
           .get();
 
       final weekSnap = await _firestore
           .collection('transactions')
           .where('userid', isEqualTo: userId)
-          .where(
-        'timestamp',
-        isGreaterThanOrEqualTo: Timestamp.fromDate(startOfWeek),
-      )
-          .where(
-          'timestamp', isLessThanOrEqualTo: Timestamp.fromDate(endOfWeek))
+          .where('timestamp', isGreaterThanOrEqualTo: Timestamp.fromDate(startOfWeek))
+          .where('timestamp', isLessThanOrEqualTo: Timestamp.fromDate(endOfWeek))
           .get();
 
       final daySnap = await _firestore
           .collection('transactions')
           .where('userid', isEqualTo: userId)
-          .where(
-        'timestamp',
-        isGreaterThanOrEqualTo: Timestamp.fromDate(startOfDay),
-      )
+          .where('timestamp', isGreaterThanOrEqualTo: Timestamp.fromDate(startOfDay))
           .where('timestamp', isLessThanOrEqualTo: Timestamp.fromDate(endOfDay))
           .get();
 
@@ -133,8 +124,7 @@ class _BudgetPageState extends State<BudgetPage> {
         dailySpending = daily;
         monthlyBudget = tempMonthlyBudget;
         weeklyBudget = monthlyBudget! / 4;
-        dailyBudget = monthlyBudget! /
-            _getDaysInMonth(selectedDate.year, selectedDate.month);
+        dailyBudget = monthlyBudget! / _getDaysInMonth(selectedDate.year, selectedDate.month);
         _isLoading = false;
       });
     } catch (e) {
@@ -146,8 +136,7 @@ class _BudgetPageState extends State<BudgetPage> {
     }
   }
 
-  Future<double> _calculateTotalSpending(
-      List<QueryDocumentSnapshot> docs,) async {
+  Future<double> _calculateTotalSpending(List<QueryDocumentSnapshot> docs) async {
     double total = 0.0;
     for (var doc in docs) {
       final data = doc.data() as Map<String, dynamic>;
@@ -173,12 +162,8 @@ class _BudgetPageState extends State<BudgetPage> {
         .collection('users')
         .doc(userId)
         .collection('categoryBudgets')
-        .where('createdAt',
-        isGreaterThanOrEqualTo: Timestamp.fromDate(
-            DateTime(selectedDate.year, selectedDate.month, 1)))
-        .where('createdAt',
-        isLessThanOrEqualTo: Timestamp.fromDate(
-            DateTime(selectedDate.year, selectedDate.month + 1, 0)))
+        .where('createdAt', isGreaterThanOrEqualTo: Timestamp.fromDate(DateTime(selectedDate.year, selectedDate.month, 1)))
+        .where('createdAt', isLessThanOrEqualTo: Timestamp.fromDate(DateTime(selectedDate.year, selectedDate.month + 1, 0)))
         .get();
 
     List<Map<String, dynamic>> categoryBudgets = [];
@@ -187,8 +172,7 @@ class _BudgetPageState extends State<BudgetPage> {
       final categoryRef = data['category'] as DocumentReference;
       final categorySnap = await categoryRef.get();
       if (categorySnap.exists) {
-        final spent = await _calculateCategorySpending(
-            categoryRef, selectedDate);
+        final spent = await _calculateCategorySpending(categoryRef, selectedDate);
         categoryBudgets.add({
           'name': categorySnap['name'] ?? 'Unknown',
           'budget': (data['amount'] as num).toDouble(),
@@ -201,8 +185,7 @@ class _BudgetPageState extends State<BudgetPage> {
     return categoryBudgets;
   }
 
-  Future<double> _calculateCategorySpending(DocumentReference categoryRef,
-      DateTime selectedDate) async {
+  Future<double> _calculateCategorySpending(DocumentReference categoryRef, DateTime selectedDate) async {
     final userId = _auth.currentUser?.uid;
     final startOfMonth = DateTime(selectedDate.year, selectedDate.month, 1);
     final endOfMonth = DateTime(selectedDate.year, selectedDate.month + 1, 0);
@@ -211,8 +194,7 @@ class _BudgetPageState extends State<BudgetPage> {
         .collection('transactions')
         .where('userid', isEqualTo: userId)
         .where('category', isEqualTo: categoryRef)
-        .where('timestamp',
-        isGreaterThanOrEqualTo: Timestamp.fromDate(startOfMonth))
+        .where('timestamp', isGreaterThanOrEqualTo: Timestamp.fromDate(startOfMonth))
         .where('timestamp', isLessThanOrEqualTo: Timestamp.fromDate(endOfMonth))
         .get();
 
@@ -244,6 +226,48 @@ class _BudgetPageState extends State<BudgetPage> {
     setState(() {}); // Refresh the UI
   }
 
+// Added: Check if this is the first budget and update gamification
+  Future<void> _updateGamificationForBudget(String userId) async {
+// Check if user has any budgets
+    final budgetsSnap = await _firestore
+        .collection('users')
+        .doc(userId)
+        .collection('budgets')
+        .limit(1)
+        .get();
+    final categoryBudgetsSnap = await _firestore
+        .collection('users')
+        .doc(userId)
+        .collection('categoryBudgets')
+        .limit(1)
+        .get();
+
+// Only complete challenge if no budgets exist yet
+    if (budgetsSnap.docs.isEmpty && categoryBudgetsSnap.docs.isEmpty) {
+      await _firestore
+          .collection('users')
+          .doc(userId)
+          .collection('completed_challenges')
+          .doc('set_budget')
+          .set({
+        'challengeId': 'set_budget',
+        'completed': true,
+        'completedAt': Timestamp.now(),
+        'points': 25,
+      });
+
+      await _firestore.collection('users').doc(userId).update({
+        'points': FieldValue.increment(25),
+        'badges.badge_first_budget': true,
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Challenge completed: Set Your First Budget! +25 points')),
+      );
+      print('Set Your First Budget challenge completed for user: $userId'); // Added: Debugging
+    }
+  }
+
   void _toggleCalculator() {
     if (_isCalculatorOpen) return;
     _isCalculatorOpen = true;
@@ -254,12 +278,7 @@ class _BudgetPageState extends State<BudgetPage> {
       backgroundColor: Colors.transparent,
       builder: (BuildContext context) {
         return Padding(
-          padding: EdgeInsets.only(
-            bottom: MediaQuery
-                .of(context)
-                .viewInsets
-                .bottom,
-          ),
+          padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
           child: _buildCalculatorContent(),
         );
       },
@@ -294,9 +313,7 @@ class _BudgetPageState extends State<BudgetPage> {
             } else if (['+', '-', '*', '/'].contains(input)) {
               _calculatorInput += ' $input ';
             } else {
-              _calculatorInput = _calculatorInput == '0'
-                  ? input
-                  : _calculatorInput + input;
+              _calculatorInput = _calculatorInput == '0' ? input : _calculatorInput + input;
             }
           });
         }
@@ -352,42 +369,18 @@ class _BudgetPageState extends State<BudgetPage> {
                 padding: const EdgeInsets.all(8),
                 children: List.generate(17, (index) {
                   final buttons = [
-                    '7',
-                    '8',
-                    '9',
-                    '/',
-                    '4',
-                    '5',
-                    '6',
-                    '*',
-                    '1',
-                    '2',
-                    '3',
-                    '-',
-                    '0',
-                    '.',
-                    '=',
-                    '+',
-                    'delete',
+                    '7', '8', '9', '/',
+                    '4', '5', '6', '*',
+                    '1', '2', '3', '-',
+                    '0', '.', '=', '+',
+                    'delete'
                   ];
                   final icons = [
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    Icons.backspace,
+                    null, null, null, null,
+                    null, null, null, null,
+                    null, null, null, null,
+                    null, null, null, null,
+                    Icons.backspace
                   ];
                   return _buildCalcButton(
                     buttons[index],
@@ -399,8 +392,7 @@ class _BudgetPageState extends State<BudgetPage> {
               const SizedBox(height: 16),
               ElevatedButton(
                 onPressed: () {
-                  if (_calculatorInput != '0' &&
-                      !_calculatorInput.contains('Error')) {
+                  if (_calculatorInput != '0' && !_calculatorInput.contains('Error')) {
                     final result = _evaluateExpression(_calculatorInput);
                     if (result > 0) {
                       _saveBudget(result, setState);
@@ -442,6 +434,7 @@ class _BudgetPageState extends State<BudgetPage> {
         .doc(docId);
 
     await docRef.set({'amount': newBudget, 'createdAt': Timestamp.now()});
+    await _updateGamificationForBudget(userId); // Added: Trigger gamification for monthly budget
 
     setState(() {
       monthlyBudget = newBudget;
@@ -453,10 +446,7 @@ class _BudgetPageState extends State<BudgetPage> {
     setState(() {}); // Refresh the main UI
   }
 
-  Widget _buildCalcButton(String text,
-      Function(String) onPressed, {
-        IconData? icon,
-      }) {
+  Widget _buildCalcButton(String text, Function(String) onPressed, {IconData? icon}) {
     return ElevatedButton(
       onPressed: () => onPressed(text),
       style: ElevatedButton.styleFrom(
@@ -482,16 +472,538 @@ class _BudgetPageState extends State<BudgetPage> {
     for (int i = 1; i < parts.length; i += 2) {
       final op = parts[i];
       final num = double.parse(parts[i + 1]);
-      if (op == '+')
-        result += num;
-      else if (op == '-')
-        result -= num;
-      else if (op == '*')
-        result *= num;
-      else if (op == '/')
-        result /= num;
+      if (op == '+') result += num;
+      else if (op == '-') result -= num;
+      else if (op == '*') result *= num;
+      else if (op == '/') result /= num;
     }
     return result;
+  }
+
+  Future<bool> _showCategoryBudgetCalculator(DocumentReference categoryRef, String categoryName) async {
+    String input = '0';
+
+    return await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setState) {
+            void updateInput(String val) {
+              setState(() {
+                if (val == 'delete') {
+                  input = input.length > 1 ? input.substring(0, input.length - 1) : '0';
+                } else if (val == '.') {
+                  if (!input.contains('.')) input += '.';
+                } else if (val == '=') {
+                  try {
+                    final result = _evaluateExpression(input);
+                    input = result.toStringAsFixed(2);
+                  } catch (e) {
+                    input = 'Error';
+                  }
+                } else {
+                  if (input == '0' || input == 'Error') {
+                    input = val;
+                  } else {
+                    input += val;
+                  }
+                }
+              });
+            }
+
+            return Container(
+              decoration: const BoxDecoration(
+                color: Color.fromRGBO(33, 35, 34, 1),
+                borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+              ),
+              padding: EdgeInsets.only(
+                bottom: MediaQuery.of(context).viewInsets.bottom + 24,
+                top: 16,
+                left: 20,
+                right: 20,
+              ),
+              child: Wrap(
+                children: [
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 5,
+                      margin: const EdgeInsets.only(bottom: 16),
+                      decoration: BoxDecoration(
+                        color: Colors.white24,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                    ),
+                  ),
+                  Text(
+                    'Set Budget for $categoryName',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 20,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: Text(
+                      input,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 40,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  GridView.count(
+                    crossAxisCount: 4,
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    crossAxisSpacing: 12,
+                    mainAxisSpacing: 12,
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    children: [
+                      '7', '8', '9', '/',
+                      '4', '5', '6', '*',
+                      '1', '2', '3', '-',
+                      '0', '.', '=', '+',
+                      'delete'
+                    ].map((val) {
+                      final isDelete = val == 'delete';
+                      return ElevatedButton(
+                        onPressed: () => updateInput(val),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color.fromRGBO(40, 42, 41, 1),
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          padding: const EdgeInsets.all(16),
+                        ),
+                        child: isDelete
+                            ? const Icon(Icons.backspace_outlined, color: Colors.white)
+                            : Text(
+                          val,
+                          style: const TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.white,
+                          ),
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                  const SizedBox(height: 20),
+                  ElevatedButton(
+                    onPressed: () async {
+                      final userId = _auth.currentUser?.uid;
+                      final selectedDate = widget.selectedDate ?? DateTime.now();
+                      final docId = '${DateFormat('yyyy-MM').format(selectedDate)}_${categoryRef.id}';
+                      final amount = double.tryParse(input);
+                      if (userId != null && amount != null && amount > 0) {
+                        await _firestore
+                            .collection('users')
+                            .doc(userId)
+                            .collection('categoryBudgets')
+                            .doc(docId)
+                            .set({
+                          'category': categoryRef,
+                          'amount': amount,
+                          'createdAt': Timestamp.now(),
+                        });
+
+                        await _updateGamificationForBudget(userId); // Added: Trigger gamification for category budget
+
+                        if (context.mounted) {
+                          Navigator.pop(context, true);
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Category budget saved')),
+                          );
+                        }
+                      }
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.teal,
+                      foregroundColor: Colors.white,
+                      minimumSize: const Size(double.infinity, 50),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                    child: const Text(
+                      'Save Budget',
+                      style: TextStyle(fontSize: 18),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    ) ?? false;
+  }
+
+  void _showCategoryGridPopup() async {
+    final userId = _auth.currentUser?.uid;
+    if (userId == null) return;
+
+    final snapshot = await _firestore
+        .collection('categories')
+        .where('type', isEqualTo: 'expense')
+        .get();
+    final categories = snapshot.docs;
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color.fromRGBO(33, 35, 34, 1),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      isScrollControlled: true,
+      builder: (context) {
+        return Padding(
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.of(context).viewInsets.bottom + 16,
+            top: 16,
+            left: 16,
+            right: 16,
+          ),
+          child: GridView.builder(
+            shrinkWrap: true,
+            itemCount: categories.length,
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 4,
+              crossAxisSpacing: 12,
+              mainAxisSpacing: 12,
+            ),
+            itemBuilder: (context, index) {
+              final doc = categories[index];
+              final data = doc.data() as Map<String, dynamic>;
+              return Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  ElevatedButton(
+                    onPressed: () async {
+                      Navigator.pop(context);
+                      final result = await _showCategoryBudgetCalculator(
+                        doc.reference,
+                        data['name'],
+                      );
+                      if (result == true) {
+                        setState(() {}); // Refresh the main UI after adding a new category budget
+                      }
+                    },
+                    style: ElevatedButton.styleFrom(
+                      shape: const CircleBorder(),
+                      padding: const EdgeInsets.all(16),
+                      backgroundColor: const Color(0xFF2C2C2C),
+                    ),
+                    child: Text(
+                      data['icon'] ?? '❓',
+                      style: const TextStyle(fontSize: 20),
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    data['name'],
+                    style: const TextStyle(color: Colors.white, fontSize: 12),
+                  ),
+                ],
+              );
+            },
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildYearlyBudgetCard() {
+    final selectedDate = widget.selectedDate ?? DateTime.now();
+    final year = selectedDate.year;
+
+    final yearlyBudget = (monthlyBudget ?? 0) * 12;
+    final yearlySpent = totalSpending * 12;
+    final remaining = yearlyBudget - yearlySpent;
+    final progress = yearlyBudget > 0 ? (yearlySpent / yearlyBudget).clamp(0.0, 1.0) : 0.0;
+    final percentage = (progress * 100).toStringAsFixed(1);
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFF2C2C2C),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Year $year',
+            style: const TextStyle(color: Colors.white70),
+          ),
+          const SizedBox(height: 8),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'Budget\nRM${yearlyBudget.toStringAsFixed(0)}',
+                style: const TextStyle(color: Colors.white, fontSize: 18),
+              ),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(
+                    remaining >= 0 ? 'Remaining' : 'Over Budget',
+                    style: TextStyle(
+                      color: remaining >= 0 ? Colors.white70 : Colors.redAccent,
+                    ),
+                  ),
+                  Text(
+                    'RM${remaining.abs().toStringAsFixed(2)}',
+                    style: TextStyle(
+                      color: remaining >= 0 ? Colors.white70 : Colors.redAccent,
+                      fontSize: 18,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          LinearProgressIndicator(
+            value: progress,
+            backgroundColor: Colors.grey[800],
+            valueColor: const AlwaysStoppedAnimation<Color>(Colors.tealAccent),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            '$percentage% | Exp RM${yearlySpent.toStringAsFixed(2)}',
+            style: const TextStyle(color: Colors.white70),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMainBudgetCard() {
+    final selectedDate = widget.selectedDate ?? DateTime.now();
+    final difference = (monthlyBudget ?? 0) - totalSpending;
+    final progress = (monthlyBudget != null && monthlyBudget! > 0)
+        ? (totalSpending / monthlyBudget!).clamp(0.0, 1.0)
+        : 0.0;
+    final percentage = (monthlyBudget != null && monthlyBudget! > 0)
+        ? (progress * 100).toStringAsFixed(1)
+        : '0.0';
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFF2C2C2C),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '${DateFormat('d MMM').format(DateTime(selectedDate.year, selectedDate.month, 1))} - '
+                '${DateFormat('d MMM').format(DateTime(selectedDate.year, selectedDate.month + 1, 0))}',
+            style: const TextStyle(color: Colors.white70),
+          ),
+          const SizedBox(height: 8),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(
+                children: [
+                  Text(
+                    'Budget\nRM${(monthlyBudget ?? 0).toStringAsFixed(0)}',
+                    style: const TextStyle(color: Colors.white, fontSize: 18),
+                  ),
+                  IconButton(
+                    onPressed: _toggleCalculator,
+                    icon: const Icon(
+                      Icons.edit,
+                      color: Colors.white70,
+                      size: 20,
+                    ),
+                    padding: const EdgeInsets.only(left: 4.0),
+                    constraints: const BoxConstraints(),
+                  ),
+                ],
+              ),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(
+                    difference >= 0 ? 'Remaining' : 'Over Budget',
+                    style: TextStyle(
+                      color: difference >= 0 ? Colors.white70 : Colors.redAccent,
+                    ),
+                  ),
+                  Text(
+                    'RM${difference.abs().toStringAsFixed(2)}',
+                    style: TextStyle(
+                      color: difference >= 0 ? Colors.white70 : Colors.redAccent,
+                      fontSize: 18,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          LinearProgressIndicator(
+            value: progress,
+            backgroundColor: Colors.grey[800],
+            valueColor: const AlwaysStoppedAnimation<Color>(Colors.tealAccent),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            '$percentage% | Exp RM${totalSpending.toStringAsFixed(2)}',
+            style: const TextStyle(color: Colors.white70),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSmallBudgetCard(String label, double budget, double spent) {
+    final over = spent - budget;
+    final progress = (budget > 0) ? (spent / budget).clamp(0.0, 1.0) : 0.0;
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFF2C2C2C),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label, style: const TextStyle(color: Colors.white70)),
+          const SizedBox(height: 8),
+          Text(
+            over > 0 ? 'Over Budget' : 'Remaining',
+            style: TextStyle(
+              color: over > 0 ? Colors.redAccent : Colors.white70,
+            ),
+          ),
+          Text(
+            'RM${over > 0 ? over.toStringAsFixed(2) : (budget - spent).toStringAsFixed(2)}',
+            style: TextStyle(
+              color: over > 0 ? Colors.redAccent : Colors.white70,
+              fontSize: 16,
+            ),
+          ),
+          const SizedBox(height: 8),
+          LinearProgressIndicator(
+            value: progress,
+            backgroundColor: Colors.grey[800],
+            valueColor: const AlwaysStoppedAnimation<Color>(Colors.teal),
+          ),
+          Text(
+            'Bud RM${budget.toStringAsFixed(0)}\nExp RM${spent.toStringAsFixed(2)}',
+            style: const TextStyle(color: Colors.white70),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCategoryCard(String name, double budget, double spent, String icon, String docId) {
+    final remaining = budget - spent;
+    final percent = (budget > 0) ? (spent / budget).clamp(0.0, 1.0) * 100 : 0.0;
+
+    return GestureDetector(
+      onLongPress: () {
+        showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            backgroundColor: const Color(0xFF2C2C2C),
+            title: Text(
+              'Delete Budget for $name',
+              style: const TextStyle(color: Colors.white),
+            ),
+            content: const Text(
+              'Are you sure you want to delete this category budget?',
+              style: TextStyle(color: Colors.white70),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text(
+                  'Cancel',
+                  style: TextStyle(color: Colors.teal),
+                ),
+              ),
+              TextButton(
+                onPressed: () async {
+                  await _deleteCategoryBudget(docId);
+                  if (context.mounted) Navigator.pop(context);
+                },
+                child: const Text(
+                  'Delete',
+                  style: TextStyle(color: Colors.redAccent),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: const Color(0xFF2C2C2C),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Row(
+          children: [
+            CircleAvatar(
+              backgroundColor: Colors.grey[800],
+              child: Text(
+                icon,
+                style: const TextStyle(color: Colors.white),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(name, style: const TextStyle(color: Colors.white)),
+                  const SizedBox(height: 4),
+                  LinearProgressIndicator(
+                    value: (budget > 0) ? (spent / budget).clamp(0.0, 1.0) : 0.0,
+                    backgroundColor: Colors.grey[800],
+                    valueColor: const AlwaysStoppedAnimation<Color>(Colors.teal),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Bud RM${budget.toStringAsFixed(0)}  Exp RM${spent.toStringAsFixed(1)}',
+                    style: const TextStyle(color: Colors.white70),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 12),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(
+                  '${(100 - percent).toStringAsFixed(2)}%',
+                  style: const TextStyle(color: Colors.white70),
+                ),
+                Text(
+                  'Remaining\nRM${remaining.toStringAsFixed(1)}',
+                  textAlign: TextAlign.right,
+                  style: const TextStyle(color: Colors.white),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
@@ -588,8 +1100,7 @@ class _BudgetPageState extends State<BudgetPage> {
               future: _fetchCategoryBudgets(),
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Center(
-                      child: CircularProgressIndicator(color: Colors.teal));
+                  return const Center(child: CircularProgressIndicator(color: Colors.teal));
                 }
                 if (snapshot.hasError) {
                   return const Text(
@@ -606,575 +1117,19 @@ class _BudgetPageState extends State<BudgetPage> {
                 }
                 return Column(
                   children: categoryBudgets
-                      .map((budget) =>
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 8),
-                        child: _buildCategoryCard(
-                          budget['name'],
-                          budget['budget'],
-                          budget['spent'],
-                          budget['icon'],
-                          budget['docId'],
-                        ),
-                      ))
+                      .map((budget) => Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: _buildCategoryCard(
+                      budget['name'],
+                      budget['budget'],
+                      budget['spent'],
+                      budget['icon'],
+                      budget['docId'],
+                    ),
+                  ))
                       .toList(),
                 );
               },
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  void _showCategoryGridPopup() async {
-    final userId = _auth.currentUser?.uid;
-    if (userId == null) return;
-
-    final snapshot = await _firestore
-        .collection('categories')
-        .where('type', isEqualTo: 'expense')
-        .get();
-    final categories = snapshot.docs;
-
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: const Color.fromRGBO(33, 35, 34, 1),
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      isScrollControlled: true,
-      builder: (context) {
-        return Padding(
-          padding: EdgeInsets.only(
-            bottom: MediaQuery
-                .of(context)
-                .viewInsets
-                .bottom + 16,
-            top: 16,
-            left: 16,
-            right: 16,
-          ),
-          child: GridView.builder(
-            shrinkWrap: true,
-            itemCount: categories.length,
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 4,
-              crossAxisSpacing: 12,
-              mainAxisSpacing: 12,
-            ),
-            itemBuilder: (context, index) {
-              final doc = categories[index];
-              final data = doc.data() as Map<String, dynamic>;
-              return Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  ElevatedButton(
-                    onPressed: () async {
-                      Navigator.pop(context);
-                      final result = await _showCategoryBudgetCalculator(
-                        doc.reference,
-                        data['name'],
-                      );
-                      if (result == true) {
-                        setState(() {}); // Refresh the main UI after adding a new category budget
-                      }
-                    },
-                    style: ElevatedButton.styleFrom(
-                      shape: const CircleBorder(),
-                      padding: const EdgeInsets.all(16),
-                      backgroundColor: const Color(0xFF2C2C2C),
-                    ),
-                    child: Text(
-                      data['icon'] ?? '❓',
-                      style: const TextStyle(fontSize: 20),
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    data['name'],
-                    style: const TextStyle(color: Colors.white, fontSize: 12),
-                  ),
-                ],
-              );
-            },
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _buildYearlyBudgetCard() {
-    final selectedDate = widget.selectedDate ?? DateTime.now();
-    final year = selectedDate.year;
-
-    // You can improve this logic to actually fetch total yearly budget/spending
-    final yearlyBudget = (monthlyBudget ?? 0) * 12;
-    final yearlySpent = totalSpending * 12;
-    final remaining = yearlyBudget - yearlySpent;
-    final progress = yearlyBudget > 0 ? (yearlySpent / yearlyBudget).clamp(0.0, 1.0) : 0.0;
-    final percentage = (progress * 100).toStringAsFixed(1);
-
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: const Color(0xFF2C2C2C),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Year $year',
-            style: const TextStyle(color: Colors.white70),
-          ),
-          const SizedBox(height: 8),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                'Budget\nRM${yearlyBudget.toStringAsFixed(0)}',
-                style: const TextStyle(color: Colors.white, fontSize: 18),
-              ),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Text(
-                    remaining >= 0 ? 'Remaining' : 'Over Budget',
-                    style: TextStyle(
-                      color: remaining >= 0 ? Colors.white70 : Colors.redAccent,
-                    ),
-                  ),
-                  Text(
-                    'RM${remaining.abs().toStringAsFixed(2)}',
-                    style: TextStyle(
-                      color: remaining >= 0 ? Colors.white70 : Colors.redAccent,
-                      fontSize: 18,
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          LinearProgressIndicator(
-            value: progress,
-            backgroundColor: Colors.grey[800],
-            valueColor: const AlwaysStoppedAnimation<Color>(Colors.tealAccent),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            '$percentage% | Exp RM${yearlySpent.toStringAsFixed(2)}',
-            style: const TextStyle(color: Colors.white70),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Future<bool> _showCategoryBudgetCalculator(DocumentReference categoryRef,
-      String categoryName,) async {
-    String input = '0';
-
-    return await showModalBottomSheet<bool>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) {
-        return StatefulBuilder(
-          builder: (context, setState) {
-            void updateInput(String val) {
-              setState(() {
-                if (val == 'delete') {
-                  input =
-                  input.length > 1 ? input.substring(0, input.length - 1) : '0';
-                } else if (val == '.') {
-                  if (!input.contains('.')) input += '.';
-                } else if (val == '=') {
-                  try {
-                    final result = _evaluateExpression(input);
-                    input = result.toStringAsFixed(2);
-                  } catch (e) {
-                    input = 'Error';
-                  }
-                } else {
-                  if (input == '0' || input == 'Error') {
-                    input = val;
-                  } else {
-                    input += val;
-                  }
-                }
-              });
-            }
-
-            return Container(
-              decoration: const BoxDecoration(
-                color: Color.fromRGBO(33, 35, 34, 1),
-                borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-              ),
-              padding: EdgeInsets.only(
-                bottom: MediaQuery
-                    .of(context)
-                    .viewInsets
-                    .bottom + 24,
-                top: 16,
-                left: 20,
-                right: 20,
-              ),
-              child: Wrap(
-                children: [
-                  Center(
-                    child: Container(
-                      width: 40,
-                      height: 5,
-                      margin: const EdgeInsets.only(bottom: 16),
-                      decoration: BoxDecoration(
-                        color: Colors.white24,
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                    ),
-                  ),
-                  Text(
-                    'Set Budget for $categoryName',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 20,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: Text(
-                      input,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 40,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  GridView.count(
-                    crossAxisCount: 4,
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    crossAxisSpacing: 12,
-                    mainAxisSpacing: 12,
-                    padding: const EdgeInsets.symmetric(vertical: 8),
-                    children: [
-                      '7', '8', '9', '/',
-                      '4', '5', '6', '*',
-                      '1', '2', '3', '-',
-                      '0', '.', '=', '+',
-                      'delete'
-                    ].map((val) {
-                      final isDelete = val == 'delete';
-                      return ElevatedButton(
-                        onPressed: () => updateInput(val),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color.fromRGBO(40, 42, 41, 1),
-                          foregroundColor: Colors.white,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          padding: const EdgeInsets.all(16),
-                        ),
-                        child: isDelete
-                            ? const Icon(
-                            Icons.backspace_outlined, color: Colors.white)
-                            : Text(
-                          val,
-                          style: const TextStyle(
-                            fontSize: 20,
-                            fontWeight: FontWeight.w600,
-                            color: Colors.white,
-                          ),
-                        ),
-                      );
-                    }).toList(),
-                  ),
-                  const SizedBox(height: 20),
-                  ElevatedButton(
-                    onPressed: () async {
-                      final userId = _auth.currentUser?.uid;
-                      final selectedDate = widget.selectedDate ??
-                          DateTime.now();
-                      final docId =
-                          '${DateFormat('yyyy-MM').format(
-                          selectedDate)}_${categoryRef.id}';
-                      final amount = double.tryParse(input);
-                      if (userId != null && amount != null && amount > 0) {
-                        await _firestore
-                            .collection('users')
-                            .doc(userId)
-                            .collection('categoryBudgets')
-                            .doc(docId)
-                            .set({
-                          'category': categoryRef,
-                          'amount': amount,
-                          'createdAt': Timestamp.now(),
-                        });
-
-                        if (context.mounted) {
-                          Navigator.pop(
-                              context, true); // Return true to indicate success
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                                content: Text('Category budget saved')),
-                          );
-                        }
-                      }
-                    },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.teal,
-                      foregroundColor: Colors.white,
-                      minimumSize: const Size(double.infinity, 50),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                    ),
-                    child: const Text(
-                      'Save Budget',
-                      style: TextStyle(fontSize: 18),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                ],
-              ),
-            );
-          },
-        );
-      },
-    ) ?? false;
-  }
-
-  Widget _buildMainBudgetCard() {
-    final selectedDate = widget.selectedDate ?? DateTime.now();
-    final difference = (monthlyBudget ?? 0) - totalSpending;
-    final progress = (monthlyBudget != null && monthlyBudget! > 0)
-        ? (totalSpending / monthlyBudget!).clamp(0.0, 1.0)
-        : 0.0;
-    final percentage = (monthlyBudget != null && monthlyBudget! > 0)
-        ? (progress * 100).toStringAsFixed(1)
-        : '0.0';
-
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: const Color(0xFF2C2C2C),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            '${DateFormat('d MMM').format(
-                DateTime(selectedDate.year, selectedDate.month, 1))} - '
-                '${DateFormat('d MMM').format(
-                DateTime(selectedDate.year, selectedDate.month + 1, 0))}',
-            style: const TextStyle(color: Colors.white70),
-          ),
-          const SizedBox(height: 8),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Row(
-                children: [
-                  Text(
-                    'Budget\nRM${(monthlyBudget ?? 0).toStringAsFixed(0)}',
-                    style: const TextStyle(color: Colors.white, fontSize: 18),
-                  ),
-                  IconButton(
-                    onPressed: _toggleCalculator,
-                    icon: const Icon(
-                      Icons.edit,
-                      color: Colors.white70,
-                      size: 20,
-                    ),
-                    padding: const EdgeInsets.only(left: 4.0),
-                    constraints: const BoxConstraints(),
-                  ),
-                ],
-              ),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Text(
-                    difference >= 0 ? 'Remaining' : 'Over Budget',
-                    style: TextStyle(
-                      color: difference >= 0 ? Colors.white70 : Colors
-                          .redAccent,
-                    ),
-                  ),
-                  Text(
-                    'RM${difference.abs().toStringAsFixed(2)}',
-                    style: TextStyle(
-                      color: difference >= 0 ? Colors.white70 : Colors
-                          .redAccent,
-                      fontSize: 18,
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          LinearProgressIndicator(
-            value: progress,
-            backgroundColor: Colors.grey[800],
-            valueColor: const AlwaysStoppedAnimation<Color>(Colors.tealAccent),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            '$percentage% | Exp RM${totalSpending.toStringAsFixed(2)}',
-            style: const TextStyle(color: Colors.white70),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSmallBudgetCard(String label, double budget, double spent) {
-    final over = spent - budget;
-    final progress = (budget > 0) ? (spent / budget).clamp(0.0, 1.0) : 0.0;
-
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: const Color(0xFF2C2C2C),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(label, style: const TextStyle(color: Colors.white70)),
-          const SizedBox(height: 8),
-          Text(
-            over > 0 ? 'Over Budget' : 'Remaining',
-            style: TextStyle(
-              color: over > 0 ? Colors.redAccent : Colors.white70,
-            ),
-          ),
-          Text(
-            'RM${over > 0 ? over.toStringAsFixed(2) : (budget - spent)
-                .toStringAsFixed(2)}',
-            style: TextStyle(
-              color: over > 0 ? Colors.redAccent : Colors.white70,
-              fontSize: 16,
-            ),
-          ),
-          const SizedBox(height: 8),
-          LinearProgressIndicator(
-            value: progress,
-            backgroundColor: Colors.grey[800],
-            valueColor: const AlwaysStoppedAnimation<Color>(Colors.teal),
-          ),
-          Text(
-            'Bud RM${budget.toStringAsFixed(0)}\nExp RM${spent.toStringAsFixed(
-                2)}',
-            style: const TextStyle(color: Colors.white70),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildCategoryCard(String name, double budget, double spent,
-      String icon, String docId) {
-    final remaining = budget - spent;
-    final percent = (budget > 0) ? (spent / budget).clamp(0.0, 1.0) * 100 : 0.0;
-
-    return GestureDetector(
-      onLongPress: () {
-        showDialog(
-          context: context,
-          builder: (context) =>
-              AlertDialog(
-                backgroundColor: const Color(0xFF2C2C2C),
-                title: Text(
-                  'Delete Budget for $name',
-                  style: const TextStyle(color: Colors.white),
-                ),
-                content: const Text(
-                  'Are you sure you want to delete this category budget?',
-                  style: TextStyle(color: Colors.white70),
-                ),
-                actions: [
-                  TextButton(
-                    onPressed: () => Navigator.pop(context),
-                    child: const Text(
-                      'Cancel',
-                      style: TextStyle(color: Colors.teal),
-                    ),
-                  ),
-                  TextButton(
-                    onPressed: () async {
-                      await _deleteCategoryBudget(docId);
-                      if (context.mounted) Navigator.pop(context);
-                    },
-                    child: const Text(
-                      'Delete',
-                      style: TextStyle(color: Colors.redAccent),
-                    ),
-                  ),
-                ],
-              ),
-        );
-      },
-      child: Container(
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: const Color(0xFF2C2C2C),
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Row(
-          children: [
-            CircleAvatar(
-              backgroundColor: Colors.grey[800],
-              child: Text(
-                icon,
-                style: const TextStyle(color: Colors.white),
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(name, style: const TextStyle(color: Colors.white)),
-                  const SizedBox(height: 4),
-                  LinearProgressIndicator(
-                    value: (budget > 0)
-                        ? (spent / budget).clamp(0.0, 1.0)
-                        : 0.0,
-                    backgroundColor: Colors.grey[800],
-                    valueColor: const AlwaysStoppedAnimation<Color>(
-                        Colors.teal),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    'Bud RM${budget.toStringAsFixed(0)}  Exp RM${spent
-                        .toStringAsFixed(1)}',
-                    style: const TextStyle(color: Colors.white70),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(width: 12),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                Text(
-                  '${(100 - percent).toStringAsFixed(2)}%',
-                  style: const TextStyle(color: Colors.white70),
-                ),
-                Text(
-                  'Remaining\nRM${remaining.toStringAsFixed(1)}',
-                  textAlign: TextAlign.right,
-                  style: const TextStyle(color: Colors.white),
-                ),
-              ],
             ),
           ],
         ),

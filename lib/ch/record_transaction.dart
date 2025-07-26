@@ -87,8 +87,8 @@ class _RecordTransactionPageState extends State<RecordTransactionPage> {
 
   bool _saveAttempted = false;
 
-  void _saveTransaction(String calculatorInput, double calculatorResult,
-      StateSetter setState) {
+  //changed for gamification module
+  void _saveTransaction(String calculatorInput, double calculatorResult, StateSetter setState) { //change for my gamification module
     final userId = _auth.currentUser?.uid;
     if (userId == null || _selectedCategoryId == null) {
       setState(() {
@@ -103,8 +103,7 @@ class _RecordTransactionPageState extends State<RecordTransactionPage> {
       calculatorResult = double.nan;
     }
 
-    if (calculatorInput == '0' || calculatorInput == 'Error' ||
-        calculatorResult.isNaN || calculatorResult == 0) {
+    if (calculatorInput == '0' || calculatorInput == 'Error' || calculatorResult.isNaN || calculatorResult == 0) {
       setState(() {
         _saveAttempted = true;
       });
@@ -122,14 +121,23 @@ class _RecordTransactionPageState extends State<RecordTransactionPage> {
       'amount': calculatorResult,
       'timestamp': Timestamp.fromDate(_selectedDate),
       'category': _firestore.collection('categories').doc(_selectedCategoryId),
+      'type': _type, // Add type to match HomePage filtering
     })
         .then((value) {
-      Navigator.of(context).popUntil((route) => route.isFirst);
+      print('Transaction saved successfully: ${value.id}');
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Transaction recorded')),
+      );
+      Navigator.pop(context); // Return to HomePage
     })
         .catchError((error) {
+      print('Error saving transaction: $error');
       setState(() {
         _saveAttempted = true;
       });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to record transaction: $error')),
+      );
     });
   }
 

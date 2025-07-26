@@ -1,3 +1,4 @@
+
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -9,7 +10,6 @@ import 'package:fyp/bottom_nav_bar.dart';
 import 'package:fyp/wc/financial_tips.dart';
 import 'package:fyp/ch/persistent_add_button.dart';
 import 'package:intl/intl.dart';
-
 import 'package:fyp/wc/gamification_page.dart';
 
 class HomePage extends StatefulWidget {
@@ -43,6 +43,11 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
     _updateCurrentPeriod();
     print('HomePage initialized, User ID: ${_auth.currentUser?.uid}'); // Debug
     _scrollController.addListener(_scrollListener);
+      // Monitor auth state changes (wc's gamification module)
+    FirebaseAuth.instance.authStateChanges().listen((User? user) {
+      print('Auth state changed: ${user?.uid ?? 'No user'}');
+    });
+    _checkNoSpendDay(); // Added: Check for No-Spend Day challenge on page load
   }
 
   @override
@@ -54,6 +59,78 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
 
   @override
   bool get wantKeepAlive => true; // Preserve state across navigation
+
+// Added: Check for No-Spend Day challenge
+  Future<void> _checkNoSpendDay() async {
+    final userId = _auth.currentUser?.uid;
+    if (userId == null) {
+      print('No user logged in for No-Spend Day check'); // Added: Debugging
+      return;
+    }
+
+// Check if already completed
+    final challengeDoc = await _firestore
+        .collection('users')
+        .doc(userId)
+        .collection('completed_challenges')
+        .doc('no_spend_day')
+        .get();
+    if (challengeDoc.exists) {
+      print('No-Spend Day challenge already completed for user: $userId'); // Added: Debugging
+      return;
+    }
+
+    final now = DateTime.now();
+    final startOfYesterday = DateTime(now.year, now.month, now.day - 1);
+    final endOfYesterday = startOfYesterday.add(const Duration(days: 1));
+
+    try {
+      final transactions = await _firestore
+          .collection('transactions')
+          .where('userid', isEqualTo: userId)
+          .where('timestamp', isGreaterThanOrEqualTo: Timestamp.fromDate(startOfYesterday))
+          .where('timestamp', isLessThanOrEqualTo: Timestamp.fromDate(endOfYesterday))
+          .get();
+
+      bool hasExpenses = false;
+      for (var doc in transactions.docs) {
+        final categoryRef = doc['category'] as DocumentReference;
+        final categorySnap = await categoryRef.get();
+        if (categorySnap.exists && categorySnap['type'] == 'expense') {
+          hasExpenses = true;
+          break;
+        }
+      }
+
+      if (!hasExpenses) {
+        await _firestore
+            .collection('users')
+            .doc(userId)
+            .collection('completed_challenges')
+            .doc('no_spend_day')
+            .set({
+          'challengeId': 'no_spend_day',
+          'completed': true,
+          'completedAt': Timestamp.now(),
+          'points': 15,
+        });
+
+        await _firestore.collection('users').doc(userId).update({
+          'points': FieldValue.increment(15),
+          'badges.badge_no_spend_day': true,
+        });
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Challenge completed: No-Spend Day! +15 points')),
+        );
+        print('No-Spend Day challenge completed for user: $userId'); // Added: Debugging
+      } else {
+        print('Expenses found for $startOfYesterday, No-Spend Day not completed'); // Added: Debugging
+      }
+    } catch (e) {
+      print('Error checking No-Spend Day: $e'); // Added: Debugging
+    }
+  }
 
   void _scrollListener() {
     print(
@@ -87,7 +164,7 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
       final end = DateTime(selectedDate.year, selectedDate.month + 1, 0); // End of month
       currentPeriod = '${formatter.format(start)} - ${formatter.format(end)}';
     } else {
-      // year mode
+// year mode
       displayText = selectedDate.year.toString(); // Show year
       final start = DateTime(selectedDate.year, 1, 1); // Start of year
       final end = DateTime(selectedDate.year, 12, 31); // End of year
@@ -270,7 +347,7 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
     }
 
     try {
-      // Check if the "Cook at Home" tip is marked irrelevant
+// Check if the "Cook at Home" tip is marked irrelevant
       final feedbackSnapshot = await _firestore
           .collection('users')
           .doc(userId)
@@ -288,7 +365,7 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
         return;
       }
 
-      // Fetch transactions for the current month
+// Fetch transactions for the current month
       final now = DateTime.now();
       final startOfMonth = DateTime(now.year, now.month, 1);
       final endOfMonth = DateTime(now.year, now.month + 1, 0);
@@ -374,7 +451,7 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
       );
     }
 
-    // Trigger popup after widget build
+// Trigger popup after widget build
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _showTipPopup();
     });
@@ -444,7 +521,7 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
               return true; // Fallback to all
             }).toList();
 
-            // Calculate totals
+// Calculate totals
             double totalExpenses = 0.0;
             double totalIncome = 0.0;
             for (var tx in displayedTransactions) {
@@ -456,7 +533,7 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
               }
             }
 
-            // Show welcome message if no transactions
+// Show welcome message if no transactions
             if (filteredTransactions.isEmpty) {
               return Scaffold(
                 backgroundColor: Color.fromRGBO(28, 28, 28, 0),
@@ -548,7 +625,7 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
                           ),
                         );
                       } else if (index == 3) {
-                        // "Mine" selected - navigate to SettingsPage
+// "Mine" selected - navigate to SettingsPage
                         Navigator.push(
                           context,
                           MaterialPageRoute(
@@ -591,9 +668,8 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
                   ),
                   IconButton(
                     icon: Icon(
-                      viewMode == 'month' ? Icons.view_agenda : Icons.view_week,
-                      color: Colors.white,
-                    ),
+                        viewMode == 'month' ? Icons.view_agenda : Icons.view_week,
+                        color: Colors.white),
                     onPressed: _toggleViewMode,
                   ),
                 ],
@@ -703,8 +779,7 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
                     Expanded(
                       child: Builder(
                         builder: (context) {
-                          Map<DateTime, List<Map<String, dynamic>>>
-                          groupedTransactions = {};
+                          Map<DateTime, List<Map<String, dynamic>>> groupedTransactions = {};
                           for (var tx in displayedTransactions) {
                             final txDate = tx['timestamp']!.toDate();
                             final groupKey = viewMode == 'month'
@@ -832,9 +907,9 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
                   setState(() {
                     selectedIndex = index; // Update selected index
                     if (index == 0) {
-                      // "Details" selected - stay on HomePage
+// "Details" selected - stay on HomePage
                     } else if (index == 1) {
-                      // "Trending" selected - navigate to FinancialTipsScreen
+// "Trending" selected - navigate to FinancialTipsScreen
                       Navigator.push(
                         context,
                         MaterialPageRoute(
@@ -842,7 +917,7 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
                         ),
                       );
                     } else if (index == 2) {
-                      // "Insights" selected - navigate to GamificationPage
+// "Insights" selected - navigate to GamificationPage
                       Navigator.push(
                         context,
                         MaterialPageRoute(
@@ -850,7 +925,7 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
                         ),
                       );
                     } else if (index == 3) {
-                      // "Mine" selected - navigate to SettingsPage
+// "Mine" selected - navigate to SettingsPage
                       Navigator.push(
                         context,
                         MaterialPageRoute(
@@ -1058,9 +1133,9 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
           setState(() {
             selectedIndex = index; // Update selected index
             if (index == 0) {
-              // "Details" selected - stay on HomePage
+// "Details" selected - stay on HomePage
             } else if (index == 1) {
-              // "Trending" selected - navigate to FinancialTipsScreen
+// "Trending" selected - navigate to FinancialTipsScreen
               Navigator.push(
                 context,
                 MaterialPageRoute(
@@ -1068,7 +1143,7 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
                 ),
               );
             } else if (index == 2) {
-              // "Insights" selected - navigate to GamificationPage
+// "Insights" selected - navigate to GamificationPage
               Navigator.push(
                 context,
                 MaterialPageRoute(
@@ -1076,7 +1151,7 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
                 ),
               );
             } else if (index == 3) {
-              // "Mine" selected - navigate to SettingsPage
+// "Mine" selected - navigate to SettingsPage
               Navigator.push(
                 context,
                 MaterialPageRoute(

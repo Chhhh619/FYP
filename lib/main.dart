@@ -10,11 +10,8 @@ import 'wc/currencyconverter.dart';
 import 'wc/splash.dart';
 import 'wc/home.dart';
 import 'ch/homepage.dart';
-import 'wc/financial_planning_advisor.dart';
+import 'wc/financia_planning_screen.dart';
 import 'wc/financial_tips.dart';
-import 'wc/bills/notification_service.dart';
-import 'wc/bills/bill_repository.dart';
-import 'wc/bills/firebase_service.dart';
 import 'wc/bill/bill_payment_screen.dart';
 import 'wc/Onboard/Onboarding.dart';
 import 'wc/bill/payment_history_screen.dart';
@@ -30,12 +27,7 @@ void main() async {
     androidProvider: AndroidProvider.safetyNet,
     appleProvider: AppleProvider.deviceCheck,
   );
-  // Initialize Notification Service
-  final notificationService = NotificationService();
-  await notificationService.initialize();
-  // Initialize Firebase Service and Bill Repository
-  final firebaseService = FirebaseService();
-  final billRepository = BillRepository(firebaseService, notificationService);
+
 
   runApp(const MyApp());
 }

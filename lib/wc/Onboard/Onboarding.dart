@@ -18,17 +18,17 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     OnboardingPage(
       title: "Track Every Transaction",
       description: "Monitor all your income and expenses in one place",
-      image: "assets/images/lesun.jpg",
+      image: "assets/images/cookies.jpg",
     ),
     OnboardingPage(
       title: "Financial Insights",
       description: "Get clear visualizations of your spending habits",
-      image: "assets/images/lesun.jpg",
+      image: "assets/images/cookies.jpg",
     ),
     OnboardingPage(
       title: "Secure & Private",
       description: "Your financial data is protected with bank-level security",
-      image: "assets/images/lesun.jpg",
+      image: "assets/images/cookies.jpg",
     ),
   ];
 

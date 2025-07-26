@@ -260,12 +260,12 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                     crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
                       Image.asset(
-                        'assets/images/lesun.jpg',
+                        'assets/images/cookies.jpg',
                         height: 100,
                       ),
                       const SizedBox(height: 20),
                       const Text(
-                        'Cookies',
+                        'Crumbs',
                         style: TextStyle(
                           fontSize: 32,
                           fontWeight: FontWeight.bold,
