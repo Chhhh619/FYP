@@ -1,184 +1,314 @@
-import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import '../bill/bill.dart';
-import 'bill_payment_screen.dart'; // For navigation back reference
+import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 
 class PaymentHistoryScreen extends StatefulWidget {
   final String userId;
-  PaymentHistoryScreen({required this.userId});
+  final VoidCallback? onRefresh;
+
+  const PaymentHistoryScreen({Key? key, required this.userId, this.onRefresh}) : super(key: key);
 
   @override
-  _PaymentHistoryScreenState createState() => _PaymentHistoryScreenState();
+  State<PaymentHistoryScreen> createState() => _PaymentHistoryScreenState();
 }
 
 class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
-  int selectedIndex = 0; // Default to Payment History tab
+  bool _isDeleting = false;
+
+  Future<void> _clearAllPayments(BuildContext context) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color.fromRGBO(50, 50, 50, 1),
+        title: const Text('Clear All Payment History', style: TextStyle(color: Colors.white)),
+        content: const Text(
+          'Are you sure you want to clear all payment history? This will revert all paid bills to pending.',
+          style: TextStyle(color: Colors.white70),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel', style: TextStyle(color: Colors.white70)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Clear', style: TextStyle(color: Colors.redAccent)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    setState(() {
+      _isDeleting = true;
+    });
+
+    try {
+      final paymentsSnapshot = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(widget.userId)
+          .collection('payments')
+          .get();
+
+      final batch = FirebaseFirestore.instance.batch();
+
+      for (var paymentDoc in paymentsSnapshot.docs) {
+        final billId = paymentDoc.data()['billId'] as String?;
+        batch.delete(paymentDoc.reference);
+        if (billId != null) {
+          // Check if the bill exists before updating
+          final billDoc = await FirebaseFirestore.instance
+              .collection('users')
+              .doc(widget.userId)
+              .collection('bills')
+              .doc(billId)
+              .get();
+          if (billDoc.exists) {
+            batch.update(
+              FirebaseFirestore.instance
+                  .collection('users')
+                  .doc(widget.userId)
+                  .collection('bills')
+                  .doc(billId),
+              {
+                'status': 'pending',
+                'paidAt': null,
+              },
+            );
+          } else {
+            print('Warning: Bill $billId for payment ${paymentDoc.id} does not exist');
+          }
+        } else {
+          print('Warning: Payment ${paymentDoc.id} has no billId');
+        }
+      }
+
+      await batch.commit().then((_) {
+        print('Batch commit successful for clearAllPayments');
+      }).catchError((e, stackTrace) {
+        print('Batch commit failed for clearAllPayments: $e\nStackTrace: $stackTrace');
+        throw e;
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('All payment history cleared')),
+        );
+      }
+      widget.onRefresh?.call();
+    } catch (e, stackTrace) {
+      print('Error clearing payment history: $e\nStackTrace: $stackTrace');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error clearing payment history: $e')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isDeleting = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _deleteSinglePayment(BuildContext context, String paymentId, String? billId) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color.fromRGBO(50, 50, 50, 1),
+        title: const Text('Delete Payment', style: TextStyle(color: Colors.white)),
+        content: const Text(
+          'Are you sure you want to delete this payment? This will revert the bill to pending.',
+          style: TextStyle(color: Colors.white70),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel', style: TextStyle(color: Colors.white70)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Delete', style: TextStyle(color: Colors.redAccent)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    setState(() {
+      _isDeleting = true;
+    });
+
+    try {
+      final batch = FirebaseFirestore.instance.batch();
+      batch.delete(
+        FirebaseFirestore.instance
+            .collection('users')
+            .doc(widget.userId)
+            .collection('payments')
+            .doc(paymentId),
+      );
+      if (billId != null) {
+        // Check if the bill exists before updating
+        final billDoc = await FirebaseFirestore.instance
+            .collection('users')
+            .doc(widget.userId)
+            .collection('bills')
+            .doc(billId)
+            .get();
+        if (billDoc.exists) {
+          batch.update(
+            FirebaseFirestore.instance
+                .collection('users')
+                .doc(widget.userId)
+                .collection('bills')
+                .doc(billId),
+            {
+              'status': 'pending',
+              'paidAt': null,
+            },
+          );
+        } else {
+          print('Warning: Bill $billId for payment $paymentId does not exist');
+        }
+      } else {
+        print('Warning: Payment $paymentId has no billId');
+      }
+
+      await batch.commit().then((_) {
+        print('Batch commit successful for deleteSinglePayment: paymentId=$paymentId, billId=$billId');
+      }).catchError((e, stackTrace) {
+        print('Batch commit failed for deleteSinglePayment: $e\nStackTrace: $stackTrace');
+        throw e;
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Payment deleted')),
+        );
+      }
+      widget.onRefresh?.call();
+    } catch (e, stackTrace) {
+      print('Error deleting payment: $e\nStackTrace: $stackTrace');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error deleting payment: $e')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isDeleting = false;
+        });
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: const Color.fromRGBO(28, 28, 28, 1),
       appBar: AppBar(
-        backgroundColor: Colors.grey[900],
-        title: const Text(
-          'Payment History',
-          style: TextStyle(color: Colors.white),
-        ),
+        backgroundColor: const Color.fromRGBO(28, 28, 28, 1),
+        title: const Text('Payment History', style: TextStyle(color: Colors.white)),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back, color: Colors.white),
-          onPressed: () {
-            Navigator.pushReplacementNamed(context, '/bill', arguments: widget.userId);
-          },
+          onPressed: () => Navigator.pop(context),
         ),
-      ),
-      body: IndexedStack(
-        index: selectedIndex,
-        children: [
-          // Payment History Tab
-          StreamBuilder<QuerySnapshot>(
-            stream: FirebaseFirestore.instance
-                .collection('users')
-                .doc(widget.userId)
-                .collection('bills')
-                .where('isPaid', isEqualTo: true)
-                .snapshots(),
-            builder: (context, snapshot) {
-              if (!snapshot.hasData) return Center(child: CircularProgressIndicator(color: Colors.grey[700]));
-              var paidBills = snapshot.data!.docs.map((doc) => Bill.fromJson(doc.data() as Map<String, dynamic>)).toList();
-              if (paidBills.isEmpty) {
-                return Center(
-                  child: Text(
-                    'No payment history available.',
-                    style: TextStyle(color: Colors.grey[400], fontSize: 16),
-                  ),
-                );
-              }
-              return ListView.builder(
-                padding: const EdgeInsets.all(16.0),
-                itemCount: paidBills.length,
-                itemBuilder: (context, index) {
-                  final bill = paidBills[index];
-                  return Card(
-                    color: Colors.grey[900],
-                    margin: const EdgeInsets.symmetric(vertical: 8.0),
-                    child: ListTile(
-                      contentPadding: const EdgeInsets.all(16.0),
-                      title: Text(
-                        bill.title,
-                        style: const TextStyle(color: Colors.white),
-                      ),
-                      subtitle: Text(
-                        'Paid: \$${bill.amount.toStringAsFixed(2)} on ${bill.paymentHistory.isNotEmpty ? bill.paymentHistory.last.paymentDate.toString().substring(0, 10) : 'N/A'}',
-                        style: TextStyle(color: Colors.grey[400]),
-                      ),
-                      onTap: () {
-                        showDialog(
-                          context: context,
-                          builder: (context) => AlertDialog(
-                            backgroundColor: Colors.grey[900],
-                            title: Text(
-                              bill.title,
-                              style: const TextStyle(color: Colors.white),
-                            ),
-                            content: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text('Amount: \$${bill.amount.toStringAsFixed(2)}', style: TextStyle(color: Colors.white)),
-                                const SizedBox(height: 10),
-                                Text('Category: ${bill.category}', style: TextStyle(color: Colors.white)),
-                                const SizedBox(height: 10),
-                                Text('Due Date: ${bill.dueDate.toString().substring(0, 10)}', style: TextStyle(color: Colors.white)),
-                                const SizedBox(height: 10),
-                                Text('Status: Paid', style: TextStyle(color: Colors.white)),
-                                const SizedBox(height: 10),
-                                if (bill.paymentHistory.isNotEmpty)
-                                  Text(
-                                    'Payment History:',
-                                    style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-                                  ),
-                                ...bill.paymentHistory.map((record) => Padding(
-                                  padding: const EdgeInsets.only(left: 10, top: 5),
-                                  child: Text(
-                                    'Paid: \$${record.amount.toStringAsFixed(2)} on ${record.paymentDate.toString().substring(0, 10)}',
-                                    style: TextStyle(color: Colors.grey[400]),
-                                  ),
-                                )),
-                              ],
-                            ),
-                            actions: [
-                              TextButton(
-                                onPressed: () => Navigator.pop(context),
-                                child: Text('Close', style: TextStyle(color: Colors.grey[400])),
-                              ),
-                            ],
-                          ),
-                        );
-                      },
-                    ),
-                  );
-                },
-              );
-            },
-          ),
-          // Placeholder for other tabs (e.g., summary or details)
-          Center(
-            child: Text(
-              'Tab 1 Placeholder',
-              style: TextStyle(color: Colors.white, fontSize: 20),
-            ),
-          ),
-          // Placeholder for another tab
-          Center(
-            child: Text(
-              'Tab 2 Placeholder',
-              style: TextStyle(color: Colors.white, fontSize: 20),
-            ),
-          ),
-          // Placeholder for another tab
-          Center(
-            child: Text(
-              'Tab 3 Placeholder',
-              style: TextStyle(color: Colors.white, fontSize: 20),
-            ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.delete_forever, color: Colors.redAccent),
+            onPressed: _isDeleting ? null : () => _clearAllPayments(context),
+            tooltip: 'Clear All Payments',
           ),
         ],
+        elevation: 0,
       ),
-      bottomNavigationBar: Container(
-        height: 100,
-        child: BottomNavigationBar(
-          onTap: (index) {
-            setState(() {
-              selectedIndex = index;
-            });
-          },
-          currentIndex: selectedIndex,
-          items: [
-            BottomNavigationBarItem(
-              icon: Icon(Icons.history),
-              label: 'Payment History',
-            ),
-            BottomNavigationBarItem(
-              icon: Icon(Icons.trending_up),
-              label: 'Trending',
-            ),
-            BottomNavigationBarItem(
-              icon: Icon(Icons.insights),
-              label: 'Insights',
-            ),
-            BottomNavigationBarItem(
-              icon: Icon(Icons.person),
-              label: 'Mine',
-            ),
-          ],
-          selectedItemColor: Colors.white,
-          unselectedItemColor: Colors.white,
-          backgroundColor: Colors.grey[850],
-          type: BottomNavigationBarType.fixed,
-          selectedFontSize: 12,
-          unselectedFontSize: 12,
-          iconSize: 20,
-        ),
+      body: _isDeleting
+          ? const Center(child: CircularProgressIndicator(color: Colors.teal))
+          : StreamBuilder<QuerySnapshot>(
+        stream: FirebaseFirestore.instance
+            .collection('users')
+            .doc(widget.userId)
+            .collection('payments')
+            .orderBy('timestamp', descending: true)
+            .snapshots(),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator(color: Colors.teal));
+          }
+          if (snapshot.hasError) {
+            print('StreamBuilder error: ${snapshot.error}');
+            return const Center(
+              child: Text('Error loading payment history', style: TextStyle(color: Colors.redAccent)),
+            );
+          }
+          if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+            return const Center(
+              child: Text('No payments found', style: TextStyle(color: Colors.white70)),
+            );
+          }
+
+          final payments = snapshot.data!.docs;
+
+          return ListView.builder(
+            padding: const EdgeInsets.all(16),
+            itemCount: payments.length,
+            itemBuilder: (context, index) {
+              final payment = payments[index].data() as Map<String, dynamic>;
+              final paymentId = payments[index].id;
+              final billId = payment['billId'] as String?;
+              final billerName = payment['billerName'] as String? ?? 'Unknown Biller';
+              final description = payment['description'] as String? ?? 'No description';
+              final amount = payment['amount'] as double? ?? 0.0;
+              final timestamp = (payment['timestamp'] as Timestamp?)?.toDate() ?? DateTime.now();
+              final categoryName = payment['categoryName'] as String? ?? 'Uncategorized';
+
+              return GestureDetector(
+                onLongPress: _isDeleting ? null : () => _deleteSinglePayment(context, paymentId, billId),
+                child: Container(
+                  margin: const EdgeInsets.only(bottom: 8),
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: const Color.fromRGBO(50, 50, 50, 1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            billerName,
+                            style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                          ),
+                          Text(
+                            'Category: $categoryName',
+                            style: const TextStyle(color: Colors.white70, fontSize: 14),
+                          ),
+                          Text(
+                            'Description: $description',
+                            style: const TextStyle(color: Colors.white70, fontSize: 14),
+                          ),
+                          Text(
+                            'Paid: ${DateFormat('MMM dd, yyyy HH:mm').format(timestamp)}',
+                            style: const TextStyle(color: Colors.white70, fontSize: 14),
+                          ),
+                        ],
+                      ),
+                      Text(
+                        'RM${amount.toStringAsFixed(2)}',
+                        style: const TextStyle(color: Colors.greenAccent, fontSize: 16),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          );
+        },
       ),
     );
   }

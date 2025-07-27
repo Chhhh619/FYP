@@ -60,7 +60,7 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
   @override
   bool get wantKeepAlive => true; // Preserve state across navigation
 
-// Added: Check for No-Spend Day challenge
+  // Added: Check for No-Spend Day challenge(gamification module)
   Future<void> _checkNoSpendDay() async {
     final userId = _auth.currentUser?.uid;
     if (userId == null) {
@@ -68,7 +68,7 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
       return;
     }
 
-// Check if already completed
+    // Check if already completed
     final challengeDoc = await _firestore
         .collection('users')
         .doc(userId)
@@ -339,6 +339,7 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
     }
   }
 
+  //for financial Tips module
   Future<void> _showTipPopup() async {
     final userId = _auth.currentUser?.uid;
     if (userId == null || _hasShownPopup) {
@@ -347,7 +348,7 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
     }
 
     try {
-// Check if the "Cook at Home" tip is marked irrelevant
+    // Check if the "Cook at Home" tip is marked irrelevant
       final feedbackSnapshot = await _firestore
           .collection('users')
           .doc(userId)
@@ -521,7 +522,7 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
               return true; // Fallback to all
             }).toList();
 
-// Calculate totals
+          // Calculate totals
             double totalExpenses = 0.0;
             double totalIncome = 0.0;
             for (var tx in displayedTransactions) {
@@ -533,7 +534,7 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
               }
             }
 
-// Show welcome message if no transactions
+          // Show welcome message if no transactions
             if (filteredTransactions.isEmpty) {
               return Scaffold(
                 backgroundColor: Color.fromRGBO(28, 28, 28, 0),
@@ -625,7 +626,7 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
                           ),
                         );
                       } else if (index == 3) {
-// "Mine" selected - navigate to SettingsPage
+          // "Mine" selected - navigate to SettingsPage
                         Navigator.push(
                           context,
                           MaterialPageRoute(

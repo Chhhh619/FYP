@@ -1,176 +1,304 @@
-import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import '../bill/bill.dart';
-import '../bill/bill_form.dart';
-import '../bill/bill_list_item.dart';
-import '../bill/notification_service.dart';
+import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
+import 'record_bill.dart';
 import 'payment_history_screen.dart';
-import 'package:fyp/bottom_nav_bar.dart';
+import 'bill_details_screen.dart';
 
 class BillPaymentScreen extends StatefulWidget {
   final String userId;
-  BillPaymentScreen({required this.userId});
+  final VoidCallback? onRefresh;
+
+  const BillPaymentScreen({Key? key, required this.userId, this.onRefresh}) : super(key: key);
 
   @override
-  _BillPaymentScreenState createState() => _BillPaymentScreenState();
+  State<BillPaymentScreen> createState() => _BillPaymentScreenState();
 }
 
 class _BillPaymentScreenState extends State<BillPaymentScreen> {
-  int selectedIndex = 0;
-  String _selectedCategory = 'All';
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  Key _streamKey = UniqueKey();
+  bool _isUpdating = false;
 
   @override
   void initState() {
     super.initState();
-    Future.microtask(() {
-      if (selectedIndex == 0) {
-        NotificationService.checkBillReminders(context, []); // Initial check with empty list
+    _checkDueBills();
+  }
+
+  Future<void> _checkDueBills() async {
+    final now = DateTime.now();
+    final oneDayFromNow = now.add(const Duration(days: 1));
+    try {
+      final snapshot = await _firestore
+          .collection('users')
+          .doc(widget.userId)
+          .collection('bills')
+          .where('status', isEqualTo: 'pending')
+          .where('dueDate', isLessThanOrEqualTo: Timestamp.fromDate(oneDayFromNow))
+          .get();
+      print('Due bills check: Found ${snapshot.docs.length} bills: ${snapshot.docs.map((doc) => doc.data()).toList()}');
+      if (snapshot.docs.isNotEmpty && mounted) {
+        final bill = snapshot.docs.first.data();
+        final billerName = bill['billerName'] as String? ?? 'Unknown Biller';
+        final amount = bill['amount'] as double? ?? 0.0;
+        final dueDate = (bill['dueDate'] as Timestamp?)?.toDate() ?? DateTime.now();
+        final categoryName = bill['categoryName'] as String? ?? 'Uncategorized';
+        showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            backgroundColor: const Color.fromRGBO(50, 50, 50, 1),
+            title: const Text('Bill Due Soon', style: TextStyle(color: Colors.white)),
+            content: Text(
+              '$billerName ($categoryName) bill of RM${amount.toStringAsFixed(2)} is due on ${DateFormat('MMM dd, yyyy').format(dueDate)}.',
+              style: const TextStyle(color: Colors.white70),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('OK', style: TextStyle(color: Colors.teal)),
+              ),
+            ],
+          ),
+        );
       }
+    } catch (e, stackTrace) {
+      print('Error checking due bills: $e\nStackTrace: $stackTrace');
+    }
+  }
+
+  Future<void> _markBillAsPaid(String billId, Map<String, dynamic> billData) async {
+    final userId = widget.userId;
+    final amount = billData['amount'] as double? ?? 0.0;
+    final billerName = billData['billerName'] as String? ?? 'Unknown Biller';
+    final description = billData['description'] as String? ?? 'No description';
+    final categoryName = billData['categoryName'] as String? ?? 'Uncategorized';
+
+    setState(() {
+      _isUpdating = true;
     });
+
+    try {
+      final batch = FirebaseFirestore.instance.batch();
+      batch.update(
+        _firestore.collection('users').doc(userId).collection('bills').doc(billId),
+        {
+          'status': 'paid',
+          'paidAt': Timestamp.now(),
+        },
+      );
+      batch.set(
+        _firestore.collection('users').doc(userId).collection('payments').doc(),
+        {
+          'userId': userId,
+          'billId': billId,
+          'billerName': billerName,
+          'description': description,
+          'amount': amount,
+          'categoryName': categoryName,
+          'timestamp': Timestamp.now(),
+        },
+      );
+
+      await batch.commit().then((_) {
+        print('Batch commit successful for markBillAsPaid: billId=$billId');
+      }).catchError((e, stackTrace) {
+        print('Batch commit failed for markBillAsPaid: $e\nStackTrace: $stackTrace');
+        throw e;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Bill marked as paid')),
+      );
+    } catch (e, stackTrace) {
+      print('Error marking bill as paid: $e\nStackTrace: $stackTrace');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error marking bill as paid: $e')),
+      );
+    } finally {
+      setState(() {
+        _isUpdating = false;
+        _streamKey = UniqueKey();
+      });
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.black,
+      key: const ValueKey('bill_payment_scaffold'),
+      backgroundColor: const Color.fromRGBO(28, 28, 28, 1),
       appBar: AppBar(
-        backgroundColor: Colors.grey[900],
-        title: const Text(
-          'Bill Payment & Reminders',
-          style: TextStyle(color: Colors.white),
+        backgroundColor: const Color.fromRGBO(28, 28, 28, 1),
+        title: const Text('Bills', style: TextStyle(color: Colors.white)),
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back, color: Colors.white),
+          onPressed: () => Navigator.pop(context),
         ),
         actions: [
-          if (selectedIndex == 0) // Show category filter only on Details tab
-            DropdownButton<String>(
-              value: _selectedCategory,
-              dropdownColor: Colors.grey[900],
-              style: const TextStyle(color: Colors.white),
-              underline: Container(
-                height: 1,
-                color: Colors.grey[400],
-              ),
-              items: ['All', 'Utilities', 'Rent', 'Credit Card', 'Subscription', 'Other']
-                  .map((category) => DropdownMenuItem(
-                value: category,
-                child: Text(category),
-              ))
-                  .toList(),
-              onChanged: (value) {
-                setState(() => _selectedCategory = value!);
-                if (selectedIndex == 0) {
-                  NotificationService.checkBillReminders(context, []); // Recheck on category change
-                }
-              },
-            ),
-          if (selectedIndex == 0) // Show history icon only on Details tab
-            IconButton(
-              icon: const Icon(Icons.history, color: Colors.white),
-              onPressed: () {
-                Navigator.pushNamed(context, '/payment_history', arguments: widget.userId);
-              },
-            ),
-          const SizedBox(width: 16),
-        ],
-      ),
-      body: IndexedStack(
-        index: selectedIndex,
-        children: [
-          // Details Tab
-          StreamBuilder<QuerySnapshot>(
-            stream: FirebaseFirestore.instance
-                .collection('users')
-                .doc(widget.userId)
-                .collection('bills')
-                .where('isPaid', isEqualTo: false)
-                .snapshots(),
-            builder: (context, snapshot) {
-              if (!snapshot.hasData) return Center(child: CircularProgressIndicator(color: Colors.grey[700]));
-              var bills = snapshot.data!.docs.map((doc) => Bill.fromJson(doc.data() as Map<String, dynamic>)).toList();
-              if (_selectedCategory != 'All') {
-                bills = bills.where((bill) => bill.category == _selectedCategory).toList();
-              }
-              // Remove NotificationService.checkBillReminders here
-              return bills.isEmpty
-                  ? Center(
-                child: Text(
-                  'No unpaid bills.',
-                  style: TextStyle(color: Colors.grey[400], fontSize: 16),
+          IconButton(
+            icon: const Icon(Icons.history, color: Colors.white70),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => PaymentHistoryScreen(
+                    userId: widget.userId,
+                    onRefresh: () {
+                      setState(() {
+                        _streamKey = UniqueKey();
+                      });
+                    },
+                  ),
+                  settings: RouteSettings(arguments: widget.userId),
                 ),
-              )
-                  : ListView.builder(
-                padding: const EdgeInsets.all(16.0),
-                itemCount: bills.length,
-                itemBuilder: (context, index) => BillListItem(bill: bills[index], userId: widget.userId),
               );
             },
           ),
-          // Trending Tab (Placeholder)
-          Center(
-            child: Text(
-              'Trending',
-              style: TextStyle(color: Colors.white, fontSize: 20),
-            ),
-          ),
-          // Insights Tab (Placeholder)
-          Center(
-            child: Text(
-              'Insights',
-              style: TextStyle(color: Colors.white, fontSize: 20),
-            ),
-          ),
-          // Mine Tab (Placeholder)
-          Center(
-            child: Text(
-              'Mine',
-              style: TextStyle(color: Colors.white, fontSize: 20),
-            ),
-          ),
         ],
+        elevation: 0,
       ),
-      bottomNavigationBar: Container(
-        height: 100,
-        child: BottomNavBar(
-          currentIndex: selectedIndex,
-          onTap: (index) {
-            setState(() {
-              selectedIndex = index;
-            });
-            switch (index) {
-              case 0:
-                Navigator.pushNamedAndRemoveUntil(context, '/home', (route) => false);
-                break;
-              case 1:
-                Navigator.pushNamed(context, '/financial_tips');
-                break;
-              case 2:
-                Navigator.pushNamed(context, '/gamification');
-                break;
-              case 3:
-                Navigator.pushNamed(context, '/settings');
-                break;
-            }
-          },
-        ),
+      body: _isUpdating
+          ? const Center(child: CircularProgressIndicator(color: Colors.teal))
+          : StreamBuilder<QuerySnapshot>(
+        key: _streamKey,
+        stream: _firestore
+            .collection('users')
+            .doc(widget.userId)
+            .collection('bills')
+            .where('status', isEqualTo: 'pending')
+            .orderBy('dueDate', descending: true)
+            .snapshots(),
+        builder: (context, snapshot) {
+          print('StreamBuilder snapshot: ${snapshot.connectionState}, hasData: ${snapshot.hasData}, docs: ${snapshot.data?.docs.length ?? 0}, error: ${snapshot.error}');
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator(color: Colors.teal));
+          }
+          if (snapshot.hasError) {
+            return Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Text(
+                    'Error loading bills. Please check Firestore indexes.',
+                    style: TextStyle(color: Colors.redAccent),
+                    textAlign: TextAlign.center,
+                  ),
+                  TextButton(
+                    onPressed: () {
+                      setState(() {
+                        _streamKey = UniqueKey();
+                      });
+                    },
+                    child: const Text('Retry', style: TextStyle(color: Colors.teal)),
+                  ),
+                ],
+              ),
+            );
+          }
+          if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+            return const Center(
+              child: Text('No pending bills found', style: TextStyle(color: Colors.white70)),
+            );
+          }
+
+          final bills = snapshot.data!.docs;
+
+          return ListView.builder(
+            padding: const EdgeInsets.all(16),
+            itemCount: bills.length,
+            itemBuilder: (context, index) {
+              final bill = bills[index].data() as Map<String, dynamic>;
+              final billId = bills[index].id;
+              final billerName = bill['billerName'] as String? ?? 'Unknown Biller';
+              final amount = bill['amount'] as double? ?? 0.0;
+              final dueDate = (bill['dueDate'] as Timestamp?)?.toDate() ?? DateTime.now();
+              final categoryName = bill['categoryName'] as String? ?? 'Uncategorized';
+
+              print('Navigating to BillDetailsScreen with billId: $billId, billData: $bill');
+
+              return GestureDetector(
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => BillDetailsScreen(
+                        userId: widget.userId,
+                        billId: billId,
+                        billData: bill,
+                      ),
+                    ),
+                  );
+                },
+                child: Container(
+                  margin: const EdgeInsets.only(bottom: 8),
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: const Color.fromRGBO(50, 50, 50, 1),
+                    borderRadius: BorderRadius.circular(8),
+                    border: dueDate.isBefore(DateTime.now())
+                        ? Border.all(color: Colors.redAccent, width: 1)
+                        : null,
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            billerName,
+                            style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                          ),
+                          Text(
+                            'Category: $categoryName',
+                            style: const TextStyle(color: Colors.white70, fontSize: 14),
+                          ),
+                          Text(
+                            'Due: ${DateFormat('MMM dd, yyyy').format(dueDate)}',
+                            style: const TextStyle(color: Colors.white70, fontSize: 14),
+                          ),
+                          Text(
+                            'RM${amount.toStringAsFixed(2)}',
+                            style: const TextStyle(color: Colors.white, fontSize: 16),
+                          ),
+                        ],
+                      ),
+                      ElevatedButton(
+                        onPressed: _isUpdating ? null : () => _markBillAsPaid(billId, bill),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.teal,
+                          foregroundColor: Colors.white,
+                        ),
+                        child: const Text('Pay'),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          );
+        },
       ),
-      floatingActionButton: selectedIndex == 0
-          ? FloatingActionButton(
-        backgroundColor: Colors.grey[700],
+      floatingActionButton: FloatingActionButton(
         onPressed: () {
-          showModalBottomSheet(
-            context: context,
-            backgroundColor: Colors.grey[900],
-            shape: const RoundedRectangleBorder(
-              borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-            ),
-            builder: (context) => Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: BillForm(userId: widget.userId),
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => RecordBillPage(
+                userId: widget.userId,
+                onBillAdded: () {
+                  setState(() {
+                    _streamKey = UniqueKey();
+                  });
+                },
+              ),
             ),
           );
         },
+        backgroundColor: Colors.teal,
         child: const Icon(Icons.add, color: Colors.white),
-      )
-          : null, // Hide FAB on other tabs
+      ),
+      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
     );
   }
 }
