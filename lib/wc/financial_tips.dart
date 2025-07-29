@@ -3,7 +3,128 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:fyp/bottom_nav_bar.dart';
 import 'package:fyp/ch/homepage.dart';
+import 'package:fyp/wc/gamification_page.dart';
 import 'package:fyp/ch/settings.dart';
+import 'package:intl/intl.dart';
+
+class Tip {
+  final String id;
+  final String title;
+  final String description;
+  final String category;
+
+  Tip({
+    required this.id,
+    required this.title,
+    required this.description,
+    required this.category,
+  });
+
+  factory Tip.fromFirestore(DocumentSnapshot doc) {
+    final data = doc.data() as Map<String, dynamic>;
+    return Tip(
+      id: doc.id,
+      title: data['title'] ?? '',
+      description: data['description'] ?? '',
+      category: data['category'] ?? '',
+    );
+  }
+}
+
+class TipService {
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final FirebaseAuth _auth = FirebaseAuth.instance;
+
+  Stream<List<Tip>> getTips() {
+    return _firestore
+        .collection('tips')
+        .snapshots()
+        .map((snapshot) =>
+        snapshot.docs.map((doc) => Tip.fromFirestore(doc)).toList());
+  }
+
+  Future<Map<String, double>> getSpendingInsights(
+      String userId, DateTime startDate, DateTime endDate) async {
+    final transactionSnapshot = await _firestore
+        .collection('transactions')
+        .where('userid', isEqualTo: userId)
+        .where('timestamp',
+        isGreaterThanOrEqualTo: Timestamp.fromDate(startDate))
+        .where('timestamp', isLessThanOrEqualTo: Timestamp.fromDate(endDate))
+        .get();
+    print('Transactions found: ${transactionSnapshot.docs.length}');
+
+    final spending = <String, double>{};
+    for (var doc in transactionSnapshot.docs) {
+      final data = doc.data();
+      final categoryRef = data['category'] as DocumentReference;
+      final categorySnapshot = await categoryRef.get();
+      final categoryName = categorySnapshot.get('name') as String? ?? 'unknown';
+      final categoryType = categorySnapshot.get('type') as String? ?? 'unknown';
+      final amount = (data['amount'] is int)
+          ? (data['amount'] as int).toDouble()
+          : (data['amount'] as double? ?? 0.0);
+      print(
+          'Transaction: ID=${doc.id}, Category=$categoryName, Amount=$amount, Type=$categoryType');
+      if (categoryType == 'expense') {
+        spending[categoryName.toLowerCase()] =
+            (spending[categoryName.toLowerCase()] ?? 0.0) + amount.abs();
+      }
+    }
+    print('Spending insights: $spending');
+    return spending;
+  }
+
+  Future<void> markTipFeedback(
+      String tipId, bool isHelpful, bool isIrrelevant) async {
+    final userId = _auth.currentUser?.uid;
+    if (userId == null) return;
+
+    try {
+      await _firestore
+          .collection('users')
+          .doc(userId)
+          .collection('tips_feedback')
+          .doc(tipId)
+          .set({
+        'tipId': tipId,
+        'isHelpful': isHelpful,
+        'isIrrelevant': isIrrelevant,
+        'timestamp': Timestamp.now(),
+      });
+    } catch (e) {
+      throw Exception('Failed to update tip feedback: $e');
+    }
+  }
+
+  Stream<Map<String, Map<String, bool>>> getTipFeedback(String userId) {
+    return _firestore
+        .collection('users')
+        .doc(userId)
+        .collection('tips_feedback')
+        .snapshots()
+        .map((snapshot) {
+      final feedback = <String, Map<String, bool>>{};
+      for (var doc in snapshot.docs) {
+        final data = doc.data();
+        feedback[doc.id] = {
+          'isHelpful': data['isHelpful'] ?? false,
+          'isIrrelevant': data['isIrrelevant'] ?? false,
+        };
+      }
+      return feedback;
+    });
+  }
+
+  Future<int> getEngagedTipsCount(String userId) async {
+    final snapshot = await _firestore
+        .collection('users')
+        .doc(userId)
+        .collection('tips_feedback')
+        .get();
+    return snapshot.docs.length;
+  }
+}
 
 class FinancialTipsScreen extends StatefulWidget {
   const FinancialTipsScreen({super.key});
@@ -13,42 +134,58 @@ class FinancialTipsScreen extends StatefulWidget {
 }
 
 class _FinancialTipsScreenState extends State<FinancialTipsScreen> {
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final TipService _tipService = TipService();
   final FirebaseAuth _auth = FirebaseAuth.instance;
-  int _selectedIndex = 2; // Default to "Insights" tab
+  int _selectedIndex = 1; // Align with "Trending" tab
+  int _totalTips = 0;
+  int _engagedTips = 0;
 
-  Future<void> _markTipIrrelevant(String tipId) async {
+  @override
+  void initState() {
+    super.initState();
+    _loadTipStats();
+  }
+
+  Future<void> _loadTipStats() async {
     final userId = _auth.currentUser?.uid;
-    if (userId == null) return;
+    if (userId == null) {
+      print('No user logged in for tip stats');
+      return;
+    }
 
     try {
-      await _firestore
-          .collection('users')
-          .doc(userId)
-          .collection('tips_footer')
-          .doc(tipId)
-          .set({
-        'isHelpful': false,
-        'isIrrelevant': true,
-        'timestamp': Timestamp.now(),
+      final tipSnapshot = await _tipService.getTips().first;
+      final engagedCount = await _tipService.getEngagedTipsCount(userId);
+      print('Total tips: ${tipSnapshot.length}, Engaged tips: $engagedCount');
+      setState(() {
+        _totalTips = tipSnapshot.length;
+        _engagedTips = engagedCount;
       });
-      print('Marked tip $tipId as irrelevant for user $userId');
-      setState(() {}); // Refresh UI
     } catch (e) {
-      print('Error marking tip irrelevant: $e');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to update tip feedback: $e')),
-      );
+      print('Error loading tip stats: $e');
     }
+  }
+
+  // Define spending thresholds for each category
+  Map<String, double> getSpendingThresholds() {
+    return {
+      'dining': 500.0,    // Show dining tips if expenses >= RM500
+      'budgeting': 300.0, // Show budgeting tips if expenses >= RM300
+      'savings': 200.0,   // Show savings tips if expenses >= RM200
+      'debt': 400.0,      // Show debt tips if expenses >= RM400
+      'shopping': 400.0,  // Show shopping tips if expenses >= RM400
+      'transport': 200.0, // Show transport tips if expenses >= RM200
+      'subscription': 100.0, // Show subscription tips if expenses >= RM100
+    };
   }
 
   @override
   Widget build(BuildContext context) {
     final userId = _auth.currentUser?.uid;
     if (userId == null) {
-      print('No user logged in');
+      print('No user logged in for FinancialTipsScreen');
       return Scaffold(
-        backgroundColor: const Color.fromRGBO(28, 28, 28, 0),
+        backgroundColor: const Color.fromRGBO(28, 28, 28, 1),
         body: const Center(
           child: Text(
             'Please log in to view tips',
@@ -58,10 +195,14 @@ class _FinancialTipsScreenState extends State<FinancialTipsScreen> {
       );
     }
 
+    final now = DateTime.now();
+    final startOfMonth = DateTime(now.year, now.month, 1);
+    final endOfMonth = DateTime(now.year, now.month + 1, 0);
+
     return Scaffold(
-      backgroundColor: const Color.fromRGBO(28, 28, 28, 0),
+      backgroundColor: const Color.fromRGBO(28, 28, 28, 1),
       appBar: AppBar(
-        backgroundColor: const Color.fromRGBO(28, 28, 28, 0),
+        backgroundColor: const Color.fromRGBO(28, 28, 28, 1),
         title: const Text(
           'Financial Tips',
           style: TextStyle(color: Colors.white, fontSize: 20),
@@ -71,90 +212,284 @@ class _FinancialTipsScreenState extends State<FinancialTipsScreen> {
           onPressed: () => Navigator.pop(context),
         ),
       ),
-      body: StreamBuilder<DocumentSnapshot>(
-        stream: _firestore
-            .collection('users')
-            .doc(userId)
-            .collection('tips_feedback')
-            .doc('1')
-            .snapshots(),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          if (snapshot.hasError) {
-            print('StreamBuilder Error: ${snapshot.error}');
-            return const Center(
-              child: Text(
-                'Error loading tips',
-                style: TextStyle(color: Colors.white, fontSize: 16),
-              ),
-            );
-          }
-
-          final feedbackData = snapshot.data?.data() as Map<String, dynamic>?;
-          final isIrrelevant = feedbackData != null && feedbackData['isIrrelevant'] is bool
-              ? feedbackData['isIrrelevant'] as bool
-              : false;
-          print('Tip 1 isIrrelevant: $isIrrelevant');
-
-          return ListView(
+      body: Column(
+        children: [
+          Padding(
             padding: const EdgeInsets.all(16.0),
-            children: [
-              Card(
-                color: const Color.fromRGBO(33, 35, 34, 1),
-                child: ListTile(
-                  title: const Text(
-                    'Cook at Home',
-                    style: TextStyle(color: Colors.white, fontSize: 18),
-                  ),
-                  subtitle: const Text(
-                    'Save money by cooking at home instead of dining out.',
-                    style: TextStyle(color: Colors.grey, fontSize: 14),
-                  ),
-                  trailing: isIrrelevant
-                      ? const Text(
-                    'Dismissed',
-                    style: TextStyle(color: Colors.red, fontSize: 12),
-                  )
-                      : TextButton(
-                    onPressed: () => _markTipIrrelevant('1'),
-                    child: const Text(
-                      'Mark as Irrelevant',
-                      style: TextStyle(color: Colors.red),
-                    ),
-                  ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Learning Progress',
+                  style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold),
                 ),
-              ),
-            ],
-          );
-        },
+                const SizedBox(height: 8),
+                LinearProgressIndicator(
+                  value: _totalTips > 0 ? _engagedTips / _totalTips : 0,
+                  backgroundColor: Colors.grey[700],
+                  color: Colors.teal,
+                  minHeight: 8,
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Engaged with $_engagedTips/$_totalTips tips',
+                  style: const TextStyle(color: Colors.grey, fontSize: 14),
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: StreamBuilder<List<Tip>>(
+              stream: _tipService.getTips(),
+              builder: (context, tipSnapshot) {
+                if (tipSnapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                if (tipSnapshot.hasError) {
+                  print('Tip StreamBuilder Error: ${tipSnapshot.error}');
+                  return Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          'Error loading tips: ${tipSnapshot.error}',
+                          style:
+                          const TextStyle(color: Colors.white, fontSize: 16),
+                        ),
+                        ElevatedButton(
+                          onPressed: () => setState(() {}),
+                          child: const Text('Retry'),
+                        ),
+                      ],
+                    ),
+                  );
+                }
+                if (!tipSnapshot.hasData || tipSnapshot.data!.isEmpty) {
+                  print('No tips found in Firestore');
+                  return const Center(
+                    child: Text(
+                      'No tips available',
+                      style: TextStyle(color: Colors.white, fontSize: 16),
+                    ),
+                  );
+                }
+
+                final tips = tipSnapshot.data!;
+                print('Tips loaded: ${tips.map((t) => "${t.title} (${t.category})").toList()}');
+                return FutureBuilder<Map<String, double>>(
+                  future:
+                  _tipService.getSpendingInsights(userId, startOfMonth, endOfMonth),
+                  builder: (context, insightsSnapshot) {
+                    if (insightsSnapshot.connectionState ==
+                        ConnectionState.waiting) {
+                      return const Center(child: CircularProgressIndicator());
+                    }
+                    if (insightsSnapshot.hasError) {
+                      print('Insights FutureBuilder Error: ${insightsSnapshot.error}');
+                      return Center(
+                        child: Text(
+                          'Error loading insights: ${insightsSnapshot.error}',
+                          style:
+                          const TextStyle(color: Colors.white, fontSize: 16),
+                        ),
+                      );
+                    }
+
+                    final spendingInsights = insightsSnapshot.data ?? {};
+                    print('Spending insights in build: $spendingInsights');
+
+                    return StreamBuilder<Map<String, Map<String, bool>>>(
+                      stream: _tipService.getTipFeedback(userId),
+                      builder: (context, feedbackSnapshot) {
+                        if (feedbackSnapshot.connectionState ==
+                            ConnectionState.waiting) {
+                          return const Center(child: CircularProgressIndicator());
+                        }
+                        final feedback = feedbackSnapshot.data ?? {};
+                        print('Feedback loaded: $feedback');
+
+                        // Filter tips based on spending thresholds and feedback
+                        final thresholds = getSpendingThresholds();
+                        final filteredTips = tips
+                            .where((tip) {
+                          final spending =
+                              spendingInsights[tip.category.toLowerCase()] ?? 0.0;
+                          final threshold =
+                              thresholds[tip.category.toLowerCase()] ??
+                                  double.infinity;
+                          final isIrrelevant =
+                              feedback[tip.id]?['isIrrelevant'] ?? false;
+                          final shouldShow = spending >= threshold && !isIrrelevant;
+                          print(
+                              'Tip: ${tip.title}, Category: ${tip.category}, Spending: $spending, Threshold: $threshold, IsIrrelevant: $isIrrelevant, ShouldShow: $shouldShow');
+                          return shouldShow;
+                        })
+                            .toList();
+                        print(
+                            'Filtered tips: ${filteredTips.map((t) => t.title).toList()}');
+
+                        if (filteredTips.isEmpty) {
+                          return const Center(
+                            child: Text(
+                              'No relevant tips for your spending.',
+                              style: TextStyle(color: Colors.white, fontSize: 16),
+                            ),
+                          );
+                        }
+
+                        // Sort filtered tips by spending amount
+                        filteredTips.sort((a, b) {
+                          final aScore =
+                              spendingInsights[a.category.toLowerCase()] ?? 0;
+                          final bScore =
+                              spendingInsights[b.category.toLowerCase()] ?? 0;
+                          return bScore.compareTo(aScore);
+                        });
+
+                        return ListView.builder(
+                          padding: const EdgeInsets.all(16.0),
+                          itemCount: filteredTips.length,
+                          itemBuilder: (context, index) {
+                            final tip = filteredTips[index];
+                            final insight =
+                            spendingInsights[tip.category.toLowerCase()];
+                            final contextMessage = insight != null
+                                ? 'Your ${tip.category} expenses are high this month (RM${insight.toStringAsFixed(1)}). '
+                                : '';
+
+                            return Card(
+                              color: const Color.fromRGBO(33, 35, 34, 1),
+                              child: ListTile(
+                                leading: Icon(
+                                  _getIconForCategory(tip.category),
+                                  color: Colors.white,
+                                ),
+                                title: Text(
+                                  tip.title,
+                                  style: const TextStyle(
+                                      color: Colors.white, fontSize: 18),
+                                ),
+                                subtitle: Text(
+                                  '$contextMessage${tip.description}',
+                                  style: const TextStyle(
+                                      color: Colors.grey, fontSize: 14),
+                                ),
+                                trailing: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    IconButton(
+                                      icon: const Icon(Icons.thumb_up,
+                                          color: Colors.green),
+                                      onPressed: () async {
+                                        try {
+                                          await _tipService.markTipFeedback(
+                                              tip.id, true, false);
+                                          ScaffoldMessenger.of(context)
+                                              .showSnackBar(
+                                            const SnackBar(
+                                                content:
+                                                Text('Marked as helpful')),
+                                          );
+                                          setState(() {
+                                            _engagedTips++;
+                                          });
+                                        } catch (e) {
+                                          ScaffoldMessenger.of(context)
+                                              .showSnackBar(
+                                            SnackBar(content: Text('Error: $e')),
+                                          );
+                                        }
+                                      },
+                                    ),
+                                    IconButton(
+                                      icon: const Icon(Icons.close,
+                                          color: Colors.red),
+                                      onPressed: () async {
+                                        try {
+                                          await _tipService.markTipFeedback(
+                                              tip.id, false, true);
+                                          ScaffoldMessenger.of(context)
+                                              .showSnackBar(
+                                            const SnackBar(
+                                                content:
+                                                Text('Marked as irrelevant')),
+                                          );
+                                          setState(() {
+                                            _engagedTips++;
+                                          });
+                                        } catch (e) {
+                                          ScaffoldMessenger.of(context)
+                                              .showSnackBar(
+                                            SnackBar(content: Text('Error: $e')),
+                                          );
+                                        }
+                                      },
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            );
+                          },
+                        );
+                      },
+                    );
+                  },
+                );
+              },
+            ),
+          ),
+        ],
       ),
       bottomNavigationBar: BottomNavBar(
         currentIndex: _selectedIndex,
         onTap: (index) {
           setState(() {
-            _selectedIndex = index; // Update selected index
+            _selectedIndex = index;
           });
           if (index == 0) {
-            // "Details" selected - navigate to HomePage
             Navigator.pushReplacement(
               context,
               MaterialPageRoute(builder: (context) => const HomePage()),
             );
+          } else if (index == 1) {
+            // Stay on FinancialTipsScreen
           } else if (index == 2) {
-            // "Insights" selected - stay on FinancialTipsScreen
-            // No navigation needed
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(builder: (context) => const GamificationPage()),
+            );
           } else if (index == 3) {
-            // "Mine" selected - navigate to SettingsPage
             Navigator.pushReplacement(
               context,
               MaterialPageRoute(builder: (context) => const SettingsPage()),
             );
           }
-          // "Trending" (index 1) only updates _selectedIndex
         },
       ),
     );
+  }
+
+  IconData _getIconForCategory(String category) {
+    switch (category.toLowerCase()) {
+      case 'dining':
+        return Icons.restaurant;
+      case 'budgeting':
+        return Icons.account_balance;
+      case 'savings':
+        return Icons.savings;
+      case 'debt':
+        return Icons.money_off;
+      case 'shopping':
+        return Icons.shopping_cart;
+      case 'transport':
+        return Icons.directions_bus;
+      case 'subscription':
+        return Icons.subscriptions;
+      default:
+        return Icons.attach_money;
+    }
   }
 }

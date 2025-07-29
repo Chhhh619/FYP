@@ -10,6 +10,7 @@ import 'package:fyp/wc/rewards_page.dart';
 import 'package:fyp/wc/currencyconverter.dart';
 import 'package:fyp/ch/budget.dart';
 import 'package:intl/intl.dart';
+import 'package:fyp/wc/financial_plan.dart';
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key});
@@ -408,10 +409,8 @@ class _SettingsPageState extends State<SettingsPage> {
                   title: 'Savings Plan',
                   trailing: Icon(Icons.chevron_right, color: Colors.white70),
                   onTap: () {
-                    // Add navigation or action for Savings Plan
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('Savings Plan feature coming soon!')),
-                    );
+                    Navigator.pushNamed(context, '/financial_plan');
+
                   },
                 ),
                 _buildListTile(
