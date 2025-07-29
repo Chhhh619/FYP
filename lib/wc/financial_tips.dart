@@ -3,7 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:fyp/bottom_nav_bar.dart';
 import 'package:fyp/ch/homepage.dart';
-import 'package:fyp/wc/gamification_page.dart';
+import 'package:fyp/wc/favourite_tips.dart';
 import 'package:fyp/ch/settings.dart';
 import 'package:intl/intl.dart';
 
@@ -166,16 +166,15 @@ class _FinancialTipsScreenState extends State<FinancialTipsScreen> {
     }
   }
 
-  // Define spending thresholds for each category
   Map<String, double> getSpendingThresholds() {
     return {
-      'dining': 500.0,    // Show dining tips if expenses >= RM500
-      'budgeting': 300.0, // Show budgeting tips if expenses >= RM300
-      'savings': 200.0,   // Show savings tips if expenses >= RM200
-      'debt': 400.0,      // Show debt tips if expenses >= RM400
-      'shopping': 400.0,  // Show shopping tips if expenses >= RM400
-      'transport': 200.0, // Show transport tips if expenses >= RM200
-      'subscription': 100.0, // Show subscription tips if expenses >= RM100
+      'dining': 500.0,
+      'budgeting': 300.0,
+      'savings': 200.0,
+      'debt': 400.0,
+      'shopping': 400.0,
+      'transport': 200.0,
+      'subscription': 100.0,
     };
   }
 
@@ -211,6 +210,18 @@ class _FinancialTipsScreenState extends State<FinancialTipsScreen> {
           icon: const Icon(Icons.arrow_back, color: Colors.white),
           onPressed: () => Navigator.pop(context),
         ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.favorite, color: Colors.red),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const FavoriteTipsScreen()),
+              );
+            },
+            tooltip: 'Favorite Tips',
+          ),
+        ],
       ),
       body: Column(
         children: [
@@ -311,7 +322,6 @@ class _FinancialTipsScreenState extends State<FinancialTipsScreen> {
                         final feedback = feedbackSnapshot.data ?? {};
                         print('Feedback loaded: $feedback');
 
-                        // Filter tips based on spending thresholds and feedback
                         final thresholds = getSpendingThresholds();
                         final filteredTips = tips
                             .where((tip) {
@@ -322,9 +332,11 @@ class _FinancialTipsScreenState extends State<FinancialTipsScreen> {
                                   double.infinity;
                           final isIrrelevant =
                               feedback[tip.id]?['isIrrelevant'] ?? false;
-                          final shouldShow = spending >= threshold && !isIrrelevant;
+                          final isHelpful =
+                              feedback[tip.id]?['isHelpful'] ?? false;
+                          final shouldShow = spending >= threshold && !isIrrelevant && !isHelpful;
                           print(
-                              'Tip: ${tip.title}, Category: ${tip.category}, Spending: $spending, Threshold: $threshold, IsIrrelevant: $isIrrelevant, ShouldShow: $shouldShow');
+                              'Tip: ${tip.title}, Category: ${tip.category}, Spending: $spending, Threshold: $threshold, IsIrrelevant: $isIrrelevant, IsHelpful: $isHelpful, ShouldShow: $shouldShow');
                           return shouldShow;
                         })
                             .toList();
@@ -334,13 +346,12 @@ class _FinancialTipsScreenState extends State<FinancialTipsScreen> {
                         if (filteredTips.isEmpty) {
                           return const Center(
                             child: Text(
-                              'No relevant tips for your spending.',
+                              'No relevant tips for your spending. Check your favorite tips!',
                               style: TextStyle(color: Colors.white, fontSize: 16),
                             ),
                           );
                         }
 
-                        // Sort filtered tips by spending amount
                         filteredTips.sort((a, b) {
                           final aScore =
                               spendingInsights[a.category.toLowerCase()] ?? 0;
@@ -459,7 +470,7 @@ class _FinancialTipsScreenState extends State<FinancialTipsScreen> {
           } else if (index == 2) {
             Navigator.pushReplacement(
               context,
-              MaterialPageRoute(builder: (context) => const GamificationPage()),
+              MaterialPageRoute(builder: (context) => const FavoriteTipsScreen()),
             );
           } else if (index == 3) {
             Navigator.pushReplacement(

@@ -1,4 +1,3 @@
-
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -31,9 +30,12 @@ class _GamificationPageState extends State<GamificationPage> {
     _listenToBigSpender();
     _listenToIncomeBooster();
     _listenToFrugalShopper();
-    _listenToDiverseIncome(); // Added: New challenge listener
-    _listenToSideHustle(); // Added: New challenge listener
-    _listenToBigIncome(); // Added: New challenge listener
+    _listenToDiverseIncome();
+    _listenToSideHustle();
+    _listenToBigIncome();
+    _listenToCollectiveIncome();
+    _listenToIncomeCategoryCompetition();
+    _listenToBigIncomeLeader();
   }
 
   Future<void> _initializeChallenges() async {
@@ -989,6 +991,238 @@ class _GamificationPageState extends State<GamificationPage> {
     });
   }
 
+  Future<void> _listenToCollectiveIncome() async {
+    final userId = _auth.currentUser?.uid;
+    if (userId == null) {
+      print('No user logged in for Collective Income listener');
+      return;
+    }
+
+    _firestore
+        .collection('users')
+        .doc(userId)
+        .collection('challenges')
+        .doc('collective_income')
+        .snapshots()
+        .listen((snapshot) async {
+      if (!snapshot.exists) return;
+      final challenge = snapshot.data()!;
+      final communityChallengeDoc = await _firestore
+          .collection('community_challenges')
+          .doc('collective_income')
+          .get();
+
+      if (communityChallengeDoc.exists) {
+        final participants = (communityChallengeDoc.data()!['participants'] as List<dynamic>?) ?? [];
+        double totalIncome = 0.0;
+        for (var participantId in participants) {
+          final transactions = await _firestore
+              .collection('transactions')
+              .where('userid', isEqualTo: participantId)
+              .where('category', whereIn: [
+            _firestore.doc('categories/Salary'),
+            _firestore.doc('categories/Freelance'),
+            _firestore.doc('categories/Investments'),
+          ])
+              .get();
+          for (var tx in transactions.docs) {
+            final categoryRef = tx.data()['category'] as DocumentReference;
+            final categorySnap = await categoryRef.get();
+            if (categorySnap.exists && categorySnap['type'] == 'income') {
+              totalIncome += (tx.data()['amount'] as num).toDouble();
+            }
+          }
+        }
+
+        await _firestore
+            .collection('community_challenges')
+            .doc('collective_income')
+            .update({'totalIncome': totalIncome});
+
+        final progress = (totalIncome / 50000.0).clamp(0.0, 1.0);
+        final completed = totalIncome >= 50000.0;
+        await _updateChallengeProgress(
+          userId,
+          'collective_income',
+          progress,
+          completed,
+          challenge,
+        );
+
+        if (completed) {
+          print('Collective Income completed for user: $userId, total income: $totalIncome');
+        } else {
+          print('Collective Income progress: ${(progress * 100).toStringAsFixed(1)}%, total income: $totalIncome');
+        }
+      }
+      await _loadChallenges();
+    });
+  }
+
+  Future<void> _listenToIncomeCategoryCompetition() async {
+    final userId = _auth.currentUser?.uid;
+    if (userId == null) {
+      print('No user logged in for Income Category Competition listener');
+      return;
+    }
+
+    _firestore
+        .collection('users')
+        .doc(userId)
+        .collection('challenges')
+        .doc('income_category_competition')
+        .snapshots()
+        .listen((snapshot) async {
+      if (!snapshot.exists) return;
+      final challenge = snapshot.data()!;
+      final communityChallengeDoc = await _firestore
+          .collection('community_challenges')
+          .doc('income_category_competition')
+          .get();
+
+      if (communityChallengeDoc.exists) {
+        final participants = (communityChallengeDoc.data()!['participants'] as List<dynamic>?) ?? [];
+        final userCategoryCounts = <String, Map<String, int>>{};
+        int maxCount = 0;
+
+        for (var participantId in participants) {
+          final transactions = await _firestore
+              .collection('transactions')
+              .where('userid', isEqualTo: participantId)
+              .where('category', whereIn: [
+            _firestore.doc('categories/Salary'),
+            _firestore.doc('categories/Freelance'),
+            _firestore.doc('categories/Investments'),
+          ])
+              .get();
+
+          final categoryCounts = <String, int>{};
+          for (var tx in transactions.docs) {
+            final categoryRef = tx.data()['category'] as DocumentReference;
+            final categorySnap = await categoryRef.get();
+            if (categorySnap.exists && categorySnap['type'] == 'income') {
+              final categoryName = categorySnap['name'] as String;
+              categoryCounts[categoryName] = (categoryCounts[categoryName] ?? 0) + 1;
+            }
+          }
+
+          if (categoryCounts.isNotEmpty) {
+            final topCategory = categoryCounts.entries
+                .reduce((a, b) => a.value > b.value ? a : b)
+                .key;
+            userCategoryCounts[participantId] = {topCategory: categoryCounts[topCategory]!};
+            maxCount = maxCount > categoryCounts[topCategory]! ? maxCount : categoryCounts[topCategory]!;
+          }
+        }
+
+        double userProgress = 0.0;
+        bool completed = false;
+        if (userCategoryCounts.containsKey(userId) && maxCount > 0) {
+          final userCount = userCategoryCounts[userId]!.values.first;
+          userProgress = (userCount / maxCount).clamp(0.0, 1.0);
+          final sortedUsers = userCategoryCounts.entries.toList()
+            ..sort((a, b) => b.value.values.first.compareTo(a.value.values.first));
+          final top10Percent = sortedUsers
+              .take((sortedUsers.length * 0.1).ceil())
+              .toList();
+          completed = top10Percent.any((entry) => entry.key == userId);
+        }
+
+        await _updateChallengeProgress(
+          userId,
+          'income_category_competition',
+          userProgress,
+          completed,
+          challenge,
+        );
+
+        if (completed) {
+          print('Income Category Competition completed for user: $userId, top category: ${userCategoryCounts[userId]!.keys.first}, count: ${userCategoryCounts[userId]!.values.first}');
+        } else {
+          print('Income Category Competition progress: ${(userProgress * 100).toStringAsFixed(1)}%, max count: $maxCount');
+        }
+      }
+      await _loadChallenges();
+    });
+  }
+
+  Future<void> _listenToBigIncomeLeader() async {
+    final userId = _auth.currentUser?.uid;
+    if (userId == null) {
+      print('No user logged in for Big Income Leader listener');
+      return;
+    }
+
+    _firestore
+        .collection('users')
+        .doc(userId)
+        .collection('challenges')
+        .doc('big_income_leader')
+        .snapshots()
+        .listen((snapshot) async {
+      if (!snapshot.exists) return;
+      final challenge = snapshot.data()!;
+      final communityChallengeDoc = await _firestore
+          .collection('community_challenges')
+          .doc('big_income_leader')
+          .get();
+
+      if (communityChallengeDoc.exists) {
+        final participants = (communityChallengeDoc.data()!['participants'] as List<dynamic>?) ?? [];
+        final userMaxIncomes = <String, double>{};
+        double maxIncome = 0.0;
+
+        for (var participantId in participants) {
+          final transactions = await _firestore
+              .collection('transactions')
+              .where('userid', isEqualTo: participantId)
+              .where('category', whereIn: [
+            _firestore.doc('categories/Salary'),
+            _firestore.doc('categories/Freelance'),
+            _firestore.doc('categories/Investments'),
+          ])
+              .get();
+
+          double userMaxIncome = 0.0;
+          for (var tx in transactions.docs) {
+            final categoryRef = tx.data()['category'] as DocumentReference;
+            final categorySnap = await categoryRef.get();
+            if (categorySnap.exists && categorySnap['type'] == 'income') {
+              final amount = (tx.data()['amount'] as num).toDouble();
+              userMaxIncome = amount > userMaxIncome ? amount : userMaxIncome;
+            }
+          }
+          userMaxIncomes[participantId] = userMaxIncome;
+          maxIncome = userMaxIncome > maxIncome ? userMaxIncome : maxIncome;
+        }
+
+        double userProgress = 0.0;
+        bool completed = false;
+        if (userMaxIncomes.containsKey(userId) && maxIncome > 0) {
+          userProgress = (userMaxIncomes[userId]! / maxIncome).clamp(0.0, 1.0);
+          final sortedUsers = userMaxIncomes.entries.toList()
+            ..sort((a, b) => b.value.compareTo(a.value));
+          completed = sortedUsers.isNotEmpty && sortedUsers.first.key == userId;
+        }
+
+        await _updateChallengeProgress(
+          userId,
+          'big_income_leader',
+          userProgress,
+          completed,
+          challenge,
+        );
+
+        if (completed) {
+          print('Big Income Leader completed for user: $userId, max income: ${userMaxIncomes[userId]}');
+        } else {
+          print('Big Income Leader progress: ${(userProgress * 100).toStringAsFixed(1)}%, max income: $maxIncome');
+        }
+      }
+      await _loadChallenges();
+    });
+  }
+
   Future<void> _updateChallengeProgress(String userId,
       String challengeId,
       double progress,
@@ -1115,83 +1349,6 @@ class _GamificationPageState extends State<GamificationPage> {
     print('User $userId joined community challenge: $challengeId');
   }
 
-  Future<void> _updateLeaderboardChallenge(String challengeId) async {
-    final userId = _auth.currentUser?.uid;
-    if (userId == null) {
-      print('No user logged in for updating leaderboard challenge');
-      return;
-    }
-
-    final challengeDoc = await _firestore
-        .collection('community_challenges')
-        .doc(challengeId)
-        .get();
-    if (!challengeDoc.exists) {
-      print('Leaderboard challenge $challengeId does not exist');
-      return;
-    }
-
-    final challengeData = challengeDoc.data()!;
-    final participants = challengeData['participants'] as List<dynamic>;
-    final startDate = (challengeData['startDate'] as Timestamp).toDate();
-    final endDate = (challengeData['endDate'] as Timestamp).toDate();
-    final targetCategory = challengeData['targetCategory'] ?? 'Dining';
-
-    final diningSpends = <String, double>{};
-
-    for (var participantId in participants) {
-      final transactions = await _firestore
-          .collection('transactions')
-          .where('userid', isEqualTo: participantId)
-          .where('timestamp', isGreaterThanOrEqualTo: Timestamp.fromDate(startDate))
-          .where('timestamp', isLessThanOrEqualTo: Timestamp.fromDate(endDate))
-          .get();
-
-      double diningSpend = 0.0;
-      for (var tx in transactions.docs) {
-        final categoryRef = tx.data()['category'] as DocumentReference;
-        final categorySnap = await categoryRef.get();
-        if (categorySnap['name'] == targetCategory &&
-            categorySnap['type'] == 'expense') {
-          diningSpend += (tx.data()['amount'] as num).toDouble().abs();
-        }
-      }
-      diningSpends[participantId] = diningSpend;
-    }
-
-    final sortedUsers = diningSpends.entries.toList()
-      ..sort((a, b) => a.value.compareTo(b.value));
-    final top10Percent = sortedUsers
-        .take((sortedUsers.length * 0.1).ceil())
-        .toList();
-
-    if (top10Percent.any((entry) => entry.key == userId)) {
-      await _firestore
-          .collection('users')
-          .doc(userId)
-          .collection('challenges')
-          .doc(challengeId)
-          .update({
-        'progress': 1.0,
-        'completed': true,
-      });
-
-      final badge = challengeData['badge'];
-      if (badge != null) {
-        await _firestore
-            .collection('users')
-            .doc(userId)
-            .collection('badges')
-            .doc(badge['id'])
-            .set(badge, SetOptions(merge: true));
-      }
-      if (challengeData['points'] != null) {
-        await _awardPoints(userId, challengeData['points']);
-        print('Leaderboard challenge $challengeId completed for user: $userId');
-      }
-    }
-  }
-
   Widget _buildChallengeCard(Map<String, dynamic> challenge) {
     final progress = (challenge['progress'] as double?)?.clamp(0.0, 1.0) ?? 0.0;
     return Card(
@@ -1258,34 +1415,57 @@ class _GamificationPageState extends State<GamificationPage> {
               ),
             ),
             SizedBox(height: 8),
-            ...challenges.map((challenge) =>
-                Card(
-                  color: Color.fromRGBO(33, 35, 34, 1),
-                  margin: EdgeInsets.symmetric(vertical: 4),
-                  child: ListTile(
-                    title: Text(
-                      challenge['title'],
-                      style: TextStyle(color: Colors.white),
-                    ),
-                    subtitle: Text(
-                      challenge['description'],
-                      style: TextStyle(color: Colors.grey[400]),
-                    ),
-                    trailing: ElevatedButton(
-                      onPressed: () async {
-                        await _joinCommunityChallenge(challenge['id']);
-                        if (challenge['type'] == 'leaderboard') {
-                          await _updateLeaderboardChallenge(challenge['id']);
-                        }
-                      },
-                      child: Text('Join'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.teal,
-                        foregroundColor: Colors.white,
+            ...challenges.map((challenge) {
+              final userChallenge = userChallenges.firstWhere(
+                    (uc) => uc['id'] == challenge['id'],
+                orElse: () => {},
+              );
+              final isJoined = userChallenge.isNotEmpty;
+              return Card(
+                color: Color.fromRGBO(33, 35, 34, 1),
+                margin: EdgeInsets.symmetric(vertical: 4),
+                child: ListTile(
+                  title: Text(
+                    challenge['title'],
+                    style: TextStyle(color: Colors.white),
+                  ),
+                  subtitle: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        challenge['description'],
+                        style: TextStyle(color: Colors.grey[400]),
                       ),
+                      if (isJoined) ...[
+                        SizedBox(height: 8),
+                        LinearProgressIndicator(
+                          value: (userChallenge['progress'] as double?)?.clamp(0.0, 1.0) ?? 0.0,
+                          backgroundColor: Colors.grey[700],
+                          valueColor: AlwaysStoppedAnimation(Colors.teal),
+                        ),
+                        SizedBox(height: 4),
+                        Text(
+                          '${((userChallenge['progress'] as double?) ?? 0.0) * 100}% Complete',
+                          style: TextStyle(color: Colors.grey[400], fontSize: 12),
+                        ),
+                      ],
+                    ],
+                  ),
+                  trailing: isJoined
+                      ? Icon(Icons.check, color: Colors.green)
+                      : ElevatedButton(
+                    onPressed: () async {
+                      await _joinCommunityChallenge(challenge['id']);
+                    },
+                    child: Text('Join'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.teal,
+                      foregroundColor: Colors.white,
                     ),
                   ),
-                )),
+                ),
+              );
+            }),
           ],
         );
       },
