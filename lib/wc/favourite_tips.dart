@@ -6,58 +6,19 @@ import 'package:fyp/ch/homepage.dart';
 import 'package:fyp/wc/financial_tips.dart';
 import 'package:fyp/ch/settings.dart';
 
-class Tip {
-  final String id;
-  final String title;
-  final String description;
-  final String category;
+class FavoriteTipsScreen extends StatefulWidget {
+  const FavoriteTipsScreen({super.key});
 
-  Tip({
-    required this.id,
-    required this.title,
-    required this.description,
-    required this.category,
-  });
-
-  factory Tip.fromFirestore(DocumentSnapshot doc) {
-    final data = doc.data() as Map<String, dynamic>;
-    return Tip(
-      id: doc.id,
-      title: data['title'] ?? '',
-      description: data['description'] ?? '',
-      category: data['category'] ?? '',
-    );
-  }
+  @override
+  _FavoriteTipsScreenState createState() => _FavoriteTipsScreenState();
 }
 
-class TipService {
+class _FavoriteTipsScreenState extends State<FavoriteTipsScreen> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final FirebaseAuth _auth = FirebaseAuth.instance;
+  int _selectedIndex = 2; // Align with "Favorites" tab
 
-  Future<List<Tip>> getFavoriteTips(String userId) async {
-    final feedbackSnapshot = await _firestore
-        .collection('users')
-        .doc(userId)
-        .collection('tips_feedback')
-        .where('isHelpful', isEqualTo: true)
-        .get();
-    print('Favorite feedback found: ${feedbackSnapshot.docs.length}');
-
-    final favoriteTips = <Tip>[];
-    for (var feedbackDoc in feedbackSnapshot.docs) {
-      final tipId = feedbackDoc.id;
-      final tipSnapshot = await _firestore.collection('tips').doc(tipId).get();
-      if (tipSnapshot.exists) {
-        final tip = Tip.fromFirestore(tipSnapshot);
-        print('Favorite tip: ${tip.title} (${tip.category})');
-        favoriteTips.add(tip);
-      }
-    }
-    return favoriteTips;
-  }
-
-  Future<void> markTipFeedback(
-      String tipId, bool isHelpful, bool isIrrelevant) async {
+  Future<void> _unlikeTip(String tipId) async {
     final userId = _auth.currentUser?.uid;
     if (userId == null) return;
 
@@ -67,41 +28,29 @@ class TipService {
           .doc(userId)
           .collection('tips_feedback')
           .doc(tipId)
-          .set({
-        'tipId': tipId,
-        'isHelpful': isHelpful,
-        'isIrrelevant': isIrrelevant,
-        'timestamp': Timestamp.now(),
+          .update({
+        'isHelpful': false,
       });
-      print('Updated feedback for tip: $tipId, isHelpful: $isHelpful');
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Tip removed from favorites')),
+      );
     } catch (e) {
-      throw Exception('Failed to update tip feedback: $e');
+      print('Error unliking tip: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to unlike tip: $e')),
+      );
     }
   }
-}
-
-class FavoriteTipsScreen extends StatefulWidget {
-  const FavoriteTipsScreen({super.key});
-
-  @override
-  _FavoriteTipsScreenState createState() => _FavoriteTipsScreenState();
-}
-
-class _FavoriteTipsScreenState extends State<FavoriteTipsScreen> {
-  final TipService _tipService = TipService();
-  final FirebaseAuth _auth = FirebaseAuth.instance;
-  int _selectedIndex = 2; // Align with "Favorites" tab
 
   @override
   Widget build(BuildContext context) {
     final userId = _auth.currentUser?.uid;
     if (userId == null) {
-      print('No user logged in for FavoriteTipsScreen');
       return Scaffold(
         backgroundColor: const Color.fromRGBO(28, 28, 28, 1),
         body: const Center(
           child: Text(
-            'Please log in to view favorite tips',
+            'Please log in to view favorite tips.',
             style: TextStyle(color: Colors.white, fontSize: 16),
           ),
         ),
@@ -112,89 +61,104 @@ class _FavoriteTipsScreenState extends State<FavoriteTipsScreen> {
       backgroundColor: const Color.fromRGBO(28, 28, 28, 1),
       appBar: AppBar(
         backgroundColor: const Color.fromRGBO(28, 28, 28, 1),
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back, color: Colors.white),
+          onPressed: () => Navigator.pop(context),
+          tooltip: 'Back to Tips',
+        ),
         title: const Text(
           'Favorite Tips',
           style: TextStyle(color: Colors.white, fontSize: 20),
         ),
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.white),
-          onPressed: () => Navigator.pop(context),
-        ),
+        centerTitle: true,
       ),
-      body: FutureBuilder<List<Tip>>(
-        future: _tipService.getFavoriteTips(userId),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
+      body: StreamBuilder<QuerySnapshot>(
+        stream: _firestore
+            .collection('users')
+            .doc(userId)
+            .collection('tips_feedback')
+            .where('isHelpful', isEqualTo: true)
+            .snapshots(),
+        builder: (context, feedbackSnapshot) {
+          if (feedbackSnapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
           }
-          if (snapshot.hasError) {
-            print('FavoriteTips Error: ${snapshot.error}');
+          if (feedbackSnapshot.hasError) {
+            print('Feedback StreamBuilder Error: ${feedbackSnapshot.error}');
             return Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(
-                    'Error loading favorite tips: ${snapshot.error}',
-                    style: const TextStyle(color: Colors.white, fontSize: 16),
-                  ),
-                  ElevatedButton(
-                    onPressed: () => setState(() {}),
-                    child: const Text('Retry'),
-                  ),
-                ],
+              child: Text(
+                'Error loading favorite tips: ${feedbackSnapshot.error}',
+                style: const TextStyle(color: Colors.white, fontSize: 16),
               ),
             );
           }
-          if (!snapshot.hasData || snapshot.data!.isEmpty) {
+          if (!feedbackSnapshot.hasData || feedbackSnapshot.data!.docs.isEmpty) {
             print('No favorite tips found');
             return const Center(
               child: Text(
-                'No favorite tips yet. Mark tips as helpful to add them here.',
+                'No favorite tips yet. Mark tips as helpful to add them here!',
                 style: TextStyle(color: Colors.white, fontSize: 16),
+                textAlign: TextAlign.center,
               ),
             );
           }
 
-          final favoriteTips = snapshot.data!;
-          print('Favorite tips displayed: ${favoriteTips.map((t) => t.title).toList()}');
+          final feedbackDocs = feedbackSnapshot.data!.docs;
+          print('Favorite tips found: ${feedbackDocs.length}');
 
           return ListView.builder(
             padding: const EdgeInsets.all(16.0),
-            itemCount: favoriteTips.length,
+            itemCount: feedbackDocs.length,
             itemBuilder: (context, index) {
-              final tip = favoriteTips[index];
-              return Card(
-                color: const Color.fromRGBO(33, 35, 34, 1),
-                child: ListTile(
-                  leading: Icon(
-                    _getIconForCategory(tip.category),
-                    color: Colors.white,
-                  ),
-                  title: Text(
-                    tip.title,
-                    style: const TextStyle(color: Colors.white, fontSize: 18),
-                  ),
-                  subtitle: Text(
-                    tip.description,
-                    style: const TextStyle(color: Colors.grey, fontSize: 14),
-                  ),
-                  trailing: IconButton(
-                    icon: const Icon(Icons.favorite, color: Colors.red),
-                    onPressed: () async {
-                      try {
-                        await _tipService.markTipFeedback(tip.id, false, false);
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Removed from favorites')),
-                        );
-                        setState(() {}); // Refresh the list
-                      } catch (e) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text('Error: $e')),
-                        );
-                      }
-                    },
-                  ),
-                ),
+              final feedback = feedbackDocs[index].data() as Map<String, dynamic>;
+              final tipId = feedback['tipId'] as String;
+
+              return FutureBuilder<DocumentSnapshot>(
+                future: _firestore.collection('tips').doc(tipId).get(),
+                builder: (context, tipSnapshot) {
+                  if (tipSnapshot.connectionState == ConnectionState.waiting) {
+                    return const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 8.0),
+                      child: CircularProgressIndicator(),
+                    );
+                  }
+                  if (tipSnapshot.hasError || !tipSnapshot.hasData || !tipSnapshot.data!.exists) {
+                    print('Error or missing tip data for tipId: $tipId');
+                    return const SizedBox.shrink();
+                  }
+
+                  final tipData = tipSnapshot.data!.data() as Map<String, dynamic>;
+                  final tip = Tip(
+                    id: tipId,
+                    title: tipData['title'] ?? 'Unknown',
+                    description: tipData['description'] ?? '',
+                    category: tipData['category'] ?? 'unknown',
+                  );
+
+                  return Card(
+                    color: const Color.fromRGBO(33, 35, 34, 1),
+                    margin: const EdgeInsets.symmetric(vertical: 8.0),
+                    child: ListTile(
+                      leading: Icon(
+                        _getIconForCategory(tip.category),
+                        color: Colors.white,
+                      ),
+                      title: Text(
+                        tip.title,
+                        style: const TextStyle(color: Colors.white, fontSize: 18),
+                      ),
+                      subtitle: Text(
+                        tip.description,
+                        style: const TextStyle(color: Colors.grey, fontSize: 14),
+                      ),
+                      trailing: IconButton(
+                        icon: const Icon(Icons.thumb_up, color: Colors.green),
+                        onPressed: () => _unlikeTip(tip.id),
+                        tooltip: 'Remove from Favorites',
+                      ),
+                    ),
+                  );
+                },
               );
             },
           );
@@ -248,5 +212,29 @@ class _FavoriteTipsScreenState extends State<FavoriteTipsScreen> {
       default:
         return Icons.attach_money;
     }
+  }
+}
+
+class Tip {
+  final String id;
+  final String title;
+  final String description;
+  final String category;
+
+  Tip({
+    required this.id,
+    required this.title,
+    required this.description,
+    required this.category,
+  });
+
+  factory Tip.fromFirestore(DocumentSnapshot doc) {
+    final data = doc.data() as Map<String, dynamic>;
+    return Tip(
+      id: doc.id,
+      title: data['title'] ?? '',
+      description: data['description'] ?? '',
+      category: data['category'] ?? '',
+    );
   }
 }

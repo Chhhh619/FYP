@@ -1,4 +1,4 @@
-// lib/main.dart
+
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -10,11 +10,14 @@ import 'wc/currencyconverter.dart';
 import 'wc/splash.dart';
 import 'wc/home.dart';
 import 'ch/homepage.dart';
-import 'wc/financia_planning_screen.dart';
+import 'wc/financial_plan.dart';
 import 'wc/financial_tips.dart';
 import 'wc/bill/bill_payment_screen.dart';
 import 'wc/Onboard/Onboarding.dart';
 import 'wc/bill/payment_history_screen.dart';
+import 'wc/financial_plan.dart';
+import 'wc/goal.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -65,8 +68,10 @@ class MyApp extends StatelessWidget {
         '/register': (context) => const RegisterScreen(),
         '/home': (context) => const HomePage(),
         '/converter': (context) => const CurrencyConverterScreen(),
-        '/advisor': (context) => const FinancialPlanningScreen(),
+        '/financial_plan': (context) =>  FinancialPlanPage(),
         '/tips': (context) => const FinancialTipsScreen(),
+        '/add_goal': (context) => const AddGoalPage(),
+        '/edit_goal': (context) => const EditGoalPage(),
         '/bill': (context) {
           final userId = FirebaseAuth.instance.currentUser?.uid;
           if (userId == null) {

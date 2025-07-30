@@ -22,7 +22,7 @@ class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
         backgroundColor: const Color.fromRGBO(50, 50, 50, 1),
         title: const Text('Clear All Payment History', style: TextStyle(color: Colors.white)),
         content: const Text(
-          'Are you sure you want to clear all payment history? This will revert all paid bills to pending.',
+          'Are you sure you want to clear all payment history? This action cannot be undone.',
           style: TextStyle(color: Colors.white70),
         ),
         actions: [
@@ -54,34 +54,7 @@ class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
       final batch = FirebaseFirestore.instance.batch();
 
       for (var paymentDoc in paymentsSnapshot.docs) {
-        final billId = paymentDoc.data()['billId'] as String?;
         batch.delete(paymentDoc.reference);
-        if (billId != null) {
-          // Check if the bill exists before updating
-          final billDoc = await FirebaseFirestore.instance
-              .collection('users')
-              .doc(widget.userId)
-              .collection('bills')
-              .doc(billId)
-              .get();
-          if (billDoc.exists) {
-            batch.update(
-              FirebaseFirestore.instance
-                  .collection('users')
-                  .doc(widget.userId)
-                  .collection('bills')
-                  .doc(billId),
-              {
-                'status': 'pending',
-                'paidAt': null,
-              },
-            );
-          } else {
-            print('Warning: Bill $billId for payment ${paymentDoc.id} does not exist');
-          }
-        } else {
-          print('Warning: Payment ${paymentDoc.id} has no billId');
-        }
       }
 
       await batch.commit().then((_) {
@@ -112,14 +85,14 @@ class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
     }
   }
 
-  Future<void> _deleteSinglePayment(BuildContext context, String paymentId, String? billId) async {
+  Future<void> _deleteSinglePayment(BuildContext context, String paymentId) async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         backgroundColor: const Color.fromRGBO(50, 50, 50, 1),
         title: const Text('Delete Payment', style: TextStyle(color: Colors.white)),
         content: const Text(
-          'Are you sure you want to delete this payment? This will revert the bill to pending.',
+          'Are you sure you want to delete this payment? This action cannot be undone.',
           style: TextStyle(color: Colors.white70),
         ),
         actions: [
@@ -142,47 +115,13 @@ class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
     });
 
     try {
-      final batch = FirebaseFirestore.instance.batch();
-      batch.delete(
-        FirebaseFirestore.instance
-            .collection('users')
-            .doc(widget.userId)
-            .collection('payments')
-            .doc(paymentId),
-      );
-      if (billId != null) {
-        // Check if the bill exists before updating
-        final billDoc = await FirebaseFirestore.instance
-            .collection('users')
-            .doc(widget.userId)
-            .collection('bills')
-            .doc(billId)
-            .get();
-        if (billDoc.exists) {
-          batch.update(
-            FirebaseFirestore.instance
-                .collection('users')
-                .doc(widget.userId)
-                .collection('bills')
-                .doc(billId),
-            {
-              'status': 'pending',
-              'paidAt': null,
-            },
-          );
-        } else {
-          print('Warning: Bill $billId for payment $paymentId does not exist');
-        }
-      } else {
-        print('Warning: Payment $paymentId has no billId');
-      }
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(widget.userId)
+          .collection('payments')
+          .doc(paymentId)
+          .delete();
 
-      await batch.commit().then((_) {
-        print('Batch commit successful for deleteSinglePayment: paymentId=$paymentId, billId=$billId');
-      }).catchError((e, stackTrace) {
-        print('Batch commit failed for deleteSinglePayment: $e\nStackTrace: $stackTrace');
-        throw e;
-      });
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Payment deleted')),
@@ -258,7 +197,6 @@ class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
             itemBuilder: (context, index) {
               final payment = payments[index].data() as Map<String, dynamic>;
               final paymentId = payments[index].id;
-              final billId = payment['billId'] as String?;
               final billerName = payment['billerName'] as String? ?? 'Unknown Biller';
               final description = payment['description'] as String? ?? 'No description';
               final amount = payment['amount'] as double? ?? 0.0;
@@ -266,7 +204,7 @@ class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
               final categoryName = payment['categoryName'] as String? ?? 'Uncategorized';
 
               return GestureDetector(
-                onLongPress: _isDeleting ? null : () => _deleteSinglePayment(context, paymentId, billId),
+                onLongPress: _isDeleting ? null : () => _deleteSinglePayment(context, paymentId),
                 child: Container(
                   margin: const EdgeInsets.only(bottom: 8),
                   padding: const EdgeInsets.all(16),
