@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:fyp/wc/achievements_service.dart';
 
 class RewardsPage extends StatefulWidget {
   const RewardsPage({super.key});
@@ -12,6 +13,7 @@ class RewardsPage extends StatefulWidget {
 class _RewardsPageState extends State<RewardsPage> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final FirebaseAuth _auth = FirebaseAuth.instance;
+  final AchievementsService _achievementsService = AchievementsService();
   List<Map<String, dynamic>> _badges = [];
   String? _equippedBadge;
   bool _isLoading = true;
@@ -32,6 +34,9 @@ class _RewardsPageState extends State<RewardsPage> {
     }
 
     try {
+      // Check and award category-specific and ultimate badges
+      await _achievementsService.checkAndAwardCategoryBadges(userId);
+
       // Fetch user's badges and equipped badge
       final badgeSnapshot = await _firestore
           .collection('users')
@@ -44,6 +49,7 @@ class _RewardsPageState extends State<RewardsPage> {
         _equippedBadge = userDoc.data()?['equippedBadge'];
         _isLoading = false;
       });
+      print('Badges loaded: ${_badges.map((b) => b['name']).toList()}');
     } catch (e) {
       print('Error loading badges: $e');
       setState(() {
@@ -64,7 +70,7 @@ class _RewardsPageState extends State<RewardsPage> {
         _equippedBadge = badgeId;
       });
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Badge equipped!')),
+        const SnackBar(content: Text('Badge equipped!')),
       );
     } catch (e) {
       print('Error equipping badge: $e');
@@ -79,8 +85,8 @@ class _RewardsPageState extends State<RewardsPage> {
     final userId = _auth.currentUser?.uid;
     if (userId == null) {
       return Scaffold(
-        backgroundColor: Color.fromRGBO(28, 28, 28, 1),
-        body: Center(
+        backgroundColor: const Color.fromRGBO(28, 28, 28, 1),
+        body: const Center(
           child: Text(
             'Please log in to view rewards.',
             style: TextStyle(color: Colors.white, fontSize: 16),
@@ -90,10 +96,10 @@ class _RewardsPageState extends State<RewardsPage> {
     }
 
     return Scaffold(
-      backgroundColor: Color.fromRGBO(28, 28, 28, 1),
+      backgroundColor: const Color.fromRGBO(28, 28, 28, 1),
       appBar: AppBar(
-        backgroundColor: Color.fromRGBO(28, 28, 28, 1),
-        title: Text(
+        backgroundColor: const Color.fromRGBO(28, 28, 28, 1),
+        title: const Text(
           'Rewards',
           style: TextStyle(
             color: Colors.white,
@@ -106,7 +112,7 @@ class _RewardsPageState extends State<RewardsPage> {
       body: _isLoading
           ? _buildLoadingSkeleton()
           : _badges.isEmpty
-          ? Center(
+          ? const Center(
         child: Text(
           'No badges earned yet. Complete challenges to earn badges!',
           style: TextStyle(color: Colors.white, fontSize: 16),
@@ -114,7 +120,7 @@ class _RewardsPageState extends State<RewardsPage> {
         ),
       )
           : ListView.builder(
-        padding: EdgeInsets.all(16),
+        padding: const EdgeInsets.all(16),
         itemCount: _badges.length,
         itemBuilder: (context, index) {
           final badge = _badges[index];
@@ -127,20 +133,20 @@ class _RewardsPageState extends State<RewardsPage> {
   Widget _buildBadgeCard(Map<String, dynamic> badge) {
     final isEquipped = _equippedBadge == badge['id'];
     return Card(
-      color: Color.fromRGBO(33, 35, 34, 1),
-      margin: EdgeInsets.symmetric(vertical: 8),
+      color: const Color.fromRGBO(33, 35, 34, 1),
+      margin: const EdgeInsets.symmetric(vertical: 8),
       child: ListTile(
         leading: Text(
           badge['icon'],
-          style: TextStyle(fontSize: 24),
+          style: const TextStyle(fontSize: 24),
         ),
         title: Text(
           badge['name'],
-          style: TextStyle(color: Colors.white, fontSize: 18),
+          style: const TextStyle(color: Colors.white, fontSize: 18),
         ),
         subtitle: Text(
           badge['description'],
-          style: TextStyle(color: Colors.grey[300], fontSize: 14),
+          style: const TextStyle(color: Colors.grey, fontSize: 14),
         ),
         trailing: ElevatedButton(
           onPressed: isEquipped ? null : () => _equipBadge(badge['id']),
@@ -156,16 +162,16 @@ class _RewardsPageState extends State<RewardsPage> {
 
   Widget _buildLoadingSkeleton() {
     return Padding(
-      padding: EdgeInsets.all(16),
+      padding: const EdgeInsets.all(16),
       child: Column(
         children: List.generate(
           3,
               (index) => Padding(
-            padding: EdgeInsets.symmetric(vertical: 8),
+            padding: const EdgeInsets.symmetric(vertical: 8),
             child: Card(
-              color: Color.fromRGBO(33, 35, 34, 1),
+              color: const Color.fromRGBO(33, 35, 34, 1),
               child: Padding(
-                padding: EdgeInsets.all(16),
+                padding: const EdgeInsets.all(16),
                 child: Row(
                   children: [
                     Container(
@@ -173,7 +179,7 @@ class _RewardsPageState extends State<RewardsPage> {
                       height: 40,
                       color: Colors.grey[700],
                     ),
-                    SizedBox(width: 16),
+                    const SizedBox(width: 16),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -183,7 +189,7 @@ class _RewardsPageState extends State<RewardsPage> {
                             height: 18,
                             color: Colors.grey[700],
                           ),
-                          SizedBox(height: 8),
+                          const SizedBox(height: 8),
                           Container(
                             width: 150,
                             height: 14,

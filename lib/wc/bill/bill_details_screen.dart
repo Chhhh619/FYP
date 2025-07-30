@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 
 class BillDetailsScreen extends StatefulWidget {
   final String userId;
@@ -20,6 +21,7 @@ class BillDetailsScreen extends StatefulWidget {
 
 class _BillDetailsScreenState extends State<BillDetailsScreen> {
   bool _isPaying = false;
+  bool _isViewingImage = false;
 
   Future<void> _markBillAsPaid(BuildContext context) async {
     final FirebaseFirestore _firestore = FirebaseFirestore.instance;
@@ -51,11 +53,12 @@ class _BillDetailsScreenState extends State<BillDetailsScreen> {
           'amount': amount,
           'categoryName': categoryName,
           'timestamp': Timestamp.now(),
+          if (widget.billData['billImageUrl'] != null)
+            'billImageUrl': widget.billData['billImageUrl'],
         },
       );
 
       await batch.commit();
-      print('Batch commit successful for markBillAsPaid: billId=${widget.billId}');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Bill marked as paid')),
@@ -71,7 +74,6 @@ class _BillDetailsScreenState extends State<BillDetailsScreen> {
       }
     } finally {
       if (mounted) {
-        print('Resetting _isPaying to false');
         setState(() {
           _isPaying = false;
         });
@@ -79,9 +81,59 @@ class _BillDetailsScreenState extends State<BillDetailsScreen> {
     }
   }
 
+  void _showFullScreenImage(String imageUrl) {
+    setState(() {
+      _isViewingImage = true;
+    });
+
+    showDialog(
+      context: context,
+      builder: (context) => Dialog(
+        backgroundColor: Colors.transparent,
+        insetPadding: const EdgeInsets.all(0),
+        child: Stack(
+          children: [
+            GestureDetector(
+              onTap: () {
+                Navigator.of(context).pop();
+                setState(() {
+                  _isViewingImage = false;
+                });
+              },
+              child: InteractiveViewer(
+                panEnabled: true,
+                minScale: 0.5,
+                maxScale: 3.0,
+                child: CachedNetworkImage(
+                  imageUrl: imageUrl,
+                  placeholder: (context, url) => Center(
+                    child: CircularProgressIndicator(color: Colors.teal),
+                  ),
+                  errorWidget: (context, url, error) => Icon(Icons.error),
+                ),
+              ),
+            ),
+            Positioned(
+              top: 40,
+              right: 20,
+              child: IconButton(
+                icon: Icon(Icons.close, color: Colors.white, size: 30),
+                onPressed: () {
+                  Navigator.of(context).pop();
+                  setState(() {
+                    _isViewingImage = false;
+                  });
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    // Extract bill data with fallback values
     final billerName = widget.billData['billerName'] as String? ?? 'Unknown Biller';
     final accountNumber = widget.billData['accountNumber'] as String? ?? 'N/A';
     final description = widget.billData['description'] as String? ?? 'No description';
@@ -90,8 +142,7 @@ class _BillDetailsScreenState extends State<BillDetailsScreen> {
     final status = widget.billData['status'] as String? ?? 'pending';
     final createdAt = (widget.billData['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now();
     final categoryName = widget.billData['categoryName'] as String? ?? 'Uncategorized';
-
-    print('BillDetailsScreen billData: ${widget.billData}');
+    final billImageUrl = widget.billData['billImageUrl'] as String?;
 
     return Scaffold(
       backgroundColor: const Color.fromRGBO(28, 28, 28, 1),
@@ -103,21 +154,55 @@ class _BillDetailsScreenState extends State<BillDetailsScreen> {
         ),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back, color: Colors.white),
-          onPressed: () {
-            print('Back button pressed');
-            try {
-              Navigator.pop(context);
-            } catch (e) {
-              print('Navigation error: $e');
-            }
-          },
+          onPressed: () => Navigator.pop(context),
         ),
         elevation: 0,
       ),
-      body: _isPaying
+      body: _isPaying || _isViewingImage
           ? const Center(child: CircularProgressIndicator(color: Colors.teal))
           : Column(
         children: [
+          if (billImageUrl != null) ...[
+            GestureDetector(
+              onTap: () => _showFullScreenImage(billImageUrl),
+              child: Hero(
+                tag: 'billImage-${widget.billId}',
+                child: Container(
+                  margin: const EdgeInsets.all(16),
+                  height: 200,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(12),
+                    color: const Color.fromRGBO(50, 50, 50, 1),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.3),
+                        blurRadius: 6,
+                        offset: const Offset(0, 3),
+                      ),
+                    ],
+                  ),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: CachedNetworkImage(
+                      imageUrl: billImageUrl,
+                      fit: BoxFit.cover,
+                      width: double.infinity,
+                      placeholder: (context, url) => Center(
+                        child: CircularProgressIndicator(color: Colors.teal),
+                      ),
+                      errorWidget: (context, url, error) => const Icon(Icons.error, color: Colors.red),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Tap image to view full screen',
+              style: TextStyle(color: Colors.white70, fontSize: 12),
+            ),
+            const SizedBox(height: 8),
+          ],
           Expanded(
             child: ListView(
               padding: const EdgeInsets.all(16.0),
@@ -180,6 +265,15 @@ class _BillDetailsScreenState extends State<BillDetailsScreen> {
                           label: 'Created',
                           value: DateFormat('MMM dd, yyyy HH:mm').format(createdAt),
                         ),
+                        if (billImageUrl != null) ...[
+                          const SizedBox(height: 12),
+                          _buildDetailRow(
+                            icon: Icons.image,
+                            label: 'Bill Image',
+                            value: 'Attached',
+                            valueColor: Colors.teal,
+                          ),
+                        ],
                       ],
                     ),
                   ),

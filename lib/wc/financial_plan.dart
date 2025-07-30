@@ -4,6 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:tflite_flutter/tflite_flutter.dart';
+import 'package:firebase_storage/firebase_storage.dart';
 
 class FinancialPlanPage extends StatefulWidget {
   const FinancialPlanPage({super.key});
@@ -15,16 +16,36 @@ class FinancialPlanPage extends StatefulWidget {
 class _FinancialPlanPageState extends State<FinancialPlanPage> {
   final _firestore = FirebaseFirestore.instance;
   final _auth = FirebaseAuth.instance;
+  Interpreter? _interpreter;
+
+  Future<Interpreter> _getInterpreter() async {
+    if (_interpreter == null) {
+      try {
+        final ref = FirebaseStorage.instance.ref('models/spending_model.tflite'); // Verify this path
+        final bytes = await ref.getData();
+        if (bytes == null) {
+          throw Exception('Model file not found or empty at models/spending_model.tflite');
+        }
+        _interpreter = await Interpreter.fromBuffer(bytes);
+      } catch (e) {
+        print('Interpreter error: $e');
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to load model: $e. Check Storage configuration.')),
+        );
+        rethrow; // Let the caller handle the fallback
+      }
+    }
+    return _interpreter!;
+  }
 
   Future<double> _predictNextMonthSpending(String userId) async {
     try {
-      final interpreter = await Interpreter.fromAsset('spending_model.tflite');
-      final now = DateTime.now();
-      final monthEncoded = (now.month % 12).toDouble(); // Simplified encoding
-      var input = [monthEncoded];
+      final interpreter = await _getInterpreter();
+      final spendingData = await _fetchMonthlySpending(userId);
+      var input = spendingData; // Adjust based on model input shape
       var output = List.filled(1, 0.0);
       interpreter.run(input, output);
-      interpreter.close();
+      print('Input: $input, Output: $output');
       return output[0].clamp(0.0, double.infinity);
     } catch (e) {
       print('Prediction error: $e');
@@ -62,7 +83,6 @@ class _FinancialPlanPageState extends State<FinancialPlanPage> {
         .where('userId', isEqualTo: userId)
         .get();
     List<String> recommendations = [];
-    // Rule-based recommendations
     categorySpending.forEach((category, amount) {
       if (amount / totalExpenses > 0.3 && totalExpenses > 0) {
         recommendations.add(
@@ -87,7 +107,6 @@ class _FinancialPlanPageState extends State<FinancialPlanPage> {
         }
       }
     }
-    // AI prediction
     final predictedSpending = await _predictNextMonthSpending(userId);
     if (predictedSpending > totalExpenses * 1.2 && totalExpenses > 0) {
       recommendations.add(
@@ -311,6 +330,37 @@ class _FinancialPlanPageState extends State<FinancialPlanPage> {
     );
   }
 
+  Widget _buildPrediction(String userId) {
+    return FutureBuilder<double>(
+      future: _predictNextMonthSpending(userId),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator(color: Colors.teal));
+        }
+        if (snapshot.hasError || !snapshot.hasData) {
+          return const Text('Error loading prediction', style: TextStyle(color: Colors.white70));
+        }
+        final predicted = snapshot.data!;
+        return Card(
+          color: const Color(0xFF323232),
+          child: ListTile(
+            leading: const Icon(Icons.trending_up, color: Colors.teal),
+            title: Text(
+              'Predicted Next Month Spending: RM${predicted.toStringAsFixed(2)}',
+              style: const TextStyle(color: Colors.white70),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  @override
+  void dispose() {
+    _interpreter?.close();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     final userId = _auth.currentUser?.uid;
@@ -354,6 +404,8 @@ class _FinancialPlanPageState extends State<FinancialPlanPage> {
               _buildGoalsList(userId),
               const SizedBox(height: 20),
               _buildRecommendations(userId),
+              const SizedBox(height: 20),
+              _buildPrediction(userId),
             ],
           ),
         ),

@@ -80,6 +80,7 @@ class _SettingsPageState extends State<SettingsPage> {
       'lastUpdated': Timestamp.now(),
       'currency': 'MYR',
       'points': 0,
+      'equippedBadge': null,
     }, SetOptions(merge: true));
     await _loadUserData();
   }
@@ -106,7 +107,7 @@ class _SettingsPageState extends State<SettingsPage> {
         'displayName': newName,
       }, SetOptions(merge: true));
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Display name updated successfully')),
+        const SnackBar(content: Text('Display name updated successfully')),
       );
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -127,21 +128,21 @@ class _SettingsPageState extends State<SettingsPage> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        backgroundColor: Color.fromRGBO(50, 50, 50, 1),
-        title: Text(
+        backgroundColor: const Color.fromRGBO(50, 50, 50, 1),
+        title: const Text(
           'Edit Display Name',
           style: TextStyle(color: Colors.white),
         ),
         content: TextField(
           controller: nameController,
-          style: TextStyle(color: Colors.white),
+          style: const TextStyle(color: Colors.white),
           decoration: InputDecoration(
             labelText: 'Display Name',
             labelStyle: TextStyle(color: Colors.grey[400]),
-            enabledBorder: OutlineInputBorder(
+            enabledBorder: const OutlineInputBorder(
               borderSide: BorderSide(color: Colors.teal),
             ),
-            focusedBorder: OutlineInputBorder(
+            focusedBorder: const OutlineInputBorder(
               borderSide: BorderSide(color: Colors.teal, width: 2),
             ),
           ),
@@ -149,9 +150,9 @@ class _SettingsPageState extends State<SettingsPage> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: Text(
+            child: const Text(
               'Cancel',
-              style: TextStyle(color: Colors.grey[400]),
+              style: TextStyle(color: Colors.grey),
             ),
           ),
           TextButton(
@@ -161,11 +162,11 @@ class _SettingsPageState extends State<SettingsPage> {
                 Navigator.pop(context);
               } else {
                 ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('Please enter a valid name')),
+                  const SnackBar(content: Text('Please enter a valid name')),
                 );
               }
             },
-            child: Text(
+            child: const Text(
               'Save',
               style: TextStyle(color: Colors.teal),
             ),
@@ -178,7 +179,7 @@ class _SettingsPageState extends State<SettingsPage> {
   Widget _buildProfileSection() {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
-      return Center(
+      return const Center(
         child: Text(
           'Please log in to view settings',
           style: TextStyle(color: Colors.white),
@@ -191,7 +192,7 @@ class _SettingsPageState extends State<SettingsPage> {
       stream: FirebaseFirestore.instance.collection('users').doc(userId).snapshots(),
       builder: (context, snapshot) {
         if (!snapshot.hasData || snapshot.data == null) {
-          return Center(child: CircularProgressIndicator());
+          return const Center(child: CircularProgressIndicator());
         }
         final userData = snapshot.data!.data() as Map<String, dynamic>? ?? {};
         final displayName = userData['displayName'] ?? user.email?.split('@')[0] ?? 'User';
@@ -199,16 +200,16 @@ class _SettingsPageState extends State<SettingsPage> {
         final equippedBadge = userData['equippedBadge'] ?? 'None';
 
         return Container(
-          margin: EdgeInsets.symmetric(vertical: 8),
-          padding: EdgeInsets.all(16),
+          margin: const EdgeInsets.symmetric(vertical: 8),
+          padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
-            color: Color.fromRGBO(50, 50, 50, 1),
+            color: const Color.fromRGBO(50, 50, 50, 1),
             borderRadius: BorderRadius.circular(8.0),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
+              const Text(
                 'Profile',
                 style: TextStyle(
                   color: Colors.white,
@@ -216,11 +217,11 @@ class _SettingsPageState extends State<SettingsPage> {
                   fontWeight: FontWeight.bold,
                 ),
               ),
-              SizedBox(height: 16),
+              const SizedBox(height: 16),
               _buildListTile(
                 leadingIcon: Icons.person,
                 title: 'Display Name: $displayName',
-                trailing: Icon(Icons.edit, color: Colors.white70),
+                trailing: const Icon(Icons.edit, color: Colors.white70),
                 onTap: _showEditNameDialog,
               ),
               _buildListTile(
@@ -236,11 +237,11 @@ class _SettingsPageState extends State<SettingsPage> {
               _buildListTile(
                 leadingIcon: Icons.badge,
                 title: 'Equipped Badge: $equippedBadge',
-                trailing: Icon(Icons.chevron_right, color: Colors.white70),
+                trailing: const Icon(Icons.chevron_right, color: Colors.white70),
                 onTap: () {
                   Navigator.push(
                     context,
-                    MaterialPageRoute(builder: (context) => RewardsPage()),
+                    MaterialPageRoute(builder: (context) => const RewardsPage()),
                   );
                 },
               ),
@@ -259,8 +260,8 @@ class _SettingsPageState extends State<SettingsPage> {
 
     if (userId == null) {
       return Scaffold(
-        backgroundColor: Color.fromRGBO(28, 28, 28, 1),
-        body: Center(
+        backgroundColor: const Color.fromRGBO(28, 28, 28, 1),
+        body: const Center(
           child: Text(
             'Please log in to view settings',
             style: TextStyle(color: Colors.white),
@@ -270,17 +271,17 @@ class _SettingsPageState extends State<SettingsPage> {
     }
 
     return Scaffold(
-      backgroundColor: Color.fromRGBO(28, 28, 28, 1),
+      backgroundColor: const Color.fromRGBO(28, 28, 28, 1),
       appBar: AppBar(
-        backgroundColor: Color.fromRGBO(28, 28, 28, 1),
-        title: Text(
+        backgroundColor: const Color.fromRGBO(28, 28, 28, 1),
+        title: const Text(
           'Mine',
           style: TextStyle(color: Colors.white),
         ),
         centerTitle: true,
       ),
       body: _isLoading
-          ? Center(child: CircularProgressIndicator())
+          ? const Center(child: CircularProgressIndicator())
           : Column(
         children: [
           Padding(
@@ -292,18 +293,18 @@ class _SettingsPageState extends State<SettingsPage> {
                   width: availableScreenWidth * 0.45,
                   padding: const EdgeInsets.all(12.0),
                   decoration: BoxDecoration(
-                    color: Color.fromRGBO(50, 50, 50, 1),
+                    color: const Color.fromRGBO(50, 50, 50, 1),
                     borderRadius: BorderRadius.circular(8.0),
                   ),
                   child: Column(
                     children: [
-                      Text(
+                      const Text(
                         'Total days',
                         style: TextStyle(color: Colors.white70),
                       ),
                       Text(
                         totalDays?.toString() ?? 'Loading...',
-                        style: TextStyle(color: Colors.white),
+                        style: const TextStyle(color: Colors.white),
                       ),
                     ],
                   ),
@@ -312,18 +313,18 @@ class _SettingsPageState extends State<SettingsPage> {
                   width: availableScreenWidth * 0.45,
                   padding: const EdgeInsets.all(12.0),
                   decoration: BoxDecoration(
-                    color: Color.fromRGBO(50, 50, 50, 1),
+                    color: const Color.fromRGBO(50, 50, 50, 1),
                     borderRadius: BorderRadius.circular(8.0),
                   ),
                   child: Column(
                     children: [
-                      Text(
+                      const Text(
                         'Total Transactions',
                         style: TextStyle(color: Colors.white70),
                       ),
                       Text(
                         totalTransactions?.toString() ?? 'Loading...',
-                        style: TextStyle(color: Colors.white),
+                        style: const TextStyle(color: Colors.white),
                       ),
                     ],
                   ),
@@ -339,7 +340,7 @@ class _SettingsPageState extends State<SettingsPage> {
                 _buildListTile(
                   leadingIcon: Icons.account_balance,
                   title: 'Budget',
-                  trailing: Text('RM393/monthly', style: TextStyle(color: Colors.white70)),
+                  trailing: const Text('RM393/monthly', style: TextStyle(color: Colors.white70)),
                   onTap: () {
                     Navigator.push(
                       context,
@@ -355,7 +356,7 @@ class _SettingsPageState extends State<SettingsPage> {
                 _buildListTile(
                   leadingIcon: Icons.subscriptions,
                   title: 'Subscription and installment',
-                  trailing: Text('1 items', style: TextStyle(color: Colors.white70)),
+                  trailing: const Text('1 items', style: TextStyle(color: Colors.white70)),
                   onTap: () {
                     Navigator.push(
                       context,
@@ -366,7 +367,7 @@ class _SettingsPageState extends State<SettingsPage> {
                 _buildListTile(
                   leadingIcon: Icons.receipt,
                   title: 'Bills',
-                  trailing: Icon(Icons.chevron_right, color: Colors.white70),
+                  trailing: const Icon(Icons.chevron_right, color: Colors.white70),
                   onTap: () {
                     if (userId != null) {
                       Navigator.push(
@@ -377,7 +378,7 @@ class _SettingsPageState extends State<SettingsPage> {
                       );
                     } else {
                       ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text('User not logged in'), backgroundColor: Colors.red),
+                        const SnackBar(content: Text('User not logged in'), backgroundColor: Colors.red),
                       );
                     }
                   },
@@ -385,7 +386,7 @@ class _SettingsPageState extends State<SettingsPage> {
                 _buildListTile(
                   leadingIcon: Icons.currency_exchange,
                   title: 'Currency Converter',
-                  trailing: Icon(Icons.chevron_right, color: Colors.white70),
+                  trailing: const Icon(Icons.chevron_right, color: Colors.white70),
                   onTap: () {
                     Navigator.push(
                       context,
@@ -396,27 +397,25 @@ class _SettingsPageState extends State<SettingsPage> {
                 _buildListTile(
                   leadingIcon: Icons.attach_money,
                   title: 'Multi-currency',
-                  trailing: Text('1 currencies', style: TextStyle(color: Colors.white70)),
+                  trailing: const Text('1 currencies', style: TextStyle(color: Colors.white70)),
                   onTap: () {
-                    // Add navigation or action for Multi-currency
                     ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('Multi-currency feature coming soon!')),
+                      const SnackBar(content: Text('Multi-currency feature coming soon!')),
                     );
                   },
                 ),
                 _buildListTile(
                   leadingIcon: Icons.savings,
                   title: 'Savings Plan',
-                  trailing: Icon(Icons.chevron_right, color: Colors.white70),
+                  trailing: const Icon(Icons.chevron_right, color: Colors.white70),
                   onTap: () {
                     Navigator.pushNamed(context, '/financial_plan');
-
                   },
                 ),
                 _buildListTile(
                   leadingIcon: Icons.logout,
                   title: 'Logout',
-                  trailing: Icon(Icons.chevron_right, color: Colors.redAccent),
+                  trailing: const Icon(Icons.chevron_right, color: Colors.redAccent),
                   onTap: () async {
                     try {
                       await FirebaseAuth.instance.signOut();
@@ -433,7 +432,7 @@ class _SettingsPageState extends State<SettingsPage> {
           ),
         ],
       ),
-      floatingActionButton: PersistentAddButton(),
+      floatingActionButton: const PersistentAddButton(),
       floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
       bottomNavigationBar: BottomNavBar(
         currentIndex: 3,
@@ -441,12 +440,12 @@ class _SettingsPageState extends State<SettingsPage> {
           if (index == 0) {
             Navigator.pushReplacement(
               context,
-              MaterialPageRoute(builder: (context) => HomePage()),
+              MaterialPageRoute(builder: (context) => const HomePage()),
             );
           } else if (index == 3) {
             // Stay on SettingsPage
           } else {
-            // Handle other tabs (e.g., FinancialTipsScreen, GamificationPage)
+            // Handle other tabs (e.g., FinancialTipsScreen, FavoriteTipsScreen)
           }
         },
       ),

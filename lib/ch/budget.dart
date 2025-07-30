@@ -226,9 +226,9 @@ class _BudgetPageState extends State<BudgetPage> {
     setState(() {}); // Refresh the UI
   }
 
-// Added: Check if this is the first budget and update gamification
+  // Added: Check if this is the first budget and update gamification (for my gamification module)
   Future<void> _updateGamificationForBudget(String userId) async {
-// Check if user has any budgets
+  // Check if user has any budgets
     final budgetsSnap = await _firestore
         .collection('users')
         .doc(userId)

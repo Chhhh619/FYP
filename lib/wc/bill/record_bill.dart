@@ -1,6 +1,9 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloudinary_public/cloudinary_public.dart';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
+import 'dart:io';
 
 class RecordBillPage extends StatefulWidget {
   final String userId;
@@ -22,8 +25,13 @@ class _RecordBillPageState extends State<RecordBillPage> {
   DateTime? _dueDate;
   String? _selectedCategory;
   bool _isLoading = false;
+  File? _billImage;
+  String? _billImageUrl;
+  bool _isUploadingImage = false;
 
-  // Hardcoded bill categories
+  // Initialize Cloudinary - replace with your credentials
+  final cloudinary = CloudinaryPublic('dftbkgqni', 'my_unsigned_preset', cache: false);
+
   final List<Map<String, String>> _categories = [
     {'name': 'Utilities', 'icon': 'bolt'},
     {'name': 'Phone Bill', 'icon': 'phone'},
@@ -36,9 +44,7 @@ class _RecordBillPageState extends State<RecordBillPage> {
   @override
   void initState() {
     super.initState();
-    // Set default category
     _selectedCategory = _categories.first['name'];
-    print('Initial category: $_selectedCategory');
   }
 
   Future<void> _selectDueDate(BuildContext context) async {
@@ -69,6 +75,51 @@ class _RecordBillPageState extends State<RecordBillPage> {
     }
   }
 
+  Future<void> _pickImage() async {
+    final picker = ImagePicker();
+    final pickedFile = await picker.pickImage(
+      source: ImageSource.gallery,
+      maxWidth: 1200,
+      maxHeight: 1200,
+      imageQuality: 80,
+    );
+
+    if (pickedFile != null) {
+      setState(() {
+        _billImage = File(pickedFile.path);
+        _isUploadingImage = true;
+      });
+
+      try {
+        final response = await cloudinary.uploadFile(
+          CloudinaryFile.fromFile(
+            pickedFile.path,
+            resourceType: CloudinaryResourceType.Image,
+          ),
+        );
+
+        setState(() {
+          _billImageUrl = response.secureUrl;
+          _isUploadingImage = false;
+        });
+      } catch (e) {
+        setState(() {
+          _isUploadingImage = false;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error uploading image: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _removeImage() async {
+    setState(() {
+      _billImage = null;
+      _billImageUrl = null;
+    });
+  }
+
   Future<void> _saveBill() async {
     if (_formKey.currentState!.validate() && _dueDate != null) {
       setState(() {
@@ -78,6 +129,7 @@ class _RecordBillPageState extends State<RecordBillPage> {
         final categoryName = _selectedCategory == 'Other'
             ? _customCategoryController.text.trim()
             : _selectedCategory!;
+
         final billData = {
           'userId': widget.userId,
           'billerName': _billerNameController.text.trim(),
@@ -89,21 +141,21 @@ class _RecordBillPageState extends State<RecordBillPage> {
           'status': 'pending',
           'createdAt': Timestamp.now(),
           'paidAt': null,
+          if (_billImageUrl != null) 'billImageUrl': _billImageUrl,
         };
-        print('Saving bill: $billData');
+
         await FirebaseFirestore.instance
             .collection('users')
             .doc(widget.userId)
             .collection('bills')
             .add(billData);
-        print('Bill saved successfully');
+
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Bill added successfully')),
         );
         widget.onBillAdded?.call();
         Navigator.pop(context);
       } catch (e) {
-        print('Error saving bill: $e');
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Error saving bill: $e')),
         );
@@ -138,11 +190,7 @@ class _RecordBillPageState extends State<RecordBillPage> {
         title: const Text('Add Bill', style: TextStyle(color: Colors.white)),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back, color: Colors.white),
-          onPressed: () {
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              Navigator.pop(context);
-            });
-          },
+          onPressed: () => Navigator.pop(context),
         ),
         elevation: 0,
       ),
@@ -253,7 +301,7 @@ class _RecordBillPageState extends State<RecordBillPage> {
               const SizedBox(height: 16),
               Theme(
                 data: Theme.of(context).copyWith(
-                  canvasColor: const Color.fromRGBO(50, 50, 50, 1), // Dropdown menu background
+                  canvasColor: const Color.fromRGBO(50, 50, 50, 1),
                   dropdownMenuTheme: DropdownMenuThemeData(
                     textStyle: const TextStyle(color: Colors.white),
                     menuStyle: MenuStyle(
@@ -287,7 +335,6 @@ class _RecordBillPageState extends State<RecordBillPage> {
                       if (_selectedCategory != 'Other') {
                         _customCategoryController.clear();
                       }
-                      print('Selected category: $value');
                     });
                   },
                   validator: (value) {
@@ -306,7 +353,7 @@ class _RecordBillPageState extends State<RecordBillPage> {
                 TextFormField(
                   controller: _customCategoryController,
                   decoration: const InputDecoration(
-                    labelText: 'Others Category',
+                    labelText: 'Custom Category',
                     labelStyle: TextStyle(color: Colors.white70),
                     filled: true,
                     fillColor: Color.fromRGBO(50, 50, 50, 1),
@@ -321,16 +368,51 @@ class _RecordBillPageState extends State<RecordBillPage> {
                   },
                 ),
               ],
+              const SizedBox(height: 16),
+              const Text(
+                'Bill Image (Optional)',
+                style: TextStyle(color: Colors.white70),
+              ),
+              const SizedBox(height: 8),
+              GestureDetector(
+                onTap: _isUploadingImage ? null : _pickImage,
+                child: Container(
+                  height: 150,
+                  decoration: BoxDecoration(
+                    color: const Color.fromRGBO(50, 50, 50, 1),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.teal),
+                  ),
+                  child: _isUploadingImage
+                      ? const Center(child: CircularProgressIndicator(color: Colors.teal))
+                      : _billImage != null
+                      ? Stack(
+                    children: [
+                      Image.file(_billImage!, fit: BoxFit.cover),
+                      Positioned(
+                        top: 8,
+                        right: 8,
+                        child: IconButton(
+                          icon: const Icon(Icons.close, color: Colors.white),
+                          onPressed: _removeImage,
+                        ),
+                      ),
+                    ],
+                  )
+                      : const Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.add_a_photo, color: Colors.teal, size: 40),
+                      SizedBox(height: 8),
+                      Text('Tap to add bill image', style: TextStyle(color: Colors.white70)),
+                    ],
+                  ),
+                ),
+              ),
               const SizedBox(height: 24),
               ElevatedButton(
                 onPressed: _saveBill,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.teal,
-                  foregroundColor: Colors.white,
-                  minimumSize: const Size(double.infinity, 56),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                ),
-                child: const Text('Save Bill', style: TextStyle(fontSize: 18)),
+                child: const Text('Save Bill'),
               ),
             ],
           ),
