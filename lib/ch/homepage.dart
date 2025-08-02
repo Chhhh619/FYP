@@ -1,4 +1,3 @@
-
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -25,11 +24,12 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
   bool? showExpenses = null;
   double availableScreenWidth = 0;
   double availableScreenHeight = 0;
-  int selectedIndex = 0; // Default to "Details" (HomePage)
+  int selectedIndex = 0;
   String viewMode = 'month';
   DateTime selectedDate = DateTime.now();
   String popupMode = 'month';
-  bool _hasShownPopup = false; // Flag to prevent repeated popups
+  bool _hasShownPopup = false;
+  DateTime? _lastSubscriptionCheck;
 
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final FirebaseAuth _auth = FirebaseAuth.instance;
@@ -37,17 +37,118 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
   final ScrollController _scrollController = ScrollController();
   bool _isScrollingDown = false;
 
+  // Cache for category data to avoid repeated Firestore queries
+  final Map<String, Map<String, dynamic>> _categoryCache = {};
+
   @override
   void initState() {
     super.initState();
     _updateCurrentPeriod();
-    print('HomePage initialized, User ID: ${_auth.currentUser?.uid}'); // Debug
+    _checkAndGenerateSubscriptions();
+    print('HomePage initialized, User ID: ${_auth.currentUser?.uid}');
     _scrollController.addListener(_scrollListener);
       // Monitor auth state changes (wc's gamification module)
     FirebaseAuth.instance.authStateChanges().listen((User? user) {
       print('Auth state changed: ${user?.uid ?? 'No user'}');
     });
     _checkNoSpendDay(); // Added: Check for No-Spend Day challenge on page load
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!_hasShownPopup) {
+        _showTipPopup();
+      }
+    });
+  }
+
+  Future<void> _checkAndGenerateSubscriptions() async {
+    final userId = _auth.currentUser?.uid;
+    if (userId == null) {
+      print('No user logged in, skipping subscription check');
+      return;
+    }
+
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day); // Normalize to start of day
+    print('Checking subscriptions for user $userId on $today');
+
+    try {
+      final subscriptions = await _firestore
+          .collection('subscriptions')
+          .where('userid', isEqualTo: userId)
+          .get();
+
+      print('Found ${subscriptions.docs.length} subscriptions');
+
+      for (final doc in subscriptions.docs) {
+        final data = doc.data();
+        final startDate = (data['startDate'] as Timestamp).toDate();
+        final repeat = data['repeat'] ?? 'monthly'; // Default to monthly if null
+        final lastGenerated = data['lastGenerated'] != null
+            ? (data['lastGenerated'] as Timestamp).toDate()
+            : startDate;
+        print('Processing subscription ${doc.id}: name=${data['name']}, repeat=$repeat, lastGenerated=$lastGenerated');
+
+        DateTime nextDue = _calculateNextDueDate(lastGenerated, repeat);
+        print('Calculated nextDue: $nextDue');
+
+        while (!nextDue.isAfter(today)) {
+          final startOfDay = DateTime(nextDue.year, nextDue.month, nextDue.day);
+          print('Generating transaction for ${data['name']} on $nextDue');
+
+          // Check if transaction already exists for this date
+          final existingTxs = await _firestore
+              .collection('transactions')
+              .where('userid', isEqualTo: userId)
+              .where('subscriptionId', isEqualTo: doc.id)
+              .where('timestamp', isGreaterThanOrEqualTo: Timestamp.fromDate(startOfDay))
+              .where('timestamp', isLessThan: Timestamp.fromDate(startOfDay.add(Duration(days: 1))))
+              .get();
+
+          if (existingTxs.docs.isEmpty) {
+            print('No existing transaction found for ${data['name']} on $startOfDay, creating new one');
+            await _firestore.collection('transactions').add({
+              'userid': userId,
+              'amount': data['amount'] ?? 0.0,
+              'timestamp': Timestamp.fromDate(startOfDay),
+              'category': _firestore.doc('/categories/qOIeFiz2HjETIU1dyerW'),
+              'icon': data['icon'] ?? '💰',
+              'name': data['name'] ?? 'Subscription',
+              'subscriptionId': doc.id,
+              'categoryType': 'expense', // Explicitly set as expense
+            });
+
+            await _firestore.collection('subscriptions').doc(doc.id).update({
+              'lastGenerated': Timestamp.fromDate(startOfDay),
+            });
+            print('Transaction created and lastGenerated updated for ${data['name']} on $startOfDay');
+          } else {
+            print('Transaction already exists for ${data['name']} on $startOfDay, skipping');
+          }
+
+          nextDue = _calculateNextDueDate(nextDue, repeat);
+        }
+      }
+    } catch (e) {
+      print('Error generating subscriptions: $e');
+    }
+  }
+
+  DateTime _calculateNextDueDate(DateTime from, String repeat) {
+    switch (repeat.toLowerCase()) {
+      case 'daily':
+        return DateTime(from.year, from.month, from.day + 1);
+      case 'weekly':
+        return DateTime(from.year, from.month, from.day + 7);
+      case 'monthly':
+        final nextMonth = DateTime(from.year, from.month + 1, 1);
+        final day = from.day;
+        final lastDayOfMonth = DateTime(nextMonth.year, nextMonth.month + 1, 0).day;
+        return DateTime(nextMonth.year, nextMonth.month, day > lastDayOfMonth ? lastDayOfMonth : day);
+      case 'annually':
+        return DateTime(from.year + 1, from.month, from.day);
+      default:
+        print('Unknown repeat type: $repeat, defaulting to no change');
+        return from;
+    }
   }
 
   @override
@@ -58,7 +159,7 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
   }
 
   @override
-  bool get wantKeepAlive => true; // Preserve state across navigation
+  bool get wantKeepAlive => true;
 
   // Added: Check for No-Spend Day challenge(gamification module)
   Future<void> _checkNoSpendDay() async {
@@ -133,13 +234,9 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
   }
 
   void _scrollListener() {
-    print(
-      'Scroll position: ${_scrollController.position.pixels}, Direction: ${_scrollController.position.userScrollDirection}',
-    );
     if (_scrollController.position.userScrollDirection ==
         ScrollDirection.reverse) {
       if (!_isScrollingDown) {
-        print('Scrolling down detected');
         setState(() {
           _isScrollingDown = true;
         });
@@ -147,7 +244,6 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
     } else if (_scrollController.position.userScrollDirection ==
         ScrollDirection.forward) {
       if (_isScrollingDown) {
-        print('Scrolling up detected');
         setState(() {
           _isScrollingDown = false;
         });
@@ -159,18 +255,17 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
     selectedDate = startDate ?? DateTime.now();
     final formatter = DateFormat('d MMM');
     if (viewMode == 'month') {
-      displayText = DateFormat('MMM').format(selectedDate); // Show selected month
-      final start = DateTime(selectedDate.year, selectedDate.month, 1); // Start of month
-      final end = DateTime(selectedDate.year, selectedDate.month + 1, 0); // End of month
+      displayText = DateFormat('MMM').format(selectedDate);
+      final start = DateTime(selectedDate.year, selectedDate.month, 1);
+      final end = DateTime(selectedDate.year, selectedDate.month + 1, 0);
       currentPeriod = '${formatter.format(start)} - ${formatter.format(end)}';
     } else {
-// year mode
-      displayText = selectedDate.year.toString(); // Show year
-      final start = DateTime(selectedDate.year, 1, 1); // Start of year
-      final end = DateTime(selectedDate.year, 12, 31); // End of year
+      displayText = selectedDate.year.toString();
+      final start = DateTime(selectedDate.year, 1, 1);
+      final end = DateTime(selectedDate.year, 12, 31);
       currentPeriod = '${formatter.format(start)} - ${formatter.format(end)}';
     }
-    setState(() {}); // Update UI
+    setState(() {});
   }
 
   void _showCustomDatePicker() {
@@ -182,9 +277,9 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
         return StatefulBuilder(
           builder: (BuildContext context, StateSetter setState) {
             return Dialog(
-              insetPadding: EdgeInsets.symmetric(horizontal: 16.0), // Add some padding
+              insetPadding: EdgeInsets.symmetric(horizontal: 16.0),
               child: SizedBox(
-                width: availableScreenWidth * 0.85, // 90% of screen width
+                width: availableScreenWidth * 0.85,
                 child: Container(
                   decoration: BoxDecoration(
                     color: Color.fromRGBO(33, 35, 34, 1),
@@ -325,7 +420,7 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
 
   void _setTransactionType(bool? type) {
     setState(() {
-      showExpenses = type; // Directly set to null (all), true (expenses), or false (income)
+      showExpenses = type;
     });
   }
 
@@ -339,7 +434,6 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
     }
   }
 
-  //for financial Tips module
   Future<void> _showTipPopup() async {
     final userId = _auth.currentUser?.uid;
     if (userId == null || _hasShownPopup) {
@@ -348,7 +442,6 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
     }
 
     try {
-    // Check if the "Cook at Home" tip is marked irrelevant
       final feedbackSnapshot = await _firestore
           .collection('users')
           .doc(userId)
@@ -359,18 +452,15 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
       final isIrrelevant = feedbackData != null && feedbackData['isIrrelevant'] is bool
           ? feedbackData['isIrrelevant'] as bool
           : false;
-      print('Cook at Home tip isIrrelevant: $isIrrelevant'); // Debug
 
       if (isIrrelevant) {
         print('Tip suppressed, skipping popup');
         return;
       }
 
-// Fetch transactions for the current month
       final now = DateTime.now();
       final startOfMonth = DateTime(now.year, now.month, 1);
       final endOfMonth = DateTime(now.year, now.month + 1, 0);
-      print('Popup: Querying transactions from $startOfMonth to $endOfMonth');
 
       final transactionSnapshot = await _firestore
           .collection('transactions')
@@ -378,28 +468,44 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
           .where('timestamp', isGreaterThanOrEqualTo: Timestamp.fromDate(startOfMonth))
           .where('timestamp', isLessThanOrEqualTo: Timestamp.fromDate(endOfMonth))
           .get();
-      print('Popup: Transactions found: ${transactionSnapshot.docs.length}');
 
       double diningSpending = 0.0;
       for (var doc in transactionSnapshot.docs) {
         final data = doc.data();
         final categoryRef = data['category'] as DocumentReference;
-        final categorySnapshot = await categoryRef.get();
-        final categoryName = categorySnapshot.get('name') as String? ?? 'unknown';
-        final categoryType = categorySnapshot.get('type') as String? ?? 'unknown';
+
+        // Check cache first
+        final categoryId = categoryRef.id;
+        Map<String, dynamic>? categoryData = _categoryCache[categoryId];
+
+        if (categoryData == null) {
+          final categorySnapshot = await categoryRef.get();
+          if (!categorySnapshot.exists) {
+            print('Category document does not exist for transaction ${doc.id}');
+            continue;
+          }
+          categoryData = categorySnapshot.data() as Map<String, dynamic>?;
+          // Store non-null data in cache with fallback values
+          _categoryCache[categoryId] = categoryData ?? {'icon': '❓', 'name': 'Unknown Category', 'type': 'unknown'};
+        }
+
+        final categoryName = categoryData != null && categoryData.containsKey('name')
+            ? categoryData['name'] as String? ?? 'unknown'
+            : 'unknown';
+        final categoryType = categoryData != null && categoryData.containsKey('type')
+            ? categoryData['type'] as String? ?? 'unknown'
+            : 'unknown';
         final amount = (data['amount'] is int)
             ? (data['amount'] as int).toDouble()
             : (data['amount'] as double? ?? 0.0);
-        print('Popup: Transaction: category=$categoryName, amount=$amount, type=$categoryType');
 
         if (categoryName == 'Dining' && categoryType == 'expense') {
           diningSpending += amount.abs();
         }
       }
-      print('Popup: Dining Spending: $diningSpending');
 
       if (diningSpending > 300.0) {
-        _hasShownPopup = true; // Prevent repeated popups
+        _hasShownPopup = true;
         showDialog(
           context: context,
           builder: (context) => AlertDialog(
@@ -441,21 +547,16 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
 
   @override
   Widget build(BuildContext context) {
-    super.build(context); // Required for AutomaticKeepAliveClientMixin
+    super.build(context);
     availableScreenWidth = MediaQuery.of(context).size.width - 50;
 
     String? userId = _auth.currentUser?.uid;
     if (userId == null) {
-      print('No user logged in'); // Debug
+      print('No user logged in');
       return Scaffold(
         body: Center(child: Text('Please log in to view transactions')),
       );
     }
-
-// Trigger popup after widget build
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _showTipPopup();
-    });
 
     return StreamBuilder<QuerySnapshot>(
       stream: _firestore
@@ -465,11 +566,11 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
           .snapshots(),
       builder: (context, snapshot) {
         if (!snapshot.hasData) {
-          return _buildLoadingSkeleton(); // Show skeleton during initial load
+          return _buildLoadingSkeleton();
         }
 
         if (snapshot.hasError) {
-          print('StreamBuilder Error: ${snapshot.error}'); // Debug
+          print('StreamBuilder Error: ${snapshot.error}');
           return Scaffold(
             body: Center(child: Text('Error loading data: ${snapshot.error}')),
           );
@@ -477,13 +578,12 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
 
         final transactions = snapshot.data!.docs
             .map((doc) {
-          print('Document data: ${doc.data()}'); // Debug
           return {
             'id': doc.id,
             'category': doc['category'] as DocumentReference,
             'amount': (doc['amount'] is int)
                 ? (doc['amount'] as int).toDouble()
-                : (doc['amount'] as double?),
+                : (doc['amount'] as double? ?? 0.0),
             'timestamp': doc['timestamp'] as Timestamp?,
           };
         })
@@ -504,29 +604,44 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
         return FutureBuilder<List<Map<String, dynamic>>>(
           future: Future.wait(
             filteredTransactions.map((tx) async {
-              final categorySnapshot = await tx['category'].get();
-              final categoryType =
-                  categorySnapshot.get('type') as String? ?? 'unknown';
-              return {...tx, 'categoryType': categoryType};
+              final categoryRef = tx['category'] as DocumentReference;
+              final categoryId = categoryRef.id;
+              Map<String, dynamic> categoryData = _categoryCache[categoryId] ?? {};
+
+              if (categoryData.isEmpty) {
+                final categorySnapshot = await categoryRef.get();
+                categoryData = categorySnapshot.exists
+                    ? (categorySnapshot.data() as Map<String, dynamic>? ??
+                    {'icon': '❓', 'name': 'Unknown Category', 'type': 'unknown'})
+                    : {'icon': '❓', 'name': 'Unknown Category', 'type': 'unknown'};
+                _categoryCache[categoryId] = categoryData;
+              }
+
+              return {
+                ...tx,
+                'categoryIcon': categoryData['icon'] as String? ?? '❓',
+                'categoryName': categoryData['name'] as String? ?? 'Unknown Category',
+                'categoryType': categoryData['type'] as String? ?? 'unknown',
+              };
             }),
           ),
           builder: (context, categorySnapshot) {
             if (!categorySnapshot.hasData) {
-              return _buildLoadingSkeleton(); // Show skeleton during data fetch
+              return _buildLoadingSkeleton();
             }
 
             final displayedTransactions = categorySnapshot.data!.where((tx) {
-              if (showExpenses == null) return true; // Show all by default
+              if (showExpenses == null) return true;
               if (showExpenses == true) return tx['categoryType'] == 'expense';
               if (showExpenses == false) return tx['categoryType'] == 'income';
-              return true; // Fallback to all
+              return true;
             }).toList();
 
           // Calculate totals
             double totalExpenses = 0.0;
             double totalIncome = 0.0;
             for (var tx in displayedTransactions) {
-              final amount = tx['amount'] as double? ?? 0.0;
+              final amount = tx['amount'] as double;
               if (tx['categoryType'] == 'expense') {
                 totalExpenses += amount.abs();
               } else if (tx['categoryType'] == 'income') {
@@ -534,8 +649,7 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
               }
             }
 
-          // Show welcome message if no transactions
-            if (filteredTransactions.isEmpty) {
+            if (displayedTransactions.isEmpty) {
               return Scaffold(
                 backgroundColor: Color.fromRGBO(28, 28, 28, 0),
                 appBar: AppBar(
@@ -604,6 +718,7 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
                 floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
                 bottomNavigationBar: BottomNavBar(
                   currentIndex: selectedIndex,
+                  onTap: _handleNavBarTap,
                   onTap: (index) {
                     setState(() {
                       selectedIndex = index; // Update selected index
@@ -778,6 +893,13 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
                     ),
                     const SizedBox(height: 18),
                     Expanded(
+                      child: ListView.builder(
+                        controller: _scrollController,
+                        itemCount: _groupTransactions(displayedTransactions).length,
+                        itemBuilder: (context, index) {
+                          final group = _groupTransactions(displayedTransactions)[index];
+                          final groupDate = group['date'] as DateTime;
+                          final groupTxs = group['transactions'] as List<Map<String, dynamic>>;
                       child: Builder(
                         builder: (context) {
                           Map<DateTime, List<Map<String, dynamic>>> groupedTransactions = {};
@@ -804,95 +926,76 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
                               final groupDate = sortedKeys[index];
                               final groupTxs = groupedTransactions[groupDate]!;
 
-                              double groupExpenses = 0.0;
-                              double groupIncome = 0.0;
+                          double groupExpenses = 0.0;
+                          double groupIncome = 0.0;
 
-                              for (var tx in groupTxs) {
-                                final amount = tx['amount'] as double? ?? 0.0;
-                                if (tx['categoryType'] == 'expense') {
-                                  groupExpenses += amount.abs();
-                                } else if (tx['categoryType'] == 'income') {
-                                  groupIncome += amount;
-                                }
-                              }
+                          for (var tx in groupTxs) {
+                            final amount = tx['amount'] as double;
+                            if (tx['categoryType'] == 'expense') {
+                              groupExpenses += amount.abs();
+                            } else if (tx['categoryType'] == 'income') {
+                              groupIncome += amount;
+                            }
+                          }
 
-                              final groupLabel = DateFormat(
-                                viewMode == 'month' ? 'd MMM EEE' : 'MMMM yyyy',
-                              ).format(groupDate);
+                          final groupLabel = DateFormat(
+                            viewMode == 'month' ? 'd MMM EEE' : 'MMMM yyyy',
+                          ).format(groupDate);
 
-                              return Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Padding(
-                                    padding: const EdgeInsets.only(
-                                      top: 8.0,
-                                      bottom: 4,
-                                      right: 3,
+                          return Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Padding(
+                                padding: const EdgeInsets.only(
+                                  top: 8.0,
+                                  bottom: 4,
+                                  right: 3,
+                                ),
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    Text(
+                                      groupLabel,
+                                      style: TextStyle(
+                                          color: Colors.white,
+                                      ),
+                                      overflow: TextOverflow.ellipsis,
                                     ),
-                                    child: Row(
-                                      mainAxisAlignment:
-                                      MainAxisAlignment.spaceBetween,
+                                    Row(
+                                      mainAxisSize: MainAxisSize.min,
                                       children: [
                                         Text(
-                                          groupLabel,
+                                          'E RM${groupExpenses.toStringAsFixed(1)}',
                                           style: TextStyle(
-                                            color: Colors.white,
-                                            fontWeight: FontWeight.bold,
+                                            color: Colors.red[100],
                                           ),
-                                          overflow: TextOverflow.ellipsis,
                                         ),
-                                        Row(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            Text(
-                                              'E RM${groupExpenses.toStringAsFixed(1)}',
-                                              style: TextStyle(
-                                                color: Colors.red[100],
-                                              ),
-                                            ),
-                                            SizedBox(width: 8),
-                                            Text(
-                                              'I RM${groupIncome.toStringAsFixed(1)}',
-                                              style: TextStyle(
-                                                color: Colors.green[200],
-                                              ),
-                                            ),
-                                          ],
+                                        SizedBox(width: 8),
+                                        Text(
+                                          'I RM${groupIncome.toStringAsFixed(1)}',
+                                          style: TextStyle(
+                                            color: Colors.green[200],
+                                          ),
                                         ),
                                       ],
                                     ),
-                                  ),
-                                  ...groupTxs.map(
-                                        (tx) => FutureBuilder<DocumentSnapshot>(
-                                      future: tx['category'].get(),
-                                      builder: (context, snapshot) {
-                                        if (!snapshot.hasData)
-                                          return SizedBox.shrink();
-                                        final icon =
-                                            snapshot.data!.get('icon') ?? '💰';
-                                        final name =
-                                            snapshot.data!.get('name') ??
-                                                'Unknown';
-                                        final type =
-                                            snapshot.data!.get('type') ??
-                                                'unknown';
-                                        return Column(
-                                          children: [
-                                            _buildTransactionItem(
-                                              tx,
-                                              icon,
-                                              name,
-                                              type,
-                                            ),
-                                            SizedBox(height: 10),
-                                          ],
-                                        );
-                                      },
+                                  ],
+                                ),
+                              ),
+                              ...groupTxs.map(
+                                    (tx) => Column(
+                                  children: [
+                                    _buildTransactionItem(
+                                      tx,
+                                      tx['categoryIcon'] as String? ?? '❓',
+                                      tx['categoryName'] as String? ?? 'Unknown Category',
+                                      tx['categoryType'] as String? ?? 'unknown',
                                     ),
-                                  ),
-                                ],
-                              );
-                            },
+                                    const SizedBox(height: 10),
+                                  ],
+                                ),
+                              ),
+                            ],
                           );
                         },
                       ),
@@ -904,6 +1007,58 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
               floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
               bottomNavigationBar: BottomNavBar(
                 currentIndex: selectedIndex,
+                onTap: _handleNavBarTap,
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  List<Map<String, dynamic>> _groupTransactions(List<Map<String, dynamic>> transactions) {
+    Map<DateTime, List<Map<String, dynamic>>> groupedTransactions = {};
+    for (var tx in transactions) {
+      final txDate = tx['timestamp']!.toDate();
+      final groupKey = viewMode == 'month'
+          ? DateTime(txDate.year, txDate.month, txDate.day)
+          : DateTime(txDate.year, txDate.month);
+      groupedTransactions.putIfAbsent(groupKey, () => []).add(tx);
+    }
+    final sortedKeys = groupedTransactions.keys.toList()..sort((a, b) => b.compareTo(a));
+    return sortedKeys
+        .map((key) => {'date': key, 'transactions': groupedTransactions[key]!})
+        .toList();
+  }
+
+  void _handleNavBarTap(int index) {
+    setState(() {
+      selectedIndex = index;
+      if (index == 0) {
+        // Stay on HomePage
+      } else if (index == 1) {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => const FinancialTipsScreen(),
+          ),
+        );
+      } else if (index == 2) {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => const GamificationPage(),
+          ),
+        );
+      } else if (index == 3) {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => const SettingsPage(),
+          ),
+        );
+      }
+    });
                 onTap: (index) {
                   setState(() {
                     selectedIndex = index; // Update selected index
@@ -945,10 +1100,7 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
   }
 
   Widget _buildTransactionItem(
-      Map<String, dynamic> tx,
-      String categoryIcon,
-      String categoryName,
-      String categoryType) {
+      Map<String, dynamic> tx, String categoryIcon, String categoryName, String categoryType) {
     final txDate = tx['timestamp']?.toDate();
     return GestureDetector(
       onLongPress: () {
@@ -1100,7 +1252,7 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
             const SizedBox(height: 18),
             Expanded(
               child: ListView.builder(
-                itemCount: 5, // Placeholder for loading items
+                itemCount: 5,
                 itemBuilder: (context, index) {
                   return Padding(
                     padding: const EdgeInsets.symmetric(vertical: 8.0),
@@ -1162,6 +1314,7 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
             }
           });
         },
+        onTap: _handleNavBarTap,
       ),
     );
   }

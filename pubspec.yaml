@@ -43,6 +43,8 @@ dependencies:
 
   smooth_page_indicator: ^1.2.1
 
+  crop_your_image: ^1.0.5
+
 
 dev_dependencies:
   flutter_test:
@@ -55,13 +57,11 @@ flutter:
   assets:
     - assets/images/
     - assets/models/
-    - .env
 
   fonts:
-     - family: Poppins
-       fonts:
-         - asset: assets/fonts/Poppins-Regular.ttf
-         - asset: assets/fonts/Poppins-Thin.ttf
-         - asset: assets/fonts/Poppins-SemiBold.ttf
-           weight: 500
-         - asset: assets/fonts/Poppins-Regular.ttf
+    - family: Poppins
+      fonts:
+        - asset: assets/fonts/Poppins-Regular.ttf
+        - asset: assets/fonts/Poppins-Thin.ttf
+        - asset: assets/fonts/Poppins-SemiBold.ttf
+          weight: 500
