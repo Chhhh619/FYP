@@ -1,8 +1,9 @@
-// lib/main.dart
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_app_check/firebase_app_check.dart';
+import 'package:fyp/wc/bill/notification_service.dart';
+import 'package:fyp/wc/financia_planning_screen.dart';
 import 'firebase_options.dart';
 import 'wc/login.dart';
 import 'wc/register.dart';
@@ -12,9 +13,6 @@ import 'wc/home.dart';
 import 'ch/homepage.dart';
 import 'wc/financial_planning_advisor.dart';
 import 'wc/financial_tips.dart';
-import 'wc/bills/notification_service.dart';
-import 'wc/bills/bill_repository.dart';
-import 'wc/bills/firebase_service.dart';
 import 'wc/bill/bill_payment_screen.dart';
 import 'wc/Onboard/Onboarding.dart';
 import 'wc/bill/payment_history_screen.dart';
@@ -30,12 +28,6 @@ void main() async {
     androidProvider: AndroidProvider.safetyNet,
     appleProvider: AppleProvider.deviceCheck,
   );
-  // Initialize Notification Service
-  final notificationService = NotificationService();
-  await notificationService.initialize();
-  // Initialize Firebase Service and Bill Repository
-  final firebaseService = FirebaseService();
-  final billRepository = BillRepository(firebaseService, notificationService);
 
   runApp(const MyApp());
 }
