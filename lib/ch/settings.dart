@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:fyp/ch/profile.dart';
 import 'package:fyp/ch/subscription.dart';
 import 'package:fyp/bottom_nav_bar.dart';
 import 'package:fyp/ch/persistent_add_button.dart';
@@ -11,8 +12,11 @@ import 'package:fyp/wc/currencyconverter.dart';
 import 'package:fyp/ch/budget.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
-
+import 'package:fyp/wc/financial_tips.dart';
+import 'package:fyp/wc/gamification_page.dart';
+import 'card_list.dart';
 import 'income.dart';
+import 'billing_start_date_page.dart';
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key});
@@ -22,10 +26,21 @@ class SettingsPage extends StatefulWidget {
 }
 
 class _SettingsPageState extends State<SettingsPage> {
+  final ScrollController _scrollController = ScrollController();
   double availableScreenWidth = 0;
   double availableScreenHeight = 0;
   int? totalDays;
   int? totalTransactions;
+  int? totalSubscriptions;
+  double? monthlyBudget;
+  int? billStartDate;
+  int selectedIndex = 3;
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
 
   @override
   void initState() {
@@ -45,6 +60,9 @@ class _SettingsPageState extends State<SettingsPage> {
         final data = userDoc.data()!;
         final createdAt = data['createdAt']?.toDate() ?? DateTime(2025, 7, 8);
         final transactionsCount = await _calculateTotalTransactions(userId);
+        final subscriptionsCount = await _calculateTotalSubscriptions(userId);
+        final budget = await _fetchMonthlyBudget(userId);
+        final startDate = data['billStartDate'] ?? 23;
 
         await FirebaseFirestore.instance.collection('users').doc(userId).update(
           {'totalTransactions': transactionsCount},
@@ -53,6 +71,9 @@ class _SettingsPageState extends State<SettingsPage> {
         setState(() {
           totalDays = DateTime.now().difference(createdAt).inDays;
           totalTransactions = transactionsCount;
+          totalSubscriptions = subscriptionsCount;
+          monthlyBudget = budget;
+          billStartDate = startDate;
         });
       } else {
         await _initializeUserData(userId);
@@ -64,8 +85,9 @@ class _SettingsPageState extends State<SettingsPage> {
     final now = DateTime.now();
     await FirebaseFirestore.instance.collection('users').doc(userId).set({
       'createdAt': Timestamp.fromDate(DateTime(2025, 7, 8)),
-      'totalTransactions': 0, // Initial value, will be updated by function
+      'totalTransactions': 0,
       'lastUpdated': Timestamp.fromDate(now),
+      'billStartDate': 23,
     }, SetOptions(merge: true));
     await _loadUserData();
   }
@@ -78,6 +100,185 @@ class _SettingsPageState extends State<SettingsPage> {
     return snapshot.size;
   }
 
+  Future<int> _calculateTotalSubscriptions(String userId) async {
+    final snapshot = await FirebaseFirestore.instance
+        .collection('subscriptions')
+        .where('userid', isEqualTo: userId)
+        .get();
+    return snapshot.size;
+  }
+
+  Future<double?> _fetchMonthlyBudget(String userId) async {
+    try {
+      final now = DateTime.now();
+      final docId = DateFormat('yyyy-MM').format(now);
+
+      print('Fetching budget for docId: $docId');
+      print('UserId: $userId');
+
+      final budgetDoc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(userId)
+          .collection('budgets')
+          .doc(docId)
+          .get();
+
+      print('Budget document exists: ${budgetDoc.exists}');
+
+      if (budgetDoc.exists) {
+        final data = budgetDoc.data()!;
+        print('Budget data: $data');
+
+        double? amount;
+        if (data.containsKey('amount')) {
+          amount = data['amount']?.toDouble();
+        } else if (data.containsKey('budget')) {
+          amount = data['budget']?.toDouble();
+        } else if (data.containsKey('budgetAmount')) {
+          amount = data['budgetAmount']?.toDouble();
+        } else if (data.containsKey('totalBudget')) {
+          amount = data['totalBudget']?.toDouble();
+        }
+
+        print('Extracted amount: $amount');
+        return amount;
+      } else {
+        print('Current month budget not found, searching for latest budget...');
+
+        final budgetsSnapshot = await FirebaseFirestore.instance
+            .collection('users')
+            .doc(userId)
+            .collection('budgets')
+            .orderBy(FieldPath.documentId, descending: true)
+            .limit(1)
+            .get();
+
+        if (budgetsSnapshot.docs.isNotEmpty) {
+          final latestBudget = budgetsSnapshot.docs.first;
+          final data = latestBudget.data();
+          print('Latest budget data: $data');
+          print('Latest budget docId: ${latestBudget.id}');
+
+          double? amount;
+          if (data.containsKey('amount')) {
+            amount = data['amount']?.toDouble();
+          } else if (data.containsKey('budget')) {
+            amount = data['budget']?.toDouble();
+          } else if (data.containsKey('budgetAmount')) {
+            amount = data['budgetAmount']?.toDouble();
+          } else if (data.containsKey('totalBudget')) {
+            amount = data['totalBudget']?.toDouble();
+          }
+
+          return amount;
+        }
+      }
+
+      return null;
+    } catch (e) {
+      print('Error fetching budget: $e');
+      return null;
+    }
+  }
+
+  String _formatSubscriptionText() {
+    if (totalSubscriptions == null) {
+      return 'Loading...';
+    } else if (totalSubscriptions == 0) {
+      return 'No subscriptions';
+    } else if (totalSubscriptions == 1) {
+      return '1 item';
+    } else {
+      return '$totalSubscriptions items';
+    }
+  }
+
+  String _formatBudgetText() {
+    if (monthlyBudget == null) {
+      return 'No budget set';
+    } else {
+      return 'RM${monthlyBudget!.toStringAsFixed(0)}/monthly';
+    }
+  }
+
+  String _formatBillStartDateText() {
+    if (billStartDate == null) {
+      return 'Loading...';
+    } else {
+      return 'Monthly ${_getOrdinalNumber(billStartDate!)}';
+    }
+  }
+
+  String _getOrdinalNumber(int number) {
+    if (number >= 11 && number <= 13) {
+      return '${number}th';
+    }
+    switch (number % 10) {
+      case 1:
+        return '${number}st';
+      case 2:
+        return '${number}nd';
+      case 3:
+        return '${number}rd';
+      default:
+        return '${number}th';
+    }
+  }
+
+  void _handleNavBarTap(int index) {
+    print('BottomNavBar tapped: index = $index'); // Debug print
+    setState(() {
+      selectedIndex = index;
+      if (index == 0) {
+        Navigator.push(context, MaterialPageRoute(builder: (context) => const HomePage()));
+      } else if (index == 1) {
+        Navigator.push(context, MaterialPageRoute(builder: (context) => const FinancialTipsScreen()));
+      } else if (index == 2) {
+        Navigator.push(context, MaterialPageRoute(builder: (context) => const GamificationPage()));
+      } else if (index == 3) {
+        // Stay on SettingsPage
+      }
+    });
+  }
+
+  Future<void> addFromCardIdToAllTransactions(String fromCardIdValue) async {
+    const int batchSize = 500;
+    QueryDocumentSnapshot? lastDoc;
+    bool more = true;
+    int totalUpdated = 0;
+
+    while (more) {
+      Query query = FirebaseFirestore.instance
+          .collection('transactions')
+          .orderBy(FieldPath.documentId)
+          .limit(batchSize);
+
+      if (lastDoc != null) {
+        query = query.startAfterDocument(lastDoc);
+      }
+
+      final snapshot = await query.get();
+      if (snapshot.docs.isEmpty) {
+        more = false;
+        break;
+      }
+
+      final batch = FirebaseFirestore.instance.batch();
+      for (final doc in snapshot.docs) {
+        batch.update(doc.reference, {
+          'fromCardId': fromCardIdValue, // 🔁 You can change logic here
+        });
+      }
+
+      await batch.commit();
+      lastDoc = snapshot.docs.last;
+      totalUpdated += snapshot.docs.length;
+      print("✅ Updated ${snapshot.docs.length} docs...");
+    }
+
+    print("🎉 All done. Total updated: $totalUpdated");
+  }
+
   @override
   Widget build(BuildContext context) {
     final userId = FirebaseAuth.instance.currentUser?.uid;
@@ -88,6 +289,8 @@ class _SettingsPageState extends State<SettingsPage> {
       backgroundColor: const Color.fromRGBO(28, 28, 28, 1),
       appBar: AppBar(
         backgroundColor: const Color.fromRGBO(28, 28, 28, 1),
+        surfaceTintColor: const Color.fromRGBO(28, 28, 28, 1),
+        elevation: 0,
         title: const Text('Mine', style: TextStyle(color: Colors.white)),
         centerTitle: true,
       ),
@@ -143,28 +346,29 @@ class _SettingsPageState extends State<SettingsPage> {
           ),
           Expanded(
             child: ListView(
+              controller: _scrollController,
               padding: const EdgeInsets.symmetric(
                 horizontal: 16.0,
                 vertical: 8.0,
               ),
               children: [
-                _buildListTile(
-                  leadingIcon: Icons.edit,
-                  title: 'Edit my page',
-                  trailing: const Icon(
-                    Icons.chevron_right,
-                    color: Colors.white70,
+                const Padding(
+                  padding: EdgeInsets.only(top: 8.0, bottom: 8.0, left: 4.0),
+                  child: Text(
+                    'App Features',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
-                  onTap: () {
-                    // Add navigation or action for Edit my page
-                  },
                 ),
                 _buildListTile(
                   leadingIcon: Icons.account_balance,
                   title: 'Budget',
-                  trailing: const Text(
-                    'RM393/monthly',
-                    style: TextStyle(color: Colors.white70),
+                  trailing: Text(
+                    _formatBudgetText(),
+                    style: const TextStyle(color: Colors.white70),
                   ),
                   onTap: () {
                     Navigator.push(
@@ -180,10 +384,10 @@ class _SettingsPageState extends State<SettingsPage> {
                 ),
                 _buildListTile(
                   leadingIcon: Icons.subscriptions,
-                  title: 'Subscription and installment',
-                  trailing: const Text(
-                    '1 items',
-                    style: TextStyle(color: Colors.white70),
+                  title: 'Subscription',
+                  trailing: Text(
+                    _formatSubscriptionText(),
+                    style: const TextStyle(color: Colors.white70),
                   ),
                   onTap: () {
                     Navigator.push(
@@ -236,9 +440,7 @@ class _SettingsPageState extends State<SettingsPage> {
                   onTap: () {
                     Navigator.push(
                       context,
-                      MaterialPageRoute(
-                        builder: (context) => GoalPage(),
-                      ),
+                      MaterialPageRoute(builder: (context) => GoalPage()),
                     );
                   },
                 ),
@@ -258,31 +460,84 @@ class _SettingsPageState extends State<SettingsPage> {
                     );
                   },
                 ),
+                const Padding(
+                  padding: EdgeInsets.only(top: 24.0, bottom: 8.0, left: 4.0),
+                  child: Text(
+                    'Settings',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                _buildListTile(
+                  leadingIcon: Icons.edit,
+                  title: 'Edit profile',
+                  trailing: const Icon(
+                    Icons.chevron_right,
+                    color: Colors.white70,
+                  ),
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (context) => ProfilePage()),
+                    );
+                  },
+                ),
+                _buildListTile(
+                  leadingIcon: Icons.calendar_today,
+                  title: 'Billing start date',
+                  trailing: Text(
+                    _formatBillStartDateText(),
+                    style: const TextStyle(color: Colors.white70),
+                  ),
+                  onTap: () async {
+                    final result = await Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const BillingStartDatePage(),
+                      ),
+                    );
+                    if (result != null) {
+                      setState(() {
+                        billStartDate = result;
+                      });
+                    }
+                  },
+                ),
+                _buildListTile(
+                  leadingIcon: Icons.account_balance,
+                  title: 'Card details',
+                  trailing: const Icon(
+                    Icons.chevron_right,
+                    color: Colors.white70,
+                  ),
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => CardListPage(
+                        ),
+                      ),
+                    );
+                  },
+                ),
               ],
             ),
           ),
         ],
       ),
-      floatingActionButton: PersistentAddButton(),
+      floatingActionButton: PersistentAddButton(
+        scrollController: _scrollController,
+      ),
       floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
       bottomNavigationBar: BottomNavBar(
-        currentIndex: 3,
-        onTap: (index) {
-          if (index == 0) {
-            Navigator.pushReplacement(
-              context,
-              MaterialPageRoute(builder: (context) => HomePage()),
-            );
-          } else if (index == 3) {
-            // Stay on SettingsPage
-          } else {
-            // Handle other tabs
-          }
-        },
+        currentIndex: selectedIndex,
+        onTap: _handleNavBarTap,
       ),
     );
   }
-
   Widget _buildListTile({
     required IconData leadingIcon,
     required String title,

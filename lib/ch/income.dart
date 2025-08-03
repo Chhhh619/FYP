@@ -18,7 +18,7 @@ class _IncomePageState extends State<IncomePage> {
   @override
   void initState() {
     super.initState();
-    _checkAndGenerateIncomes();
+    // Remove the income automation from here since it should run from HomePage
   }
 
   Future<void> _checkAndGenerateIncomes() async {
@@ -66,10 +66,7 @@ class _IncomePageState extends State<IncomePage> {
               'amount': data['amount'] ?? 0.0,
               'timestamp': Timestamp.fromDate(startOfDay),
               'category': categoryRef,
-              'icon': data['icon'] ?? '💰',
-              'name': data['name'] ?? 'Income',
-              'incomeId': doc.id,
-              'categoryType': 'income',
+              'incomeId': doc.id, // Add this to track which income generated this transaction
             });
 
             // Update card balance if specified

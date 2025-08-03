@@ -7,10 +7,10 @@ class CardTypeSelectionPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: Color.fromRGBO(28, 28, 28, 1),
       appBar: AppBar(
         title: const Text("Add New Card", style: TextStyle(color: Colors.white)),
-        backgroundColor: Colors.black,
+        backgroundColor: Color.fromRGBO(28, 28, 28, 1),
         iconTheme: const IconThemeData(color: Colors.white),
       ),
       body: Padding(
@@ -26,12 +26,12 @@ class CardTypeSelectionPage extends StatelessWidget {
 
             _buildCardTypeButton(
               context,
-              title: '💳 Deposit Card',
+              title: '💳 Debit Card',
               onTap: () {
                 Navigator.push(
                   context,
                   MaterialPageRoute(
-                    builder: (_) => CardOptionsPage(cardType: 'Deposit'),
+                    builder: (_) => CardOptionsPage(cardType: 'Debit'),
                   ),
                 );
               },

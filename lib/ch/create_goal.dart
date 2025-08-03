@@ -101,11 +101,11 @@ class _CreateGoalPageState extends State<CreateGoalPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: const Color.fromRGBO(28, 28, 28, 1),
       appBar: AppBar(
         title: const Text('Regular', style: TextStyle(color: Colors.white)),
         centerTitle: true,
-        backgroundColor: Colors.black,
+        backgroundColor: const Color.fromRGBO(28, 28, 28, 1),
         iconTheme: const IconThemeData(color: Colors.white),
       ),
       body: ListView(

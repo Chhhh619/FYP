@@ -2,8 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
-
-import 'SelectCategoryBudgetPage.dart';
+import 'package:fyp/ch/billing_date_helper.dart';
 
 class BudgetPage extends StatefulWidget {
   final DateTime? selectedDate;
@@ -38,10 +37,6 @@ class _BudgetPageState extends State<BudgetPage> {
     _loadBudgetData();
   }
 
-  int _getDaysInMonth(int year, int month) {
-    return DateTime(year, month + 1, 0).day;
-  }
-
   Future<void> _loadBudgetData() async {
     try {
       setState(() {
@@ -59,51 +54,39 @@ class _BudgetPageState extends State<BudgetPage> {
       }
 
       final selectedDate = widget.selectedDate ?? DateTime.now();
+      final billingPeriod = await BillingDateHelper.getBillingPeriodForDate(selectedDate);
+      final startOfMonth = billingPeriod['startDate']!;
+      final endOfMonth = billingPeriod['endDate']!;
 
-      final startOfMonth = DateTime(selectedDate.year, selectedDate.month, 1);
-      final endOfMonth = DateTime(selectedDate.year, selectedDate.month + 1, 0);
+      // Calculate week within billing period
+      final daysSinceStart = selectedDate.difference(startOfMonth).inDays;
+      final weekNumber = (daysSinceStart / 7).floor();
+      final startOfWeek = startOfMonth.add(Duration(days: weekNumber * 7));
+      final endOfWeek = startOfWeek.add(const Duration(days: 6)).isAfter(endOfMonth)
+          ? endOfMonth
+          : startOfWeek.add(const Duration(days: 6));
 
-      final startOfWeek = selectedDate.subtract(
-        Duration(days: selectedDate.weekday - 1),
-      );
-      final endOfWeek = startOfWeek.add(const Duration(days: 6));
-
-      final startOfDay = DateTime(
-        selectedDate.year,
-        selectedDate.month,
-        selectedDate.day,
-      );
+      final startOfDay = DateTime(selectedDate.year, selectedDate.month, selectedDate.day);
       final endOfDay = startOfDay.add(const Duration(days: 1));
 
       final monthSnap = await _firestore
           .collection('transactions')
           .where('userid', isEqualTo: userId)
-          .where(
-        'timestamp',
-        isGreaterThanOrEqualTo: Timestamp.fromDate(startOfMonth),
-      )
-          .where(
-          'timestamp', isLessThanOrEqualTo: Timestamp.fromDate(endOfMonth))
+          .where('timestamp', isGreaterThanOrEqualTo: Timestamp.fromDate(startOfMonth))
+          .where('timestamp', isLessThanOrEqualTo: Timestamp.fromDate(endOfMonth))
           .get();
 
       final weekSnap = await _firestore
           .collection('transactions')
           .where('userid', isEqualTo: userId)
-          .where(
-        'timestamp',
-        isGreaterThanOrEqualTo: Timestamp.fromDate(startOfWeek),
-      )
-          .where(
-          'timestamp', isLessThanOrEqualTo: Timestamp.fromDate(endOfWeek))
+          .where('timestamp', isGreaterThanOrEqualTo: Timestamp.fromDate(startOfWeek))
+          .where('timestamp', isLessThanOrEqualTo: Timestamp.fromDate(endOfWeek))
           .get();
 
       final daySnap = await _firestore
           .collection('transactions')
           .where('userid', isEqualTo: userId)
-          .where(
-        'timestamp',
-        isGreaterThanOrEqualTo: Timestamp.fromDate(startOfDay),
-      )
+          .where('timestamp', isGreaterThanOrEqualTo: Timestamp.fromDate(startOfDay))
           .where('timestamp', isLessThanOrEqualTo: Timestamp.fromDate(endOfDay))
           .get();
 
@@ -127,14 +110,15 @@ class _BudgetPageState extends State<BudgetPage> {
       final weekly = await _calculateTotalSpending(weekSnap.docs);
       final daily = await _calculateTotalSpending(daySnap.docs);
 
+      final daysInPeriod = endOfMonth.difference(startOfMonth).inDays + 1;
+
       setState(() {
         totalSpending = total;
         weeklySpending = weekly;
         dailySpending = daily;
         monthlyBudget = tempMonthlyBudget;
         weeklyBudget = monthlyBudget! / 4;
-        dailyBudget = monthlyBudget! /
-            _getDaysInMonth(selectedDate.year, selectedDate.month);
+        dailyBudget = monthlyBudget! / daysInPeriod;
         _isLoading = false;
       });
     } catch (e) {
@@ -146,16 +130,15 @@ class _BudgetPageState extends State<BudgetPage> {
     }
   }
 
-  Future<double> _calculateTotalSpending(
-      List<QueryDocumentSnapshot> docs,) async {
+  Future<double> _calculateTotalSpending(List<QueryDocumentSnapshot> docs) async {
     double total = 0.0;
     for (var doc in docs) {
       final data = doc.data() as Map<String, dynamic>;
-      if (data.containsKey('category') && doc['amount'] != null) {
+      if (data.containsKey('category') && data['amount'] != null) {
         final categoryRef = data['category'] as DocumentReference;
         final categorySnap = await categoryRef.get();
         if (categorySnap.exists && categorySnap['type'] == 'expense') {
-          final amount = (doc['amount'] as num).toDouble();
+          final amount = (data['amount'] as num).toDouble();
           total += amount.abs();
         }
       }
@@ -168,17 +151,17 @@ class _BudgetPageState extends State<BudgetPage> {
     if (userId == null) return [];
 
     final selectedDate = widget.selectedDate ?? DateTime.now();
+    final billingPeriod = await BillingDateHelper.getBillingPeriodForDate(selectedDate);
+    final startOfPeriod = billingPeriod['startDate']!;
+    final endOfPeriod = billingPeriod['endDate']!;
     final docIdPrefix = DateFormat('yyyy-MM').format(selectedDate);
+
     final snapshot = await _firestore
         .collection('users')
         .doc(userId)
         .collection('categoryBudgets')
-        .where('createdAt',
-        isGreaterThanOrEqualTo: Timestamp.fromDate(
-            DateTime(selectedDate.year, selectedDate.month, 1)))
-        .where('createdAt',
-        isLessThanOrEqualTo: Timestamp.fromDate(
-            DateTime(selectedDate.year, selectedDate.month + 1, 0)))
+        .where('createdAt', isGreaterThanOrEqualTo: Timestamp.fromDate(startOfPeriod))
+        .where('createdAt', isLessThanOrEqualTo: Timestamp.fromDate(endOfPeriod))
         .get();
 
     List<Map<String, dynamic>> categoryBudgets = [];
@@ -187,33 +170,31 @@ class _BudgetPageState extends State<BudgetPage> {
       final categoryRef = data['category'] as DocumentReference;
       final categorySnap = await categoryRef.get();
       if (categorySnap.exists) {
-        final spent = await _calculateCategorySpending(
-            categoryRef, selectedDate);
+        final spent = await _calculateCategorySpending(categoryRef, selectedDate);
         categoryBudgets.add({
           'name': categorySnap['name'] ?? 'Unknown',
           'budget': (data['amount'] as num).toDouble(),
           'spent': spent,
           'icon': categorySnap['icon'] ?? '❓',
-          'docId': doc.id, // Store document ID for deletion
+          'docId': doc.id,
         });
       }
     }
     return categoryBudgets;
   }
 
-  Future<double> _calculateCategorySpending(DocumentReference categoryRef,
-      DateTime selectedDate) async {
+  Future<double> _calculateCategorySpending(DocumentReference categoryRef, DateTime selectedDate) async {
     final userId = _auth.currentUser?.uid;
-    final startOfMonth = DateTime(selectedDate.year, selectedDate.month, 1);
-    final endOfMonth = DateTime(selectedDate.year, selectedDate.month + 1, 0);
+    final billingPeriod = await BillingDateHelper.getBillingPeriodForDate(selectedDate);
+    final startOfPeriod = billingPeriod['startDate']!;
+    final endOfPeriod = billingPeriod['endDate']!;
 
     final snapshot = await _firestore
         .collection('transactions')
         .where('userid', isEqualTo: userId)
         .where('category', isEqualTo: categoryRef)
-        .where('timestamp',
-        isGreaterThanOrEqualTo: Timestamp.fromDate(startOfMonth))
-        .where('timestamp', isLessThanOrEqualTo: Timestamp.fromDate(endOfMonth))
+        .where('timestamp', isGreaterThanOrEqualTo: Timestamp.fromDate(startOfPeriod))
+        .where('timestamp', isLessThanOrEqualTo: Timestamp.fromDate(endOfPeriod))
         .get();
 
     double total = 0.0;
@@ -241,7 +222,7 @@ class _BudgetPageState extends State<BudgetPage> {
       const SnackBar(content: Text('Category budget deleted')),
     );
 
-    setState(() {}); // Refresh the UI
+    setState(() {});
   }
 
   void _toggleCalculator() {
@@ -255,10 +236,7 @@ class _BudgetPageState extends State<BudgetPage> {
       builder: (BuildContext context) {
         return Padding(
           padding: EdgeInsets.only(
-            bottom: MediaQuery
-                .of(context)
-                .viewInsets
-                .bottom,
+            bottom: MediaQuery.of(context).viewInsets.bottom,
           ),
           child: _buildCalculatorContent(),
         );
@@ -399,8 +377,7 @@ class _BudgetPageState extends State<BudgetPage> {
               const SizedBox(height: 16),
               ElevatedButton(
                 onPressed: () {
-                  if (_calculatorInput != '0' &&
-                      !_calculatorInput.contains('Error')) {
+                  if (_calculatorInput != '0' && !_calculatorInput.contains('Error')) {
                     final result = _evaluateExpression(_calculatorInput);
                     if (result > 0) {
                       _saveBudget(result, setState);
@@ -433,7 +410,8 @@ class _BudgetPageState extends State<BudgetPage> {
 
     final selectedDate = widget.selectedDate ?? DateTime.now();
     final docId = DateFormat('yyyy-MM').format(selectedDate);
-    final daysInMonth = _getDaysInMonth(selectedDate.year, selectedDate.month);
+    final billingPeriod = await BillingDateHelper.getBillingPeriodForDate(selectedDate);
+    final daysInPeriod = billingPeriod['endDate']!.difference(billingPeriod['startDate']!).inDays + 1;
 
     final docRef = _firestore
         .collection('users')
@@ -446,17 +424,14 @@ class _BudgetPageState extends State<BudgetPage> {
     setState(() {
       monthlyBudget = newBudget;
       weeklyBudget = newBudget / 4;
-      dailyBudget = newBudget / daysInMonth;
+      dailyBudget = newBudget / daysInPeriod;
     });
 
     Navigator.pop(context);
-    setState(() {}); // Refresh the main UI
+    setState(() {});
   }
 
-  Widget _buildCalcButton(String text,
-      Function(String) onPressed, {
-        IconData? icon,
-      }) {
+  Widget _buildCalcButton(String text, Function(String) onPressed, {IconData? icon}) {
     return ElevatedButton(
       onPressed: () => onPressed(text),
       style: ElevatedButton.styleFrom(
@@ -588,8 +563,7 @@ class _BudgetPageState extends State<BudgetPage> {
               future: _fetchCategoryBudgets(),
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Center(
-                      child: CircularProgressIndicator(color: Colors.teal));
+                  return const Center(child: CircularProgressIndicator(color: Colors.teal));
                 }
                 if (snapshot.hasError) {
                   return const Text(
@@ -606,17 +580,16 @@ class _BudgetPageState extends State<BudgetPage> {
                 }
                 return Column(
                   children: categoryBudgets
-                      .map((budget) =>
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 8),
-                        child: _buildCategoryCard(
-                          budget['name'],
-                          budget['budget'],
-                          budget['spent'],
-                          budget['icon'],
-                          budget['docId'],
-                        ),
-                      ))
+                      .map((budget) => Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: _buildCategoryCard(
+                      budget['name'],
+                      budget['budget'],
+                      budget['spent'],
+                      budget['icon'],
+                      budget['docId'],
+                    ),
+                  ))
                       .toList(),
                 );
               },
@@ -647,10 +620,7 @@ class _BudgetPageState extends State<BudgetPage> {
       builder: (context) {
         return Padding(
           padding: EdgeInsets.only(
-            bottom: MediaQuery
-                .of(context)
-                .viewInsets
-                .bottom + 16,
+            bottom: MediaQuery.of(context).viewInsets.bottom + 16,
             top: 16,
             left: 16,
             right: 16,
@@ -677,7 +647,7 @@ class _BudgetPageState extends State<BudgetPage> {
                         data['name'],
                       );
                       if (result == true) {
-                        setState(() {}); // Refresh the main UI after adding a new category budget
+                        setState(() {});
                       }
                     },
                     style: ElevatedButton.styleFrom(
@@ -708,72 +678,137 @@ class _BudgetPageState extends State<BudgetPage> {
     final selectedDate = widget.selectedDate ?? DateTime.now();
     final year = selectedDate.year;
 
-    // You can improve this logic to actually fetch total yearly budget/spending
-    final yearlyBudget = (monthlyBudget ?? 0) * 12;
-    final yearlySpent = totalSpending * 12;
-    final remaining = yearlyBudget - yearlySpent;
-    final progress = yearlyBudget > 0 ? (yearlySpent / yearlyBudget).clamp(0.0, 1.0) : 0.0;
-    final percentage = (progress * 100).toStringAsFixed(1);
+    return FutureBuilder<Map<String, DateTime>>(
+      future: _getYearPeriodForDate(selectedDate),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator(color: Colors.teal));
+        }
+        if (snapshot.hasError) {
+          return const Text(
+            'Error loading yearly budget',
+            style: TextStyle(color: Colors.red),
+          );
+        }
 
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: const Color(0xFF2C2C2C),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Year $year',
-            style: const TextStyle(color: Colors.white70),
-          ),
-          const SizedBox(height: 8),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                'Budget\nRM${yearlyBudget.toStringAsFixed(0)}',
-                style: const TextStyle(color: Colors.white, fontSize: 18),
+        final yearlyPeriod = snapshot.data!;
+        final startOfYear = yearlyPeriod['startDate']!;
+        final endOfYear = yearlyPeriod['endDate']!;
+        final yearlyBudget = (monthlyBudget ?? 0) * 12;
+
+        return FutureBuilder<double>(
+          future: _calculateTotalSpendingForPeriod(startOfYear, endOfYear),
+          builder: (context, spendingSnapshot) {
+            if (spendingSnapshot.connectionState == ConnectionState.waiting) {
+              return const Center(child: CircularProgressIndicator(color: Colors.teal));
+            }
+            if (spendingSnapshot.hasError) {
+              return const Text(
+                'Error calculating yearly spending',
+                style: TextStyle(color: Colors.red),
+              );
+            }
+
+            final yearlySpent = spendingSnapshot.data ?? 0.0;
+            final remaining = yearlyBudget - yearlySpent;
+            final progress = yearlyBudget > 0 ? (yearlySpent / yearlyBudget).clamp(0.0, 1.0) : 0.0;
+            final percentage = (progress * 100).toStringAsFixed(1);
+
+            return Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: const Color(0xFF2C2C2C),
+                borderRadius: BorderRadius.circular(12),
               ),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    remaining >= 0 ? 'Remaining' : 'Over Budget',
-                    style: TextStyle(
-                      color: remaining >= 0 ? Colors.white70 : Colors.redAccent,
-                    ),
+                    '${DateFormat('d MMM').format(startOfYear)} ${startOfYear.year} - '
+                        '${DateFormat('d MMM').format(endOfYear)} ${endOfYear.year}',
+                    style: const TextStyle(color: Colors.white70),
                   ),
+                  const SizedBox(height: 8),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        'Budget\nRM${yearlyBudget.toStringAsFixed(0)}',
+                        style: const TextStyle(color: Colors.white, fontSize: 18),
+                      ),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          Text(
+                            remaining >= 0 ? 'Remaining' : 'Over Budget',
+                            style: TextStyle(
+                              color: remaining >= 0 ? Colors.white70 : Colors.redAccent,
+                            ),
+                          ),
+                          Text(
+                            'RM${remaining.abs().toStringAsFixed(2)}',
+                            style: TextStyle(
+                              color: remaining >= 0 ? Colors.white70 : Colors.redAccent,
+                              fontSize: 18,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  LinearProgressIndicator(
+                    value: progress,
+                    backgroundColor: Colors.grey[800],
+                    valueColor: const AlwaysStoppedAnimation<Color>(Colors.tealAccent),
+                  ),
+                  const SizedBox(height: 4),
                   Text(
-                    'RM${remaining.abs().toStringAsFixed(2)}',
-                    style: TextStyle(
-                      color: remaining >= 0 ? Colors.white70 : Colors.redAccent,
-                      fontSize: 18,
-                    ),
+                    '$percentage% | Exp RM${yearlySpent.toStringAsFixed(2)}',
+                    style: const TextStyle(color: Colors.white70),
                   ),
                 ],
               ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          LinearProgressIndicator(
-            value: progress,
-            backgroundColor: Colors.grey[800],
-            valueColor: const AlwaysStoppedAnimation<Color>(Colors.tealAccent),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            '$percentage% | Exp RM${yearlySpent.toStringAsFixed(2)}',
-            style: const TextStyle(color: Colors.white70),
-          ),
-        ],
-      ),
+            );
+          },
+        );
+      },
     );
   }
 
-  Future<bool> _showCategoryBudgetCalculator(DocumentReference categoryRef,
-      String categoryName,) async {
+  Future<Map<String, DateTime>> _getYearPeriodForDate(DateTime date) async {
+    final billStartDate = await BillingDateHelper.getBillingStartDate();
+    DateTime yearStart, yearEnd;
+
+    if (date.day >= billStartDate) {
+      yearStart = DateTime(date.year, date.month, billStartDate);
+    } else {
+      yearStart = DateTime(date.year - 1, date.month, billStartDate);
+    }
+
+    yearEnd = DateTime(yearStart.year + 1, yearStart.month, billStartDate - 1, 23, 59, 59);
+
+    return {
+      'startDate': yearStart,
+      'endDate': yearEnd,
+    };
+  }
+
+  Future<double> _calculateTotalSpendingForPeriod(DateTime start, DateTime end) async {
+    final userId = _auth.currentUser?.uid;
+    if (userId == null) return 0.0;
+
+    final snapshot = await _firestore
+        .collection('transactions')
+        .where('userid', isEqualTo: userId)
+        .where('timestamp', isGreaterThanOrEqualTo: Timestamp.fromDate(start))
+        .where('timestamp', isLessThanOrEqualTo: Timestamp.fromDate(end))
+        .get();
+
+    return await _calculateTotalSpending(snapshot.docs);
+  }
+
+  Future<bool> _showCategoryBudgetCalculator(DocumentReference categoryRef, String categoryName) async {
     String input = '0';
 
     return await showModalBottomSheet<bool>(
@@ -786,8 +821,7 @@ class _BudgetPageState extends State<BudgetPage> {
             void updateInput(String val) {
               setState(() {
                 if (val == 'delete') {
-                  input =
-                  input.length > 1 ? input.substring(0, input.length - 1) : '0';
+                  input = input.length > 1 ? input.substring(0, input.length - 1) : '0';
                 } else if (val == '.') {
                   if (!input.contains('.')) input += '.';
                 } else if (val == '=') {
@@ -813,10 +847,7 @@ class _BudgetPageState extends State<BudgetPage> {
                 borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
               ),
               padding: EdgeInsets.only(
-                bottom: MediaQuery
-                    .of(context)
-                    .viewInsets
-                    .bottom + 24,
+                bottom: MediaQuery.of(context).viewInsets.bottom + 24,
                 top: 16,
                 left: 20,
                 right: 20,
@@ -881,8 +912,7 @@ class _BudgetPageState extends State<BudgetPage> {
                           padding: const EdgeInsets.all(16),
                         ),
                         child: isDelete
-                            ? const Icon(
-                            Icons.backspace_outlined, color: Colors.white)
+                            ? const Icon(Icons.backspace_outlined, color: Colors.white)
                             : Text(
                           val,
                           style: const TextStyle(
@@ -898,11 +928,8 @@ class _BudgetPageState extends State<BudgetPage> {
                   ElevatedButton(
                     onPressed: () async {
                       final userId = _auth.currentUser?.uid;
-                      final selectedDate = widget.selectedDate ??
-                          DateTime.now();
-                      final docId =
-                          '${DateFormat('yyyy-MM').format(
-                          selectedDate)}_${categoryRef.id}';
+                      final selectedDate = widget.selectedDate ?? DateTime.now();
+                      final docId = '${DateFormat('yyyy-MM').format(selectedDate)}_${categoryRef.id}';
                       final amount = double.tryParse(input);
                       if (userId != null && amount != null && amount > 0) {
                         await _firestore
@@ -917,11 +944,9 @@ class _BudgetPageState extends State<BudgetPage> {
                         });
 
                         if (context.mounted) {
-                          Navigator.pop(
-                              context, true); // Return true to indicate success
+                          Navigator.pop(context, true);
                           ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                                content: Text('Category budget saved')),
+                            const SnackBar(content: Text('Category budget saved')),
                           );
                         }
                       }
@@ -959,79 +984,94 @@ class _BudgetPageState extends State<BudgetPage> {
         ? (progress * 100).toStringAsFixed(1)
         : '0.0';
 
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: const Color(0xFF2C2C2C),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            '${DateFormat('d MMM').format(
-                DateTime(selectedDate.year, selectedDate.month, 1))} - '
-                '${DateFormat('d MMM').format(
-                DateTime(selectedDate.year, selectedDate.month + 1, 0))}',
-            style: const TextStyle(color: Colors.white70),
+    return FutureBuilder<Map<String, DateTime>>(
+      future: BillingDateHelper.getBillingPeriodForDate(selectedDate),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator(color: Colors.teal));
+        }
+        if (snapshot.hasError) {
+          return const Text(
+            'Error loading billing period',
+            style: TextStyle(color: Colors.red),
+          );
+        }
+
+        final billingPeriod = snapshot.data!;
+        final startDate = billingPeriod['startDate']!;
+        final endDate = billingPeriod['endDate']!;
+
+        return Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: const Color(0xFF2C2C2C),
+            borderRadius: BorderRadius.circular(12),
           ),
-          const SizedBox(height: 8),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              Text(
+                '${DateFormat('d MMM').format(startDate)} - '
+                    '${DateFormat('d MMM').format(endDate)}',
+                style: const TextStyle(color: Colors.white70),
+              ),
+              const SizedBox(height: 8),
               Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text(
-                    'Budget\nRM${(monthlyBudget ?? 0).toStringAsFixed(0)}',
-                    style: const TextStyle(color: Colors.white, fontSize: 18),
+                  Row(
+                    children: [
+                      Text(
+                        'Budget\nRM${(monthlyBudget ?? 0).toStringAsFixed(0)}',
+                        style: const TextStyle(color: Colors.white, fontSize: 18),
+                      ),
+                      IconButton(
+                        onPressed: _toggleCalculator,
+                        icon: const Icon(
+                          Icons.edit,
+                          color: Colors.white70,
+                          size: 20,
+                        ),
+                        padding: const EdgeInsets.only(left: 4.0),
+                        constraints: const BoxConstraints(),
+                      ),
+                    ],
                   ),
-                  IconButton(
-                    onPressed: _toggleCalculator,
-                    icon: const Icon(
-                      Icons.edit,
-                      color: Colors.white70,
-                      size: 20,
-                    ),
-                    padding: const EdgeInsets.only(left: 4.0),
-                    constraints: const BoxConstraints(),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Text(
+                        difference >= 0 ? 'Remaining' : 'Over Budget',
+                        style: TextStyle(
+                          color: difference >= 0 ? Colors.white70 : Colors.redAccent,
+                        ),
+                      ),
+                      Text(
+                        'RM${difference.abs().toStringAsFixed(2)}',
+                        style: TextStyle(
+                          color: difference >= 0 ? Colors.white70 : Colors.redAccent,
+                          fontSize: 18,
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Text(
-                    difference >= 0 ? 'Remaining' : 'Over Budget',
-                    style: TextStyle(
-                      color: difference >= 0 ? Colors.white70 : Colors
-                          .redAccent,
-                    ),
-                  ),
-                  Text(
-                    'RM${difference.abs().toStringAsFixed(2)}',
-                    style: TextStyle(
-                      color: difference >= 0 ? Colors.white70 : Colors
-                          .redAccent,
-                      fontSize: 18,
-                    ),
-                  ),
-                ],
+              const SizedBox(height: 8),
+              LinearProgressIndicator(
+                value: progress,
+                backgroundColor: Colors.grey[800],
+                valueColor: const AlwaysStoppedAnimation<Color>(Colors.tealAccent),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                '$percentage% | Exp RM${totalSpending.toStringAsFixed(2)}',
+                style: const TextStyle(color: Colors.white70),
               ),
             ],
           ),
-          const SizedBox(height: 8),
-          LinearProgressIndicator(
-            value: progress,
-            backgroundColor: Colors.grey[800],
-            valueColor: const AlwaysStoppedAnimation<Color>(Colors.tealAccent),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            '$percentage% | Exp RM${totalSpending.toStringAsFixed(2)}',
-            style: const TextStyle(color: Colors.white70),
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
 
@@ -1057,8 +1097,7 @@ class _BudgetPageState extends State<BudgetPage> {
             ),
           ),
           Text(
-            'RM${over > 0 ? over.toStringAsFixed(2) : (budget - spent)
-                .toStringAsFixed(2)}',
+            'RM${over > 0 ? over.toStringAsFixed(2) : (budget - spent).toStringAsFixed(2)}',
             style: TextStyle(
               color: over > 0 ? Colors.redAccent : Colors.white70,
               fontSize: 16,
@@ -1071,8 +1110,7 @@ class _BudgetPageState extends State<BudgetPage> {
             valueColor: const AlwaysStoppedAnimation<Color>(Colors.teal),
           ),
           Text(
-            'Bud RM${budget.toStringAsFixed(0)}\nExp RM${spent.toStringAsFixed(
-                2)}',
+            'Bud RM${budget.toStringAsFixed(0)}\nExp RM${spent.toStringAsFixed(2)}',
             style: const TextStyle(color: Colors.white70),
           ),
         ],
@@ -1080,8 +1118,7 @@ class _BudgetPageState extends State<BudgetPage> {
     );
   }
 
-  Widget _buildCategoryCard(String name, double budget, double spent,
-      String icon, String docId) {
+  Widget _buildCategoryCard(String name, double budget, double spent, String icon, String docId) {
     final remaining = budget - spent;
     final percent = (budget > 0) ? (spent / budget).clamp(0.0, 1.0) * 100 : 0.0;
 
@@ -1089,37 +1126,36 @@ class _BudgetPageState extends State<BudgetPage> {
       onLongPress: () {
         showDialog(
           context: context,
-          builder: (context) =>
-              AlertDialog(
-                backgroundColor: const Color(0xFF2C2C2C),
-                title: Text(
-                  'Delete Budget for $name',
-                  style: const TextStyle(color: Colors.white),
+          builder: (context) => AlertDialog(
+            backgroundColor: const Color(0xFF2C2C2C),
+            title: Text(
+              'Delete Budget for $name',
+              style: const TextStyle(color: Colors.white),
+            ),
+            content: const Text(
+              'Are you sure you want to delete this category budget?',
+              style: TextStyle(color: Colors.white70),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text(
+                  'Cancel',
+                  style: TextStyle(color: Colors.teal),
                 ),
-                content: const Text(
-                  'Are you sure you want to delete this category budget?',
-                  style: TextStyle(color: Colors.white70),
-                ),
-                actions: [
-                  TextButton(
-                    onPressed: () => Navigator.pop(context),
-                    child: const Text(
-                      'Cancel',
-                      style: TextStyle(color: Colors.teal),
-                    ),
-                  ),
-                  TextButton(
-                    onPressed: () async {
-                      await _deleteCategoryBudget(docId);
-                      if (context.mounted) Navigator.pop(context);
-                    },
-                    child: const Text(
-                      'Delete',
-                      style: TextStyle(color: Colors.redAccent),
-                    ),
-                  ),
-                ],
               ),
+              TextButton(
+                onPressed: () async {
+                  await _deleteCategoryBudget(docId);
+                  if (context.mounted) Navigator.pop(context);
+                },
+                child: const Text(
+                  'Delete',
+                  style: TextStyle(color: Colors.redAccent),
+                ),
+              ),
+            ],
+          ),
         );
       },
       child: Container(
@@ -1145,17 +1181,13 @@ class _BudgetPageState extends State<BudgetPage> {
                   Text(name, style: const TextStyle(color: Colors.white)),
                   const SizedBox(height: 4),
                   LinearProgressIndicator(
-                    value: (budget > 0)
-                        ? (spent / budget).clamp(0.0, 1.0)
-                        : 0.0,
+                    value: (budget > 0) ? (spent / budget).clamp(0.0, 1.0) : 0.0,
                     backgroundColor: Colors.grey[800],
-                    valueColor: const AlwaysStoppedAnimation<Color>(
-                        Colors.teal),
+                    valueColor: const AlwaysStoppedAnimation<Color>(Colors.teal),
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    'Bud RM${budget.toStringAsFixed(0)}  Exp RM${spent
-                        .toStringAsFixed(1)}',
+                    'Bud RM${budget.toStringAsFixed(0)}  Exp RM${spent.toStringAsFixed(1)}',
                     style: const TextStyle(color: Colors.white70),
                   ),
                 ],

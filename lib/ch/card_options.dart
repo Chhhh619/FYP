@@ -7,24 +7,24 @@ class CardOptionsPage extends StatelessWidget {
   const CardOptionsPage({super.key, required this.cardType});
 
   final List<Map<String, dynamic>> banks = const [
-    {'name': 'Maybank', 'logo': '🟡'},
-    {'name': 'Public Bank', 'logo': '🔴'},
-    {'name': 'RHB Bank', 'logo': '🔵'},
-    {'name': 'CIMB Bank', 'logo': '🟥'},
-    {'name': 'HSBC', 'logo': '🏦'},
-    {'name': 'Bank Islam', 'logo': '🟠'},
-    {'name': 'AmBank', 'logo': '🟥'},
-    {'name': 'OCBC', 'logo': '🔶'},
-    {'name': 'UOB', 'logo': '🔷'},
+    {'name': 'Maybank', 'logo': 'assets/images/maybank.png'},
+    {'name': 'Public Bank', 'logo': 'assets/images/pbb.png'},
+    {'name': 'RHB Bank', 'logo': 'assets/images/rhb.png'},
+    {'name': 'CIMB Bank', 'logo': 'assets/images/cimb.png'},
+    {'name': 'HSBC', 'logo': 'assets/images/hsbc.png'},
+    {'name': 'Bank Islam', 'logo': 'assets/images/bankislam.png'},
+    {'name': 'AmBank', 'logo': 'assets/images/ambank.png'},
+    {'name': 'OCBC', 'logo': 'assets/images/ocbc.png'},
+    {'name': 'UOB', 'logo': 'assets/images/uob.png'},
   ];
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: Color.fromRGBO(28, 28, 28, 1),
       appBar: AppBar(
         title: Text('Select Bank', style: TextStyle(color: Colors.white)),
-        backgroundColor: Colors.black,
+        backgroundColor: Color.fromRGBO(28, 28, 28, 1),
         iconTheme: IconThemeData(color: Colors.white),
       ),
       body: ListView.separated(
@@ -55,7 +55,29 @@ class CardOptionsPage extends StatelessWidget {
               ),
               child: Row(
                 children: [
-                  Text(bank['logo'], style: const TextStyle(fontSize: 22)),
+                  Container(
+                    width: 40,
+                    height: 40,
+                    padding: const EdgeInsets.all(6),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(
+                        color: Colors.white.withOpacity(0.05),
+                        width: 1,
+                      ),
+                    ),
+                    child: Image.asset(
+                      bank['logo'],
+                      fit: BoxFit.contain,
+                      errorBuilder: (context, error, stackTrace) {
+                        return Icon(Icons.account_balance,
+                          color: Colors.white70,
+                          size: 20,
+                        );
+                      },
+                    ),
+                  ),
                   const SizedBox(width: 12),
                   Text(bank['name'],
                       style: const TextStyle(color: Colors.white, fontSize: 16)),
