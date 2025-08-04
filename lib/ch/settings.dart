@@ -5,16 +5,16 @@ import 'package:fyp/ch/subscription.dart';
 import 'package:fyp/bottom_nav_bar.dart';
 import 'package:fyp/ch/persistent_add_button.dart';
 import 'package:fyp/wc/bill/bill_payment_screen.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:fyp/ch/homepage.dart';
 import 'package:fyp/ch/goal.dart';
 import 'package:fyp/wc/rewards_page.dart';
 import 'package:fyp/wc/currencyconverter.dart';
 import 'package:fyp/ch/budget.dart';
 import 'package:intl/intl.dart';
-import 'package:fyp/wc/financial_plan.dart';
-
-import 'income.dart';
+import 'package:fyp/wc/financial_tips.dart';
+import 'package:fyp/ch/income.dart';
+import 'package:fyp/wc/adminpage.dart';
+import 'package:fyp/wc/gamification_page.dart';
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key});
@@ -30,6 +30,8 @@ class _SettingsPageState extends State<SettingsPage> {
   int? totalTransactions;
   String? _selectedCurrency = 'MYR';
   bool _isLoading = false;
+  bool? _isAdmin;
+  int _selectedIndex = 3; // Set to 3 for SettingsPage
 
   @override
   void initState() {
@@ -59,14 +61,12 @@ class _SettingsPageState extends State<SettingsPage> {
           'totalTransactions': transactionsCount,
           'currency': data['currency'] ?? 'MYR',
         });
-        await FirebaseFirestore.instance.collection('users').doc(userId).update(
-          {'totalTransactions': transactionsCount},
-        );
 
         setState(() {
           totalDays = DateTime.now().difference(createdAt).inDays;
           totalTransactions = transactionsCount;
           _selectedCurrency = data['currency'] ?? 'MYR';
+          _isAdmin = data['isAdmin'] == true;
         });
       } else {
         await _initializeUserData(userId);
@@ -88,6 +88,7 @@ class _SettingsPageState extends State<SettingsPage> {
       'currency': 'MYR',
       'points': 0,
       'equippedBadge': null,
+      'isAdmin': false,
     }, SetOptions(merge: true));
     await _loadUserData();
   }
@@ -259,6 +260,18 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 
+  void _handleNavigation(int index) {
+    if (index == 0) {
+      Navigator.pushReplacementNamed(context, '/home');
+    } else if (index == 1) {
+      Navigator.pushReplacementNamed(context, '/trending');
+    } else if (index == 2) {
+      Navigator.pushReplacementNamed(context, '/financial_plan');
+    } else if (index == 3) {
+      // Stay on SettingsPage
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final userId = FirebaseAuth.instance.currentUser?.uid;
@@ -268,11 +281,23 @@ class _SettingsPageState extends State<SettingsPage> {
     if (userId == null) {
       return Scaffold(
         backgroundColor: const Color.fromRGBO(28, 28, 28, 1),
+        appBar: AppBar(
+          backgroundColor: const Color.fromRGBO(28, 28, 28, 1),
+          title: const Text(
+            'Mine',
+            style: TextStyle(color: Colors.white),
+          ),
+          centerTitle: true,
+        ),
         body: const Center(
           child: Text(
             'Please log in to view settings',
             style: TextStyle(color: Colors.white),
           ),
+        ),
+        bottomNavigationBar: BottomNavBar(
+          currentIndex: _selectedIndex,
+          onTap: _handleNavigation,
         ),
       );
     }
@@ -281,7 +306,10 @@ class _SettingsPageState extends State<SettingsPage> {
       backgroundColor: const Color.fromRGBO(28, 28, 28, 1),
       appBar: AppBar(
         backgroundColor: const Color.fromRGBO(28, 28, 28, 1),
-        title: const Text('Mine', style: TextStyle(color: Colors.white)),
+        title: const Text(
+          'Mine',
+          style: TextStyle(color: Colors.white),
+        ),
         centerTitle: true,
       ),
       body: _isLoading
@@ -339,18 +367,24 @@ class _SettingsPageState extends State<SettingsPage> {
           _buildProfileSection(),
           Expanded(
             child: ListView(
-              padding: const EdgeInsets.symmetric(
-                horizontal: 16.0,
-                vertical: 8.0,
-              ),
+              padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
               children: [
+                if (_isAdmin == true)
+                  _buildListTile(
+                    leadingIcon: Icons.admin_panel_settings,
+                    title: 'Admin Dashboard',
+                    trailing: const Icon(Icons.chevron_right, color: Colors.white70),
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (context) => const AdminPage()),
+                      );
+                    },
+                  ),
                 _buildListTile(
                   leadingIcon: Icons.edit,
                   title: 'Edit my page',
-                  trailing: const Icon(
-                    Icons.chevron_right,
-                    color: Colors.white70,
-                  ),
+                  trailing: const Icon(Icons.chevron_right, color: Colors.white70),
                   onTap: () {
                     // Add navigation or action for Edit my page
                   },
@@ -358,10 +392,7 @@ class _SettingsPageState extends State<SettingsPage> {
                 _buildListTile(
                   leadingIcon: Icons.account_balance,
                   title: 'Budget',
-                  trailing: const Text(
-                    'RM393/monthly',
-                    style: TextStyle(color: Colors.white70),
-                  ),
+                  trailing: const Text('RM393/monthly', style: TextStyle(color: Colors.white70)),
                   onTap: () {
                     Navigator.push(
                       context,
@@ -377,81 +408,102 @@ class _SettingsPageState extends State<SettingsPage> {
                 _buildListTile(
                   leadingIcon: Icons.subscriptions,
                   title: 'Subscription and installment',
-                  trailing: const Text(
-                    '1 items',
-                    style: TextStyle(color: Colors.white70),
-                  ),
+                  trailing: const Text('1 items', style: TextStyle(color: Colors.white70)),
                   onTap: () {
                     Navigator.push(
                       context,
-                      MaterialPageRoute(
-                        builder: (context) => const SubscriptionPage(),
-                      ),
+                      MaterialPageRoute(builder: (context) => const SubscriptionPage()),
                     );
+                  },
+                ),
+                _buildListTile(
+                  leadingIcon: Icons.receipt,
+                  title: 'Bills',
+                  trailing: const Icon(Icons.chevron_right, color: Colors.white70),
+                  onTap: () {
+                    if (userId != null) {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => BillPaymentScreen(userId: userId),
+                        ),
+                      );
+                    } else {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('User not logged in'), backgroundColor: Colors.red),
+                      );
+                    }
                   },
                 ),
                 _buildListTile(
                   leadingIcon: Icons.currency_exchange,
                   title: 'Currency Converter',
-                  trailing: const Icon(
-                    Icons.chevron_right,
-                    color: Colors.white70,
-                  ),
+                  trailing: const Icon(Icons.chevron_right, color: Colors.white70),
                   onTap: () {
                     Navigator.push(
                       context,
-                      MaterialPageRoute(
-                        builder: (context) => const CurrencyConverterScreen(),
-                      ),
+                      MaterialPageRoute(builder: (context) => const CurrencyConverterScreen()),
                     );
                   },
                 ),
-                _buildListTile(
-                  leadingIcon: Icons.emoji_events,
-                  title: 'Rewards',
-                  trailing: const Icon(
-                    Icons.chevron_right,
-                    color: Colors.white70,
-                  ),
-                  onTap: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => const RewardsPage(),
-                      ),
-                    );
-                  },
-                ),
+
                 _buildListTile(
                   leadingIcon: Icons.savings,
                   title: 'Savings Goals',
-                  trailing: const Icon(
-                    Icons.chevron_right,
-                    color: Colors.white70,
-                  ),
+                  trailing: const Icon(Icons.chevron_right, color: Colors.white70),
                   onTap: () {
                     Navigator.push(
                       context,
-                      MaterialPageRoute(
-                        builder: (context) => GoalPage(),
-                      ),
+                      MaterialPageRoute(builder: (context) => GoalPage()),
+                    );
+                  },
+                ),
+                _buildListTile(
+                  leadingIcon: Icons.book, // Changed from Icons.savings to Icons.book
+                  title: 'Financial Tips',
+                  trailing: const Icon(Icons.chevron_right, color: Colors.white70),
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (context) => const FinancialTipsScreen()),
                     );
                   },
                 ),
                 _buildListTile(
                   leadingIcon: Icons.currency_exchange,
                   title: 'Income Management',
-                  trailing: const Icon(
-                    Icons.chevron_right,
-                    color: Colors.white70,
-                  ),
+                  trailing: const Icon(Icons.chevron_right, color: Colors.white70),
                   onTap: () {
                     Navigator.push(
                       context,
-                      MaterialPageRoute(
-                        builder: (context) => const IncomePage(),
-                      ),
+                      MaterialPageRoute(builder: (context) => const IncomePage()),
                     );
+                  },
+                ),
+                _buildListTile(
+                  leadingIcon: Icons.gamepad,
+                  title: 'Challenges',
+                  trailing: const Icon(Icons.chevron_right, color: Colors.white70),
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (context) => const GamificationPage()),
+                    );
+                  },
+                ),
+                _buildListTile(
+                  leadingIcon: Icons.logout,
+                  title: 'Logout',
+                  trailing: const Icon(Icons.chevron_right, color: Colors.redAccent),
+                  onTap: () async {
+                    try {
+                      await FirebaseAuth.instance.signOut();
+                      Navigator.pushReplacementNamed(context, '/login');
+                    } catch (e) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('Error logging out: $e'), backgroundColor: Colors.red),
+                      );
+                    }
                   },
                 ),
               ],
@@ -462,19 +514,8 @@ class _SettingsPageState extends State<SettingsPage> {
       floatingActionButton: const PersistentAddButton(),
       floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
       bottomNavigationBar: BottomNavBar(
-        currentIndex: 3,
-        onTap: (index) {
-          if (index == 0) {
-            Navigator.pushReplacement(
-              context,
-              MaterialPageRoute(builder: (context) => const HomePage()),
-            );
-          } else if (index == 3) {
-            // Stay on SettingsPage
-          } else {
-            // Handle other tabs (e.g., FinancialTipsScreen, FavoriteTipsScreen)
-          }
-        },
+        currentIndex: _selectedIndex,
+        onTap: _handleNavigation,
       ),
     );
   }

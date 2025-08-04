@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'notification_service.dart';
 
 class BillDetailsScreen extends StatefulWidget {
   final String userId;
@@ -59,6 +60,17 @@ class _BillDetailsScreenState extends State<BillDetailsScreen> {
       );
 
       await batch.commit();
+
+      // Show notification for bill paid
+      await NotificationService().showBillPaidNotification(
+        billerName: billerName,
+        amount: amount,
+        categoryName: categoryName,
+      );
+
+      // Cancel scheduled notification for this bill
+      await NotificationService().cancelNotification(widget.billId);
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Bill marked as paid')),
@@ -106,24 +118,30 @@ class _BillDetailsScreenState extends State<BillDetailsScreen> {
                 maxScale: 3.0,
                 child: CachedNetworkImage(
                   imageUrl: imageUrl,
-                  placeholder: (context, url) => Center(
+                  placeholder: (context, url) => const Center(
                     child: CircularProgressIndicator(color: Colors.teal),
                   ),
-                  errorWidget: (context, url, error) => Icon(Icons.error),
+                  errorWidget: (context, url, error) => const Icon(Icons.error),
                 ),
               ),
             ),
             Positioned(
-              top: 40,
+              top: 50,
               right: 20,
-              child: IconButton(
-                icon: Icon(Icons.close, color: Colors.white, size: 30),
-                onPressed: () {
-                  Navigator.of(context).pop();
-                  setState(() {
-                    _isViewingImage = false;
-                  });
-                },
+              child: Container(
+                decoration: BoxDecoration(
+                  color: Colors.black.withOpacity(0.7),
+                  borderRadius: BorderRadius.circular(25),
+                ),
+                child: IconButton(
+                  icon: const Icon(Icons.close, color: Colors.white, size: 24),
+                  onPressed: () {
+                    Navigator.of(context).pop();
+                    setState(() {
+                      _isViewingImage = false;
+                    });
+                  },
+                ),
               ),
             ),
           ],
@@ -144,158 +162,375 @@ class _BillDetailsScreenState extends State<BillDetailsScreen> {
     final categoryName = widget.billData['categoryName'] as String? ?? 'Uncategorized';
     final billImageUrl = widget.billData['billImageUrl'] as String?;
 
+    final isOverdue = status == 'pending' && dueDate.isBefore(DateTime.now());
+
     return Scaffold(
       backgroundColor: const Color.fromRGBO(28, 28, 28, 1),
       appBar: AppBar(
         backgroundColor: const Color.fromRGBO(28, 28, 28, 1),
+        elevation: 0,
         title: Text(
           billerName,
-          style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 20,
+            fontWeight: FontWeight.w600,
+          ),
         ),
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.white),
+          icon: const Icon(Icons.arrow_back_ios, color: Colors.white, size: 20),
           onPressed: () => Navigator.pop(context),
         ),
-        elevation: 0,
+        centerTitle: true,
       ),
       body: _isPaying || _isViewingImage
-          ? const Center(child: CircularProgressIndicator(color: Colors.teal))
+          ? Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const CircularProgressIndicator(color: Colors.teal),
+            const SizedBox(height: 16),
+            Text(
+              _isPaying ? 'Processing payment...' : 'Loading image...',
+              style: const TextStyle(color: Colors.white70, fontSize: 16),
+            ),
+          ],
+        ),
+      )
           : Column(
         children: [
-          if (billImageUrl != null) ...[
-            GestureDetector(
-              onTap: () => _showFullScreenImage(billImageUrl),
-              child: Hero(
-                tag: 'billImage-${widget.billId}',
-                child: Container(
-                  margin: const EdgeInsets.all(16),
-                  height: 200,
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(12),
-                    color: const Color.fromRGBO(50, 50, 50, 1),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.3),
-                        blurRadius: 6,
-                        offset: const Offset(0, 3),
-                      ),
-                    ],
-                  ),
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(12),
-                    child: CachedNetworkImage(
-                      imageUrl: billImageUrl,
-                      fit: BoxFit.cover,
-                      width: double.infinity,
-                      placeholder: (context, url) => Center(
-                        child: CircularProgressIndicator(color: Colors.teal),
-                      ),
-                      errorWidget: (context, url, error) => const Icon(Icons.error, color: Colors.red),
-                    ),
-                  ),
-                ),
+          // Status Header
+          Container(
+            width: double.infinity,
+            margin: const EdgeInsets.all(24),
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: isOverdue
+                    ? [Colors.red.withOpacity(0.1), Colors.red.withOpacity(0.05)]
+                    : status == 'paid'
+                    ? [Colors.green.withOpacity(0.1), Colors.green.withOpacity(0.05)]
+                    : [Colors.teal.withOpacity(0.1), Colors.teal.withOpacity(0.05)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color: isOverdue
+                    ? Colors.red.withOpacity(0.3)
+                    : status == 'paid'
+                    ? Colors.green.withOpacity(0.3)
+                    : Colors.teal.withOpacity(0.3),
+                width: 1,
               ),
             ),
-            const SizedBox(height: 8),
-            Text(
-              'Tap image to view full screen',
-              style: TextStyle(color: Colors.white70, fontSize: 12),
-            ),
-            const SizedBox(height: 8),
-          ],
-          Expanded(
-            child: ListView(
-              padding: const EdgeInsets.all(16.0),
+            child: Column(
               children: [
-                Card(
-                  color: const Color.fromRGBO(50, 50, 50, 1),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  elevation: 4,
-                  child: Padding(
-                    padding: const EdgeInsets.all(20.0),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        _buildDetailRow(
-                          icon: Icons.person,
-                          label: 'Biller',
-                          value: billerName,
-                          isBold: true,
-                        ),
-                        const SizedBox(height: 12),
-                        _buildDetailRow(
-                          icon: Icons.account_circle,
-                          label: 'Account Number',
-                          value: accountNumber,
-                        ),
-                        const SizedBox(height: 12),
-                        _buildDetailRow(
-                          icon: Icons.description,
-                          label: 'Description',
-                          value: description,
-                        ),
-                        const SizedBox(height: 12),
-                        _buildDetailRow(
-                          icon: Icons.category,
-                          label: 'Category',
-                          value: categoryName,
-                        ),
-                        const SizedBox(height: 12),
-                        _buildDetailRow(
-                          icon: Icons.monetization_on,
-                          label: 'Amount',
-                          value: 'RM${amount.toStringAsFixed(2)}',
-                        ),
-                        const SizedBox(height: 12),
-                        _buildDetailRow(
-                          icon: Icons.calendar_today,
-                          label: 'Due Date',
-                          value: DateFormat('MMM dd, yyyy').format(dueDate),
-                        ),
-                        const SizedBox(height: 12),
-                        _buildDetailRow(
-                          icon: Icons.check_circle,
-                          label: 'Status',
-                          value: status,
-                          valueColor: status == 'pending' ? Colors.white70 : Colors.greenAccent,
-                        ),
-                        const SizedBox(height: 12),
-                        _buildDetailRow(
-                          icon: Icons.access_time,
-                          label: 'Created',
-                          value: DateFormat('MMM dd, yyyy HH:mm').format(createdAt),
-                        ),
-                        if (billImageUrl != null) ...[
-                          const SizedBox(height: 12),
-                          _buildDetailRow(
-                            icon: Icons.image,
-                            label: 'Bill Image',
-                            value: 'Attached',
-                            valueColor: Colors.teal,
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: isOverdue
+                            ? Colors.red.withOpacity(0.1)
+                            : status == 'paid'
+                            ? Colors.green.withOpacity(0.1)
+                            : Colors.teal.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Icon(
+                        isOverdue
+                            ? Icons.warning_rounded
+                            : status == 'paid'
+                            ? Icons.check_circle_rounded
+                            : Icons.schedule_rounded,
+                        color: isOverdue
+                            ? Colors.red
+                            : status == 'paid'
+                            ? Colors.green
+                            : Colors.teal,
+                        size: 24,
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            isOverdue
+                                ? 'OVERDUE'
+                                : status == 'paid'
+                                ? 'PAID'
+                                : 'PENDING',
+                            style: TextStyle(
+                              color: isOverdue
+                                  ? Colors.red
+                                  : status == 'paid'
+                                  ? Colors.green
+                                  : Colors.teal,
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                              letterSpacing: 1.2,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'RM${amount.toStringAsFixed(2)}',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 28,
+                              fontWeight: FontWeight.bold,
+                            ),
                           ),
                         ],
+                      ),
+                    ),
+                  ],
+                ),
+                if (isOverdue) ...[
+                  const SizedBox(height: 12),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: Colors.red.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.info_outline, color: Colors.red, size: 16),
+                        const SizedBox(width: 8),
+                        Text(
+                          'This bill is overdue',
+                          style: const TextStyle(color: Colors.red, fontSize: 12),
+                        ),
                       ],
                     ),
                   ),
-                ),
+                ],
               ],
             ),
           ),
+
+          // Bill Image Section
+          if (billImageUrl != null) ...[
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Bill Image',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  GestureDetector(
+                    onTap: () => _showFullScreenImage(billImageUrl),
+                    child: Hero(
+                      tag: 'billImage-${widget.billId}',
+                      child: Container(
+                        height: 200,
+                        width: double.infinity,
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(16),
+                          color: const Color.fromRGBO(45, 45, 45, 1),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.2),
+                              blurRadius: 8,
+                              offset: const Offset(0, 4),
+                            ),
+                          ],
+                        ),
+                        child: Stack(
+                          children: [
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(16),
+                              child: CachedNetworkImage(
+                                imageUrl: billImageUrl,
+                                fit: BoxFit.cover,
+                                width: double.infinity,
+                                height: double.infinity,
+                                placeholder: (context, url) => const Center(
+                                  child: CircularProgressIndicator(color: Colors.teal),
+                                ),
+                                errorWidget: (context, url, error) => const Center(
+                                  child: Icon(Icons.error, color: Colors.red, size: 32),
+                                ),
+                              ),
+                            ),
+                            Positioned(
+                              bottom: 12,
+                              right: 12,
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                decoration: BoxDecoration(
+                                  color: Colors.black.withOpacity(0.7),
+                                  borderRadius: BorderRadius.circular(20),
+                                ),
+                                child: const Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(Icons.zoom_in, color: Colors.white, size: 16),
+                                    SizedBox(width: 4),
+                                    Text(
+                                      'Tap to zoom',
+                                      style: TextStyle(color: Colors.white, fontSize: 12),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 32),
+          ],
+
+          // Bill Details Section
+          Expanded(
+            child: SingleChildScrollView(
+              physics: const BouncingScrollPhysics(),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Bill Details',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Container(
+                      padding: const EdgeInsets.all(24),
+                      decoration: BoxDecoration(
+                        color: const Color.fromRGBO(45, 45, 45, 1),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: Colors.grey.withOpacity(0.1), width: 1),
+                      ),
+                      child: Column(
+                        children: [
+                          _buildDetailRow(
+                            icon: Icons.business_rounded,
+                            label: 'Biller Name',
+                            value: billerName,
+                            isBold: true,
+                          ),
+                          const SizedBox(height: 20),
+                          _buildDetailRow(
+                            icon: Icons.numbers_rounded,
+                            label: 'Account Number',
+                            value: accountNumber,
+                          ),
+                          const SizedBox(height: 20),
+                          _buildDetailRow(
+                            icon: Icons.description_rounded,
+                            label: 'Description',
+                            value: description,
+                          ),
+                          const SizedBox(height: 20),
+                          _buildDetailRow(
+                            icon: Icons.category_rounded,
+                            label: 'Category',
+                            value: categoryName,
+                          ),
+                          const SizedBox(height: 20),
+                          _buildDetailRow(
+                            icon: Icons.calendar_today_rounded,
+                            label: 'Due Date',
+                            value: DateFormat('MMM dd, yyyy').format(dueDate),
+                            valueColor: isOverdue ? Colors.red : null,
+                          ),
+                          const SizedBox(height: 20),
+                          _buildDetailRow(
+                            icon: Icons.access_time_rounded,
+                            label: 'Created On',
+                            value: DateFormat('MMM dd, yyyy • HH:mm').format(createdAt),
+                          ),
+                          if (status == 'paid') ...[
+                            const SizedBox(height: 20),
+                            _buildDetailRow(
+                              icon: Icons.check_circle_rounded,
+                              label: 'Payment Status',
+                              value: 'Completed',
+                              valueColor: Colors.green,
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 32),
+                  ],
+                ),
+              ),
+            ),
+          ),
+
+          // Pay Button Section
           if (status == 'pending')
             Container(
-              padding: const EdgeInsets.all(16.0),
-              width: double.infinity,
-              child: ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.teal,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                ),
-                onPressed: _isPaying ? null : () => _markBillAsPaid(context),
-                child: const Text(
-                  'Pay Bill',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                color: const Color.fromRGBO(28, 28, 28, 1),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.2),
+                    blurRadius: 8,
+                    offset: const Offset(0, -4),
+                  ),
+                ],
+              ),
+              child: SizedBox(
+                width: double.infinity,
+                height: 56,
+                child: ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: isOverdue ? Colors.red : Colors.teal,
+                    foregroundColor: Colors.white,
+                    elevation: 0,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    disabledBackgroundColor: Colors.grey.withOpacity(0.5),
+                  ),
+                  onPressed: _isPaying ? null : () => _markBillAsPaid(context),
+                  child: _isPaying
+                      ? const SizedBox(
+                    width: 24,
+                    height: 24,
+                    child: CircularProgressIndicator(
+                      color: Colors.white,
+                      strokeWidth: 2,
+                    ),
+                  )
+                      : Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(Icons.payment_rounded, size: 20),
+                      const SizedBox(width: 12),
+                      Text(
+                        isOverdue ? 'Pay Overdue Bill' : 'Mark as Paid',
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -314,8 +549,15 @@ class _BillDetailsScreenState extends State<BillDetailsScreen> {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Icon(icon, color: Colors.teal, size: 24),
-        const SizedBox(width: 12),
+        Container(
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: Colors.teal.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Icon(icon, color: Colors.teal, size: 20),
+        ),
+        const SizedBox(width: 16),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -323,16 +565,18 @@ class _BillDetailsScreenState extends State<BillDetailsScreen> {
               Text(
                 label,
                 style: const TextStyle(
-                  color: Colors.white70,
-                  fontSize: 16,
+                  color: Colors.white60,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500,
                 ),
               ),
+              const SizedBox(height: 4),
               Text(
                 value,
                 style: TextStyle(
                   color: valueColor ?? Colors.white,
-                  fontSize: 18,
-                  fontWeight: isBold ? FontWeight.bold : FontWeight.normal,
+                  fontSize: 16,
+                  fontWeight: isBold ? FontWeight.w600 : FontWeight.normal,
                 ),
               ),
             ],

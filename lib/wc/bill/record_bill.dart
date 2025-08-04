@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'dart:io';
+import 'notification_service.dart';
 
 class RecordBillPage extends StatefulWidget {
   final String userId;
@@ -129,13 +130,14 @@ class _RecordBillPageState extends State<RecordBillPage> {
         final categoryName = _selectedCategory == 'Other'
             ? _customCategoryController.text.trim()
             : _selectedCategory!;
+        final amount = double.parse(_amountController.text.trim());
 
         final billData = {
           'userId': widget.userId,
           'billerName': _billerNameController.text.trim(),
           'accountNumber': _accountNumberController.text.trim(),
           'description': _descriptionController.text.trim(),
-          'amount': double.parse(_amountController.text.trim()),
+          'amount': amount,
           'categoryName': categoryName,
           'dueDate': Timestamp.fromDate(_dueDate!),
           'status': 'pending',
@@ -144,11 +146,20 @@ class _RecordBillPageState extends State<RecordBillPage> {
           if (_billImageUrl != null) 'billImageUrl': _billImageUrl,
         };
 
-        await FirebaseFirestore.instance
+        final docRef = await FirebaseFirestore.instance
             .collection('users')
             .doc(widget.userId)
             .collection('bills')
             .add(billData);
+
+        // Schedule notification for the bill
+        await NotificationService().scheduleBillNotification(
+          billId: docRef.id,
+          billerName: _billerNameController.text.trim(),
+          amount: amount,
+          categoryName: categoryName,
+          dueDate: _dueDate!,
+        );
 
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Bill added successfully')),
@@ -171,6 +182,38 @@ class _RecordBillPageState extends State<RecordBillPage> {
     }
   }
 
+  // Enhanced input decoration with consistent styling
+  InputDecoration _buildInputDecoration(String labelText, {Widget? suffixIcon}) {
+    return InputDecoration(
+      labelText: labelText,
+      labelStyle: const TextStyle(color: Colors.white70, fontSize: 14),
+      filled: true,
+      fillColor: const Color.fromRGBO(45, 45, 45, 1),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: const BorderSide(color: Colors.grey, width: 0.5),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: const BorderSide(color: Colors.grey, width: 0.5),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: const BorderSide(color: Colors.teal, width: 1.5),
+      ),
+      errorBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: const BorderSide(color: Colors.red, width: 1),
+      ),
+      focusedErrorBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: const BorderSide(color: Colors.red, width: 1.5),
+      ),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+      suffixIcon: suffixIcon,
+    );
+  }
+
   @override
   void dispose() {
     _billerNameController.dispose();
@@ -187,234 +230,451 @@ class _RecordBillPageState extends State<RecordBillPage> {
       backgroundColor: const Color.fromRGBO(28, 28, 28, 1),
       appBar: AppBar(
         backgroundColor: const Color.fromRGBO(28, 28, 28, 1),
-        title: const Text('Add Bill', style: TextStyle(color: Colors.white)),
+        elevation: 0,
+        title: const Text(
+          'Add New Bill',
+          style: TextStyle(
+            color: Colors.white,
+            fontSize: 20,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.white),
+          icon: const Icon(Icons.arrow_back_ios, color: Colors.white, size: 20),
           onPressed: () => Navigator.pop(context),
         ),
-        elevation: 0,
+        centerTitle: true,
       ),
       body: _isLoading
-          ? const Center(child: CircularProgressIndicator(color: Colors.teal))
+          ? const Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            CircularProgressIndicator(color: Colors.teal),
+            SizedBox(height: 16),
+            Text(
+              'Saving your bill...',
+              style: TextStyle(color: Colors.white70, fontSize: 16),
+            ),
+          ],
+        ),
+      )
           : SingleChildScrollView(
-        padding: const EdgeInsets.all(16.0),
-        child: Form(
-          key: _formKey,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              TextFormField(
-                controller: _billerNameController,
-                decoration: const InputDecoration(
-                  labelText: 'Biller Name',
-                  labelStyle: TextStyle(color: Colors.white70),
-                  filled: true,
-                  fillColor: Color.fromRGBO(50, 50, 50, 1),
-                  border: OutlineInputBorder(),
-                ),
-                style: const TextStyle(color: Colors.white),
-                validator: (value) {
-                  if (value == null || value.trim().isEmpty) {
-                    return 'Please enter biller name';
-                  }
-                  return null;
-                },
-              ),
-              const SizedBox(height: 16),
-              TextFormField(
-                controller: _accountNumberController,
-                decoration: const InputDecoration(
-                  labelText: 'Account Number',
-                  labelStyle: TextStyle(color: Colors.white70),
-                  filled: true,
-                  fillColor: Color.fromRGBO(50, 50, 50, 1),
-                  border: OutlineInputBorder(),
-                ),
-                style: const TextStyle(color: Colors.white),
-                validator: (value) {
-                  if (value == null || value.trim().isEmpty) {
-                    return 'Please enter account number';
-                  }
-                  return null;
-                },
-              ),
-              const SizedBox(height: 16),
-              TextFormField(
-                controller: _descriptionController,
-                decoration: const InputDecoration(
-                  labelText: 'Description',
-                  labelStyle: TextStyle(color: Colors.white70),
-                  filled: true,
-                  fillColor: Color.fromRGBO(50, 50, 50, 1),
-                  border: OutlineInputBorder(),
-                ),
-                style: const TextStyle(color: Colors.white),
-                maxLines: 3,
-                validator: (value) {
-                  if (value == null || value.trim().isEmpty) {
-                    return 'Please enter description';
-                  }
-                  return null;
-                },
-              ),
-              const SizedBox(height: 16),
-              TextFormField(
-                controller: _amountController,
-                decoration: const InputDecoration(
-                  labelText: 'Amount (RM)',
-                  labelStyle: TextStyle(color: Colors.white70),
-                  filled: true,
-                  fillColor: Color.fromRGBO(50, 50, 50, 1),
-                  border: OutlineInputBorder(),
-                ),
-                style: const TextStyle(color: Colors.white),
-                keyboardType: TextInputType.number,
-                validator: (value) {
-                  if (value == null || value.trim().isEmpty) {
-                    return 'Please enter amount';
-                  }
-                  if (double.tryParse(value.trim()) == null || double.parse(value.trim()) <= 0) {
-                    return 'Please enter a valid amount';
-                  }
-                  return null;
-                },
-              ),
-              const SizedBox(height: 16),
-              GestureDetector(
-                onTap: () => _selectDueDate(context),
-                child: InputDecorator(
-                  decoration: const InputDecoration(
-                    labelText: 'Due Date',
-                    labelStyle: TextStyle(color: Colors.white70),
-                    filled: true,
-                    fillColor: Color.fromRGBO(50, 50, 50, 1),
-                    border: OutlineInputBorder(),
-                  ),
-                  child: Text(
-                    _dueDate == null
-                        ? 'Select due date'
-                        : DateFormat('MMM dd, yyyy').format(_dueDate!),
-                    style: const TextStyle(color: Colors.white),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 16),
-              Theme(
-                data: Theme.of(context).copyWith(
-                  canvasColor: const Color.fromRGBO(50, 50, 50, 1),
-                  dropdownMenuTheme: DropdownMenuThemeData(
-                    textStyle: const TextStyle(color: Colors.white),
-                    menuStyle: MenuStyle(
-                      backgroundColor: WidgetStateProperty.all(const Color.fromRGBO(50, 50, 50, 1)),
-                      surfaceTintColor: WidgetStateProperty.all(Colors.transparent),
-                      elevation: WidgetStateProperty.all(8.0),
-                    ),
-                  ),
-                ),
-                child: DropdownButtonFormField<String>(
-                  decoration: const InputDecoration(
-                    labelText: 'Category',
-                    labelStyle: TextStyle(color: Colors.white70),
-                    filled: true,
-                    fillColor: Color.fromRGBO(50, 50, 50, 1),
-                    border: OutlineInputBorder(),
-                  ),
-                  value: _selectedCategory,
-                  items: _categories.map((category) {
-                    return DropdownMenuItem<String>(
-                      value: category['name'],
-                      child: Text(
-                        category['name']!,
-                        style: const TextStyle(color: Colors.white),
-                      ),
-                    );
-                  }).toList(),
-                  onChanged: (value) {
-                    setState(() {
-                      _selectedCategory = value;
-                      if (_selectedCategory != 'Other') {
-                        _customCategoryController.clear();
-                      }
-                    });
-                  },
-                  validator: (value) {
-                    if (value == null) {
-                      return 'Please select a category';
-                    }
-                    if (value == 'Other' && (_customCategoryController.text.trim().isEmpty)) {
-                      return 'Please enter a custom category';
-                    }
-                    return null;
-                  },
-                ),
-              ),
-              if (_selectedCategory == 'Other') ...[
-                const SizedBox(height: 16),
-                TextFormField(
-                  controller: _customCategoryController,
-                  decoration: const InputDecoration(
-                    labelText: 'Custom Category',
-                    labelStyle: TextStyle(color: Colors.white70),
-                    filled: true,
-                    fillColor: Color.fromRGBO(50, 50, 50, 1),
-                    border: OutlineInputBorder(),
-                  ),
-                  style: const TextStyle(color: Colors.white),
-                  validator: (value) {
-                    if (_selectedCategory == 'Other' && (value == null || value.trim().isEmpty)) {
-                      return 'Please enter other category';
-                    }
-                    return null;
-                  },
-                ),
-              ],
-              const SizedBox(height: 16),
-              const Text(
-                'Bill Image (Optional)',
-                style: TextStyle(color: Colors.white70),
-              ),
-              const SizedBox(height: 8),
-              GestureDetector(
-                onTap: _isUploadingImage ? null : _pickImage,
-                child: Container(
-                  height: 150,
-                  decoration: BoxDecoration(
-                    color: const Color.fromRGBO(50, 50, 50, 1),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: Colors.teal),
-                  ),
-                  child: _isUploadingImage
-                      ? const Center(child: CircularProgressIndicator(color: Colors.teal))
-                      : _billImage != null
-                      ? Stack(
+        physics: const BouncingScrollPhysics(),
+        child: Padding(
+          padding: const EdgeInsets.all(24.0),
+          child: Form(
+            key: _formKey,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Header section with icon
+                Container(
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  child: Row(
                     children: [
-                      Image.file(_billImage!, fit: BoxFit.cover),
-                      Positioned(
-                        top: 8,
-                        right: 8,
-                        child: IconButton(
-                          icon: const Icon(Icons.close, color: Colors.white),
-                          onPressed: _removeImage,
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.teal.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Icon(
+                          Icons.receipt_long,
+                          color: Colors.teal,
+                          size: 24,
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      const Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Bill Information',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 18,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            SizedBox(height: 4),
+                            Text(
+                              'Fill in the details below to track your bill',
+                              style: TextStyle(
+                                color: Colors.white60,
+                                fontSize: 14,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     ],
-                  )
-                      : const Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.add_a_photo, color: Colors.teal, size: 40),
-                      SizedBox(height: 8),
-                      Text('Tap to add bill image', style: TextStyle(color: Colors.white70)),
-                    ],
                   ),
                 ),
-              ),
-              const SizedBox(height: 24),
-              ElevatedButton(
-                onPressed: _saveBill,
-                child: const Text('Save Bill'),
-              ),
-            ],
+
+                const SizedBox(height: 32),
+
+                // Basic Information Section
+                const Text(
+                  'Basic Details',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                const SizedBox(height: 16),
+
+                // Biller Name Field
+                TextFormField(
+                  controller: _billerNameController,
+                  decoration: _buildInputDecoration(
+                    'Biller Name *',
+                    suffixIcon: const Icon(Icons.business, color: Colors.white54, size: 20),
+                  ),
+                  style: const TextStyle(color: Colors.white, fontSize: 16),
+                  validator: (value) {
+                    if (value == null || value.trim().isEmpty) {
+                      return 'Please enter biller name';
+                    }
+                    return null;
+                  },
+                ),
+
+                const SizedBox(height: 20),
+
+                // Account Number Field
+                TextFormField(
+                  controller: _accountNumberController,
+                  decoration: _buildInputDecoration(
+                    'Account Number *',
+                    suffixIcon: const Icon(Icons.numbers, color: Colors.white54, size: 20),
+                  ),
+                  style: const TextStyle(color: Colors.white, fontSize: 16),
+                  validator: (value) {
+                    if (value == null || value.trim().isEmpty) {
+                      return 'Please enter account number';
+                    }
+                    return null;
+                  },
+                ),
+
+                const SizedBox(height: 20),
+
+                // Description Field
+                TextFormField(
+                  controller: _descriptionController,
+                  decoration: _buildInputDecoration(
+                    'Description *',
+                    suffixIcon: const Icon(Icons.description, color: Colors.white54, size: 20),
+                  ),
+                  style: const TextStyle(color: Colors.white, fontSize: 16),
+                  maxLines: 3,
+                  validator: (value) {
+                    if (value == null || value.trim().isEmpty) {
+                      return 'Please enter description';
+                    }
+                    return null;
+                  },
+                ),
+
+                const SizedBox(height: 32),
+
+                // Financial Information Section
+                const Text(
+                  'Financial Details',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                const SizedBox(height: 16),
+
+                // Amount Field
+                TextFormField(
+                  controller: _amountController,
+                  decoration: _buildInputDecoration(
+                    'Amount (RM) *',
+                    suffixIcon: const Icon(Icons.attach_money, color: Colors.white54, size: 20),
+                  ),
+                  style: const TextStyle(color: Colors.white, fontSize: 16),
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  validator: (value) {
+                    if (value == null || value.trim().isEmpty) {
+                      return 'Please enter amount';
+                    }
+                    if (double.tryParse(value.trim()) == null || double.parse(value.trim()) <= 0) {
+                      return 'Please enter a valid amount';
+                    }
+                    return null;
+                  },
+                ),
+
+                const SizedBox(height: 20),
+
+                // Due Date Field
+                GestureDetector(
+                  onTap: () => _selectDueDate(context),
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: const Color.fromRGBO(45, 45, 45, 1),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.grey, width: 0.5),
+                    ),
+                    child: InputDecorator(
+                      decoration: _buildInputDecoration(
+                        'Due Date *',
+                        suffixIcon: const Icon(Icons.calendar_today, color: Colors.white54, size: 20),
+                      ),
+                      child: Text(
+                        _dueDate == null
+                            ? 'Select due date'
+                            : DateFormat('MMM dd, yyyy').format(_dueDate!),
+                        style: TextStyle(
+                          color: _dueDate == null ? Colors.white54 : Colors.white,
+                          fontSize: 16,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+
+                const SizedBox(height: 32),
+
+                // Category Section
+                const Text(
+                  'Category',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                const SizedBox(height: 16),
+
+                // Category Dropdown
+                Theme(
+                  data: Theme.of(context).copyWith(
+                    canvasColor: const Color.fromRGBO(45, 45, 45, 1),
+                    dropdownMenuTheme: DropdownMenuThemeData(
+                      textStyle: const TextStyle(color: Colors.white),
+                      menuStyle: MenuStyle(
+                        backgroundColor: WidgetStateProperty.all(const Color.fromRGBO(45, 45, 45, 1)),
+                        surfaceTintColor: WidgetStateProperty.all(Colors.transparent),
+                        elevation: WidgetStateProperty.all(8.0),
+                        shape: WidgetStateProperty.all(
+                          RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                      ),
+                    ),
+                  ),
+                  child: DropdownButtonFormField<String>(
+                    decoration: _buildInputDecoration(
+                      'Category *',
+                      suffixIcon: const Icon(Icons.category, color: Colors.white54, size: 20),
+                    ),
+                    value: _selectedCategory,
+                    style: const TextStyle(color: Colors.white, fontSize: 16),
+                    dropdownColor: const Color.fromRGBO(45, 45, 45, 1),
+                    items: _categories.map((category) {
+                      return DropdownMenuItem<String>(
+                        value: category['name'],
+                        child: Text(
+                          category['name']!,
+                          style: const TextStyle(color: Colors.white, fontSize: 16),
+                        ),
+                      );
+                    }).toList(),
+                    onChanged: (value) {
+                      setState(() {
+                        _selectedCategory = value;
+                        if (_selectedCategory != 'Other') {
+                          _customCategoryController.clear();
+                        }
+                      });
+                    },
+                    validator: (value) {
+                      if (value == null) {
+                        return 'Please select a category';
+                      }
+                      if (value == 'Other' && (_customCategoryController.text.trim().isEmpty)) {
+                        return 'Please enter a custom category';
+                      }
+                      return null;
+                    },
+                  ),
+                ),
+
+                // Custom Category Field (conditional)
+                if (_selectedCategory == 'Other') ...[
+                  const SizedBox(height: 20),
+                  TextFormField(
+                    controller: _customCategoryController,
+                    decoration: _buildInputDecoration(
+                      'Custom Category *',
+                      suffixIcon: const Icon(Icons.edit, color: Colors.white54, size: 20),
+                    ),
+                    style: const TextStyle(color: Colors.white, fontSize: 16),
+                    validator: (value) {
+                      if (_selectedCategory == 'Other' && (value == null || value.trim().isEmpty)) {
+                        return 'Please enter custom category';
+                      }
+                      return null;
+                    },
+                  ),
+                ],
+
+                const SizedBox(height: 32),
+
+                // Image Upload Section
+                const Text(
+                  'Bill Image (Optional)',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'Upload an image of your bill for reference',
+                  style: TextStyle(
+                    color: Colors.white60,
+                    fontSize: 14,
+                  ),
+                ),
+                const SizedBox(height: 16),
+
+                // Image Upload Container
+                GestureDetector(
+                  onTap: _isUploadingImage ? null : _pickImage,
+                  child: Container(
+                    height: 180,
+                    width: double.infinity,
+                    decoration: BoxDecoration(
+                      color: const Color.fromRGBO(45, 45, 45, 1),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(
+                        color: _billImage != null ? Colors.teal : Colors.grey.withOpacity(0.5),
+                        width: _billImage != null ? 2 : 1,
+                      ),
+                    ),
+                    child: _isUploadingImage
+                        ? const Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        CircularProgressIndicator(color: Colors.teal),
+                        SizedBox(height: 16),
+                        Text(
+                          'Uploading image...',
+                          style: TextStyle(color: Colors.white70, fontSize: 14),
+                        ),
+                      ],
+                    )
+                        : _billImage != null
+                        ? Stack(
+                      children: [
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(16),
+                          child: Image.file(
+                            _billImage!,
+                            fit: BoxFit.cover,
+                            width: double.infinity,
+                            height: double.infinity,
+                          ),
+                        ),
+                        Positioned(
+                          top: 12,
+                          right: 12,
+                          child: GestureDetector(
+                            onTap: _removeImage,
+                            child: Container(
+                              padding: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                color: Colors.black.withOpacity(0.7),
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                              child: const Icon(
+                                Icons.close,
+                                color: Colors.white,
+                                size: 18,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    )
+                        : const Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.add_photo_alternate_outlined,
+                          color: Colors.teal,
+                          size: 48,
+                        ),
+                        SizedBox(height: 16),
+                        Text(
+                          'Tap to add bill image',
+                          style: TextStyle(
+                            color: Colors.white70,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                        SizedBox(height: 8),
+                        Text(
+                          'JPG, PNG • Max 5MB',
+                          style: TextStyle(
+                            color: Colors.white54,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+
+                const SizedBox(height: 40),
+
+                // Save Button
+                SizedBox(
+                  width: double.infinity,
+                  height: 56,
+                  child: ElevatedButton(
+                    onPressed: _isLoading ? null : _saveBill,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.teal,
+                      foregroundColor: Colors.white,
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      disabledBackgroundColor: Colors.teal.withOpacity(0.5),
+                    ),
+                    child: _isLoading
+                        ? const SizedBox(
+                      width: 24,
+                      height: 24,
+                      child: CircularProgressIndicator(
+                        color: Colors.white,
+                        strokeWidth: 2,
+                      ),
+                    )
+                        : const Text(
+                      'Save Bill',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ),
+
+                const SizedBox(height: 24),
+              ],
+            ),
           ),
         ),
       ),

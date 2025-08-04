@@ -3,6 +3,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_app_check/firebase_app_check.dart';
+import 'package:fyp/ch/settings.dart';
+import 'package:fyp/wc/gamification_page.dart';
 import 'firebase_options.dart';
 import 'wc/login.dart';
 import 'wc/register.dart';
@@ -18,6 +20,10 @@ import 'wc/bill/payment_history_screen.dart';
 import 'wc/financial_plan.dart';
 import 'wc/goal.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:fyp/wc/bill/notification_service.dart';
+import 'package:permission_handler/permission_handler.dart';
+import 'dart:developer' as developer;
+import 'package:fyp/wc/trending.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -31,8 +37,26 @@ void main() async {
     appleProvider: AppleProvider.deviceCheck,
   );
 
+  WidgetsFlutterBinding.ensureInitialized();
+  await _requestPermissions();
+  await NotificationService().init();
+
+
 
   runApp(const MyApp());
+}
+
+//bill module
+Future<void> _requestPermissions() async {
+  var status = await Permission.scheduleExactAlarm.status;
+  if (status.isDenied) {
+    developer.log('Requesting SCHEDULE_EXACT_ALARM permission');
+    status = await Permission.scheduleExactAlarm.request();
+    developer.log('Permission status: ${status.isGranted}');
+    if (!status.isGranted) {
+      developer.log('Exact alarms not permitted, falling back to inexact alarms');
+    }
+  }
 }
 
 class MyApp extends StatelessWidget {
@@ -72,6 +96,9 @@ class MyApp extends StatelessWidget {
         '/tips': (context) => const FinancialTipsScreen(),
         '/add_goal': (context) => const AddGoalPage(),
         '/edit_goal': (context) => const EditGoalPage(),
+        '/game': (context) => const GamificationPage(),
+        '/trending': (context) => const TrendingPage(),
+        '/settings': (context) => const SettingsPage(),
         '/bill': (context) {
           final userId = FirebaseAuth.instance.currentUser?.uid;
           if (userId == null) {

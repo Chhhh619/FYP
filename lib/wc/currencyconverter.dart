@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
+import 'dart:math' as math;
 
 class CurrencyConverterScreen extends StatefulWidget {
   const CurrencyConverterScreen({super.key});
@@ -10,7 +11,8 @@ class CurrencyConverterScreen extends StatefulWidget {
   _CurrencyConverterScreenState createState() => _CurrencyConverterScreenState();
 }
 
-class _CurrencyConverterScreenState extends State<CurrencyConverterScreen> {
+class _CurrencyConverterScreenState extends State<CurrencyConverterScreen>
+    with TickerProviderStateMixin {
   String _baseCurrency = 'MYR';
   String _targetCurrency = 'USD';
   double _exchangeRate = 0.24;
@@ -20,16 +22,56 @@ class _CurrencyConverterScreenState extends State<CurrencyConverterScreen> {
   String _selectedTimePeriod = '1D';
   List<Map<String, dynamic>> _historicalRates = [];
   bool _isLoadingHistory = false;
+  bool _isLoadingRate = false;
+
+  late AnimationController _fadeController;
+  late AnimationController _slideController;
+  late Animation<double> _fadeAnimation;
+  late Animation<Offset> _slideAnimation;
+
+  // Currency flag emojis
+  final Map<String, String> _currencyFlags = {
+    'MYR': '🇲🇾',
+    'SGD': '🇸🇬',
+    'THB': '🇹🇭',
+    'JPY': '🇯🇵',
+    'KRW': '🇰🇷',
+    'USD': '🇺🇸',
+    'EUR': '🇪🇺',
+    'GBP': '🇬🇧',
+  };
 
   @override
   void initState() {
     super.initState();
     _amountController.text = _amountInput;
+
+    _fadeController = AnimationController(
+      duration: const Duration(milliseconds: 800),
+      vsync: this,
+    );
+    _slideController = AnimationController(
+      duration: const Duration(milliseconds: 600),
+      vsync: this,
+    );
+
+    _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(parent: _fadeController, curve: Curves.easeInOut),
+    );
+    _slideAnimation = Tween<Offset>(
+      begin: const Offset(0, 0.3),
+      end: Offset.zero,
+    ).animate(CurvedAnimation(parent: _slideController, curve: Curves.easeOutBack));
+
     _fetchExchangeRate();
     _fetchHistoricalData();
+
+    _fadeController.forward();
+    _slideController.forward();
   }
 
   Future<void> _fetchExchangeRate() async {
+    setState(() => _isLoadingRate = true);
     try {
       final response = await http.get(Uri.parse(
           'http://api.currencylayer.com/live?access_key=d08bc68ef03869b9dffcfc11ffc0986e&source=$_baseCurrency&currencies=$_targetCurrency'));
@@ -46,6 +88,8 @@ class _CurrencyConverterScreenState extends State<CurrencyConverterScreen> {
       }
     } catch (e) {
       if (kDebugMode) print('Error fetching exchange rate: $e');
+    } finally {
+      setState(() => _isLoadingRate = false);
     }
   }
 
@@ -72,7 +116,6 @@ class _CurrencyConverterScreenState extends State<CurrencyConverterScreen> {
             }).toList()
               ..sort((a, b) => a['date'].compareTo(b['date']));
           });
-          print('Historical Rates: $_historicalRates');
         }
       }
     } catch (e) {
@@ -129,34 +172,99 @@ class _CurrencyConverterScreenState extends State<CurrencyConverterScreen> {
   void _showZoomedChart() {
     showDialog(
       context: context,
+      barrierColor: Colors.black87,
       builder: (context) => Dialog(
-        backgroundColor: Colors.grey[900],
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        backgroundColor: Colors.transparent,
+        insetPadding: const EdgeInsets.all(16),
         child: Container(
-          height: MediaQuery.of(context).size.height * 0.6,
-          width: MediaQuery.of(context).size.width * 0.9,
-          padding: const EdgeInsets.all(16.0),
+          height: MediaQuery.of(context).size.height * 0.75,
+          decoration: BoxDecoration(
+            color: const Color(0xFF1E1E1E),
+            borderRadius: BorderRadius.circular(20),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.3),
+                blurRadius: 20,
+                spreadRadius: 5,
+              ),
+            ],
+          ),
           child: Column(
             children: [
-              Text(
-                '$_baseCurrency/$_targetCurrency Chart',
-                style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 16),
-              Expanded(
-                child: CustomPaint(
-                  size: Size(double.infinity, double.infinity),
-                  painter: ExchangeRateChart(
-                    historicalRates: _historicalRates,
-                    color: const Color(0xFFB0BEC5),
-                    baseCurrency: _baseCurrency,
-                    targetCurrency: _targetCurrency,
+              Container(
+                padding: const EdgeInsets.all(20),
+                decoration: const BoxDecoration(
+                  borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+                  gradient: LinearGradient(
+                    colors: [Color(0xFF2D2D2D), Color(0xFF1E1E1E)],
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
                   ),
                 ),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFB0BEC5).withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Icon(
+                        Icons.trending_up,
+                        color: const Color(0xFFB0BEC5),
+                        size: 24,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            '$_baseCurrency → $_targetCurrency',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          Text(
+                            'Exchange Rate Chart',
+                            style: TextStyle(
+                              color: Colors.grey[400],
+                              fontSize: 14,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: () => Navigator.pop(context),
+                      icon: const Icon(Icons.close, color: Color(0xFFB0BEC5)),
+                      style: IconButton.styleFrom(
+                        backgroundColor: Colors.grey[800],
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ),
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('Close', style: TextStyle(color: Color(0xFFB0BEC5))),
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.all(20),
+                  child: CustomPaint(
+                    size: const Size(double.infinity, double.infinity),
+                    painter: EnhancedExchangeRateChart(
+                      historicalRates: _historicalRates,
+                      color: const Color(0xFFB0BEC5),
+                      baseCurrency: _baseCurrency,
+                      targetCurrency: _targetCurrency,
+                      isZoomed: true,
+                    ),
+                  ),
+                ),
               ),
             ],
           ),
@@ -165,9 +273,62 @@ class _CurrencyConverterScreenState extends State<CurrencyConverterScreen> {
     );
   }
 
+  Widget _buildCurrencyDropdown(String currency, bool isBase) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.grey[800],
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey[700]!, width: 1),
+      ),
+      child: DropdownButton<String>(
+        value: currency,
+        items: ['MYR', 'SGD', 'THB', 'JPY', 'KRW', 'USD', 'EUR', 'GBP']
+            .map((String value) {
+          return DropdownMenuItem<String>(
+            value: value,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  _currencyFlags[value] ?? '',
+                  style: const TextStyle(fontSize: 16),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  value,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          );
+        }).toList(),
+        onChanged: (newValue) {
+          setState(() {
+            if (isBase) {
+              _baseCurrency = newValue!;
+            } else {
+              _targetCurrency = newValue!;
+            }
+            _fetchExchangeRate();
+            _fetchHistoricalData();
+          });
+        },
+        dropdownColor: Colors.grey[800],
+        underline: Container(),
+        icon: const Icon(Icons.keyboard_arrow_down, color: Color(0xFFB0BEC5)),
+      ),
+    );
+  }
+
   @override
   void dispose() {
     _amountController.dispose();
+    _fadeController.dispose();
+    _slideController.dispose();
     super.dispose();
   }
 
@@ -176,223 +337,411 @@ class _CurrencyConverterScreenState extends State<CurrencyConverterScreen> {
     final double convertedAmount = _convertCurrency(double.tryParse(_amountInput) ?? 0.0);
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Currency Converter', style: TextStyle(color: Colors.white)),
-        backgroundColor: Colors.black,
-      ),
       body: Container(
-        color: Colors.black,
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              '1 ${_getCurrencyName(_baseCurrency)} equals',
-              style: const TextStyle(color: Color(0xFFB0BEC5), fontSize: 16),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              '${_exchangeRate.toStringAsFixed(4)} ${_getCurrencyName(_targetCurrency)}',
-              style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              _lastUpdated.isEmpty ? 'Updating...' : _lastUpdated,
-              style: const TextStyle(color: Color(0xFFB0BEC5), fontSize: 12),
-            ),
-            const SizedBox(height: 16),
-            Card(
-              color: Colors.grey[900],
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              child: Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: Column(
-                  children: [
-                    Row(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [Color(0xFF000000), Color(0xFF1A1A1A)],
+          ),
+        ),
+        child: SafeArea(
+          child: FadeTransition(
+            opacity: _fadeAnimation,
+            child: SlideTransition(
+              position: _slideAnimation,
+              child: Column(
+                children: [
+                  // Custom App Bar
+                  Container(
+                    padding: const EdgeInsets.all(20),
+                    child: Row(
                       children: [
-                        Expanded(
-                          child: TextField(
-                            controller: _amountController,
-                            decoration: InputDecoration(
-                              labelText: 'Amount',
-                              labelStyle: const TextStyle(color: Color(0xFFB0BEC5)),
-                              border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(8),
-                                borderSide: BorderSide(color: Colors.grey[700]!),
-                              ),
-                              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
-                            ),
-                            style: const TextStyle(color: Colors.white, fontSize: 18),
-                            keyboardType: TextInputType.number,
-                            onChanged: _updateAmount,
+                        IconButton(
+                          icon: const Icon(
+                            Icons.arrow_back,
+                            color: Colors.white,
+                            size: 24,
                           ),
-                        ),
-                        const SizedBox(width: 8),
-                        DropdownButton<String>(
-                          value: _baseCurrency,
-                          items: ['MYR', 'SGD', 'THB', 'JPY', 'KRW', 'USD', 'EUR', 'GBP']
-                              .map((String value) {
-                            return DropdownMenuItem<String>(
-                              value: value,
-                              child: Text(value, style: const TextStyle(color: Colors.white)),
-                            );
-                          }).toList(),
-                          onChanged: (newValue) {
-                            setState(() {
-                              _baseCurrency = newValue!;
-                              _fetchExchangeRate();
-                              _fetchHistoricalData();
-                            });
-                          },
-                          dropdownColor: Colors.grey[900],
-                          underline: Container(),
-                          icon: const Icon(Icons.arrow_drop_down, color: Colors.white),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                    IconButton(
-                      icon: const Icon(Icons.swap_vert, color: Color(0xFFB0BEC5), size: 28),
-                      onPressed: _swapCurrencies,
-                    ),
-                    const SizedBox(height: 16),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
-                            decoration: BoxDecoration(
-                              border: Border.all(color: Colors.grey[700]!),
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: Text(
-                              convertedAmount.toStringAsFixed(4),
-                              style: const TextStyle(color: Colors.white, fontSize: 18),
+                          onPressed: () => Navigator.pop(context),
+                          style: IconButton.styleFrom(
+                            backgroundColor: const Color(0xFFB0BEC5).withOpacity(0.1),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
                             ),
                           ),
                         ),
-                        const SizedBox(width: 8),
-                        DropdownButton<String>(
-                          value: _targetCurrency,
-                          items: ['MYR', 'SGD', 'THB', 'JPY', 'KRW', 'USD', 'EUR', 'GBP']
-                              .map((String value) {
-                            return DropdownMenuItem<String>(
-                              value: value,
-                              child: Text(value, style: const TextStyle(color: Colors.white)),
-                            );
-                          }).toList(),
-                          onChanged: (newValue) {
-                            setState(() {
-                              _targetCurrency = newValue!;
-                              _fetchExchangeRate();
-                              _fetchHistoricalData();
-                            });
-                          },
-                          dropdownColor: Colors.grey[900],
-                          underline: Container(),
-                          icon: const Icon(Icons.arrow_drop_down, color: Colors.white),
+
+                        const SizedBox(width: 16),
+                        const Expanded(
+                          child: Text(
+                            'Currency Converter',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 24,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
                         ),
+                        if (_isLoadingRate)
+                          const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFB0BEC5)),
+                            ),
+                          ),
                       ],
                     ),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 16),
-            Expanded(
-              child: Card(
-                color: Colors.grey[900],
-                margin: EdgeInsets.zero,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Stack(
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.all(16.0),
+                  ),
+
+                  Expanded(
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.symmetric(horizontal: 20),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          SingleChildScrollView(
-                            scrollDirection: Axis.horizontal,
-                            child: Row(
-                              children: ['1D', '5D', '1M', '1Y', '5Y', 'Max'].map((period) {
-                                return Padding(
-                                  padding: const EdgeInsets.only(right: 8.0),
-                                  child: ChoiceChip(
-                                    label: Text(
-                                      period,
-                                      style: TextStyle(
-                                        color: _selectedTimePeriod == period
-                                            ? Colors.black
-                                            : const Color(0xFFB0BEC5),
+                          // Exchange Rate Display
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(24),
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                colors: [
+                                  Colors.grey[900]!,
+                                  Colors.grey[850]!,
+                                ],
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                              ),
+                              borderRadius: BorderRadius.circular(20),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withOpacity(0.3),
+                                  blurRadius: 15,
+                                  offset: const Offset(0, 5),
+                                ),
+                              ],
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Text(_currencyFlags[_baseCurrency] ?? '', style: const TextStyle(fontSize: 20)),
+                                    const SizedBox(width: 8),
+                                    Text(
+                                      '1 ${_getCurrencyName(_baseCurrency)}',
+                                      style: const TextStyle(
+                                        color: Color(0xFFB0BEC5),
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.w500,
                                       ),
                                     ),
-                                    selected: _selectedTimePeriod == period,
-                                    onSelected: (selected) {
-                                      setState(() {
-                                        _selectedTimePeriod = period;
-                                        _fetchHistoricalData();
-                                      });
-                                    },
-                                    selectedColor: const Color(0xFFB0BEC5),
-                                    backgroundColor: Colors.grey[800],
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(4),
+                                  ],
+                                ),
+                                const SizedBox(height: 8),
+                                Row(
+                                  children: [
+                                    Text(_currencyFlags[_targetCurrency] ?? '', style: const TextStyle(fontSize: 24)),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: Text(
+                                        '${_exchangeRate.toStringAsFixed(4)} ${_getCurrencyName(_targetCurrency)}',
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 28,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
                                     ),
-                                    labelPadding: const EdgeInsets.symmetric(horizontal: 8),
-                                  ),
-                                );
-                              }).toList(),
+                                  ],
+                                ),
+                                const SizedBox(height: 12),
+                                Row(
+                                  children: [
+                                    Icon(
+                                      Icons.access_time,
+                                      color: Colors.grey[500],
+                                      size: 14,
+                                    ),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      _lastUpdated.isEmpty ? 'Updating...' : _lastUpdated,
+                                      style: TextStyle(
+                                        color: Colors.grey[500],
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
                             ),
                           ),
-                          const SizedBox(height: 16),
-                          Expanded(
-                            child: LayoutBuilder(
-                              builder: (context, constraints) {
-                                return Container(
-                                  width: constraints.maxWidth,
-                                  child: _isLoadingHistory
-                                      ? Center(
-                                    child: CircularProgressIndicator(
-                                      color: const Color(0xFFB0BEC5),
+
+                          const SizedBox(height: 20),
+
+                          // Converter Card
+                          Container(
+                            padding: const EdgeInsets.all(24),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF2A2A2A),
+                              borderRadius: BorderRadius.circular(20),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withOpacity(0.2),
+                                  blurRadius: 10,
+                                  offset: const Offset(0, 3),
+                                ),
+                              ],
+                            ),
+                            child: Column(
+                              children: [
+                                // From Currency
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: Container(
+                                        decoration: BoxDecoration(
+                                          color: Colors.grey[800],
+                                          borderRadius: BorderRadius.circular(12),
+                                          border: Border.all(color: Colors.grey[700]!),
+                                        ),
+                                        child: TextField(
+                                          controller: _amountController,
+                                          decoration: const InputDecoration(
+                                            labelText: 'Amount',
+                                            labelStyle: TextStyle(color: Color(0xFFB0BEC5)),
+                                            border: InputBorder.none,
+                                            contentPadding: EdgeInsets.all(16),
+                                          ),
+                                          style: const TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 18,
+                                            fontWeight: FontWeight.w500,
+                                          ),
+                                          keyboardType: TextInputType.number,
+                                          onChanged: _updateAmount,
+                                        ),
+                                      ),
                                     ),
-                                  )
-                                      : CustomPaint(
-                                    size: Size(constraints.maxWidth, constraints.maxHeight),
-                                    painter: ExchangeRateChart(
-                                      historicalRates: _historicalRates,
-                                      color: const Color(0xFFB0BEC5),
-                                      baseCurrency: _baseCurrency,
-                                      targetCurrency: _targetCurrency,
-                                    ),
+                                    const SizedBox(width: 12),
+                                    _buildCurrencyDropdown(_baseCurrency, true),
+                                  ],
+                                ),
+
+                                const SizedBox(height: 20),
+
+                                // Swap Button
+                                Container(
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFB0BEC5).withOpacity(0.1),
+                                    shape: BoxShape.circle,
                                   ),
-                                );
-                              },
+                                  child: IconButton(
+                                    icon: const Icon(
+                                      Icons.swap_vert_rounded,
+                                      color: Color(0xFFB0BEC5),
+                                      size: 28,
+                                    ),
+                                    onPressed: _swapCurrencies,
+                                    padding: const EdgeInsets.all(12),
+                                  ),
+                                ),
+
+                                const SizedBox(height: 20),
+
+                                // To Currency
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: Container(
+                                        padding: const EdgeInsets.all(16),
+                                        decoration: BoxDecoration(
+                                          color: Colors.grey[800],
+                                          borderRadius: BorderRadius.circular(12),
+                                          border: Border.all(color: Colors.grey[700]!),
+                                        ),
+                                        child: Text(
+                                          convertedAmount.toStringAsFixed(4),
+                                          style: const TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 18,
+                                            fontWeight: FontWeight.w500,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    _buildCurrencyDropdown(_targetCurrency, false),
+                                  ],
+                                ),
+                              ],
                             ),
                           ),
+
+                          const SizedBox(height: 20),
+
+                          // Chart Section
+                          Container(
+                            height: 320,
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF2A2A2A),
+                              borderRadius: BorderRadius.circular(20),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withOpacity(0.2),
+                                  blurRadius: 10,
+                                  offset: const Offset(0, 3),
+                                ),
+                              ],
+                            ),
+                            child: Stack(
+                              children: [
+                                Padding(
+                                  padding: const EdgeInsets.all(20),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Row(
+                                        children: [
+                                          const Icon(
+                                            Icons.analytics_outlined,
+                                            color: Color(0xFFB0BEC5),
+                                            size: 20,
+                                          ),
+                                          const SizedBox(width: 8),
+                                          const Text(
+                                            'Historical Data',
+                                            style: TextStyle(
+                                              color: Colors.white,
+                                              fontSize: 16,
+                                              fontWeight: FontWeight.w600,
+                                            ),
+                                          ),
+                                          const Spacer(),
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                            decoration: BoxDecoration(
+                                              color: const Color(0xFFB0BEC5).withOpacity(0.1),
+                                              borderRadius: BorderRadius.circular(6),
+                                            ),
+                                            child: Text(
+                                              _selectedTimePeriod,
+                                              style: const TextStyle(
+                                                color: Color(0xFFB0BEC5),
+                                                fontSize: 12,
+                                                fontWeight: FontWeight.w500,
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 16),
+
+                                      // Time Period Selector
+                                      SingleChildScrollView(
+                                        scrollDirection: Axis.horizontal,
+                                        child: Row(
+                                          children: ['1D', '5D', '1M', '1Y', '5Y', 'Max'].map((period) {
+                                            final isSelected = _selectedTimePeriod == period;
+                                            return Padding(
+                                              padding: const EdgeInsets.only(right: 8.0),
+                                              child: GestureDetector(
+                                                onTap: () {
+                                                  setState(() {
+                                                    _selectedTimePeriod = period;
+                                                    _fetchHistoricalData();
+                                                  });
+                                                },
+                                                child: AnimatedContainer(
+                                                  duration: const Duration(milliseconds: 200),
+                                                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                                                  decoration: BoxDecoration(
+                                                    color: isSelected
+                                                        ? const Color(0xFFB0BEC5)
+                                                        : Colors.transparent,
+                                                    borderRadius: BorderRadius.circular(20),
+                                                    border: Border.all(
+                                                      color: isSelected
+                                                          ? const Color(0xFFB0BEC5)
+                                                          : Colors.grey[600]!,
+                                                    ),
+                                                  ),
+                                                  child: Text(
+                                                    period,
+                                                    style: TextStyle(
+                                                      color: isSelected
+                                                          ? Colors.black
+                                                          : const Color(0xFFB0BEC5),
+                                                      fontWeight: FontWeight.w500,
+                                                    ),
+                                                  ),
+                                                ),
+                                              ),
+                                            );
+                                          }).toList(),
+                                        ),
+                                      ),
+
+                                      const SizedBox(height: 16),
+
+                                      // Chart
+                                      Expanded(
+                                        child: _isLoadingHistory
+                                            ? const Center(
+                                          child: CircularProgressIndicator(
+                                            color: Color(0xFFB0BEC5),
+                                          ),
+                                        )
+                                            : CustomPaint(
+                                          size: const Size(double.infinity, double.infinity),
+                                          painter: EnhancedExchangeRateChart(
+                                            historicalRates: _historicalRates,
+                                            color: const Color(0xFFB0BEC5),
+                                            baseCurrency: _baseCurrency,
+                                            targetCurrency: _targetCurrency,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+
+                                // Zoom Button
+                                Positioned(
+                                  right: 16,
+                                  bottom: 16,
+                                  child: Container(
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFFB0BEC5).withOpacity(0.1),
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    child: IconButton(
+                                      icon: const Icon(
+                                        Icons.zoom_out_map,
+                                        color: Color(0xFFB0BEC5),
+                                        size: 20,
+                                      ),
+                                      onPressed: _showZoomedChart,
+                                      tooltip: 'Expand Chart',
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+
+                          const SizedBox(height: 20),
                         ],
                       ),
                     ),
-                    Positioned(
-                      right: 8,
-                      bottom: 8,
-                      child: IconButton(
-                        icon: const Icon(
-                          Icons.zoom_in,
-                          color: Color(0xFFB0BEC5),
-                          size: 24,
-                        ),
-                        onPressed: _showZoomedChart,
-                        splashRadius: 20,
-                        tooltip: 'Zoom Chart',
-                      ),
-                    ),
-                  ],
-                ),
+                  ),
+                ],
               ),
             ),
-          ],
+          ),
         ),
       ),
     );
@@ -413,17 +762,19 @@ class _CurrencyConverterScreenState extends State<CurrencyConverterScreen> {
   }
 }
 
-class ExchangeRateChart extends CustomPainter {
+class EnhancedExchangeRateChart extends CustomPainter {
   final List<Map<String, dynamic>> historicalRates;
   final Color color;
   final String baseCurrency;
   final String targetCurrency;
+  final bool isZoomed;
 
-  ExchangeRateChart({
+  EnhancedExchangeRateChart({
     required this.historicalRates,
     required this.color,
     required this.baseCurrency,
     required this.targetCurrency,
+    this.isZoomed = false,
   });
 
   @override
@@ -433,7 +784,7 @@ class ExchangeRateChart extends CustomPainter {
       return;
     }
 
-    final chartPadding = 40.0;
+    final chartPadding = isZoomed ? 60.0 : 40.0;
     final chartWidth = size.width - chartPadding * 2;
     final chartHeight = size.height - chartPadding * 2;
 
@@ -444,20 +795,42 @@ class ExchangeRateChart extends CustomPainter {
     }
 
     final rates = validRates.map((e) => e['rate'] as double).toList();
-    final maxRate = rates.reduce((a, b) => a > b ? a : b) * 1.1;
-    final minRate = rates.reduce((a, b) => a < b ? a : b) * 0.9;
+    final maxRate = rates.reduce((a, b) => a > b ? a : b);
+    final minRate = rates.reduce((a, b) => a < b ? a : b);
     final range = maxRate - minRate;
+    final paddedMax = maxRate + (range * 0.1);
+    final paddedMin = minRate - (range * 0.1);
+    final paddedRange = paddedMax - paddedMin;
 
-    if (range == 0) {
+    if (paddedRange == 0) {
       _drawNoDataMessage(canvas, size);
       return;
     }
 
+    // Draw background gradient
+    final backgroundPaint = Paint()
+      ..shader = LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: [
+          color.withOpacity(0.1),
+          color.withOpacity(0.05),
+        ],
+      ).createShader(
+          Rect.fromLTWH(chartPadding, chartPadding, chartWidth, chartHeight));
+
+    canvas.drawRect(
+      Rect.fromLTWH(chartPadding, chartPadding, chartWidth, chartHeight),
+      backgroundPaint,
+    );
+
+    // Draw grid lines
     final gridPaint = Paint()
-      ..color = Colors.grey[700]!
+      ..color = Colors.grey[700]!.withOpacity(0.3)
       ..style = PaintingStyle.stroke
       ..strokeWidth = 0.5;
 
+    // Horizontal grid lines
     for (int i = 0; i <= 5; i++) {
       final y = chartPadding + (i / 5) * chartHeight;
       canvas.drawLine(
@@ -467,8 +840,10 @@ class ExchangeRateChart extends CustomPainter {
       );
     }
 
-    for (int i = 0; i <= 5; i++) {
-      final x = chartPadding + (i / 5) * chartWidth;
+    // Vertical grid lines
+    final verticalLines = isZoomed ? 10 : 5;
+    for (int i = 0; i <= verticalLines; i++) {
+      final x = chartPadding + (i / verticalLines) * chartWidth;
       canvas.drawLine(
         Offset(x, chartPadding),
         Offset(x, chartPadding + chartHeight),
@@ -476,72 +851,316 @@ class ExchangeRateChart extends CustomPainter {
       );
     }
 
-    final linePaint = Paint()
-      ..color = color
-      ..strokeWidth = 2.0
-      ..style = PaintingStyle.stroke
-      ..strokeCap = StrokeCap.round;
+    // Create gradient fill under the line
+    final gradientPath = Path();
+    final points = <Offset>[];
 
-    final path = Path();
     for (int i = 0; i < validRates.length; i++) {
       final x = chartPadding + (i / (validRates.length - 1)) * chartWidth;
-      final y = chartPadding + chartHeight - ((validRates[i]['rate'] - minRate) / range * chartHeight);
-      if (i == 0) path.moveTo(x, y);
-      else path.lineTo(x, y);
+      final y = chartPadding + chartHeight -
+          ((validRates[i]['rate'] - paddedMin) / paddedRange * chartHeight);
+      points.add(Offset(x, y));
 
-      if (i % 5 == 0 || i == validRates.length - 1) {
-        canvas.drawCircle(Offset(x, y), 2.0, Paint()..color = color.withOpacity(0.8));
+      if (i == 0) {
+        gradientPath.moveTo(x, y);
+      } else {
+        gradientPath.lineTo(x, y);
       }
     }
-    canvas.drawPath(path, linePaint);
 
-    final currentRate = validRates.last['rate'] as double;
-    final currentX = chartPadding + ((validRates.length - 1) / (validRates.length - 1)) * chartWidth;
-    final currentY = chartPadding + chartHeight - ((currentRate - minRate) / range * chartHeight);
-    canvas.drawCircle(Offset(currentX, currentY), 4.0, Paint()..color = color);
+    // Complete the gradient fill path
+    if (points.isNotEmpty) {
+      gradientPath.lineTo(points.last.dx, chartPadding + chartHeight);
+      gradientPath.lineTo(points.first.dx, chartPadding + chartHeight);
+      gradientPath.close();
 
+      final gradientFillPaint = Paint()
+        ..shader = LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            color.withOpacity(0.3),
+            color.withOpacity(0.05),
+          ],
+        ).createShader(
+            Rect.fromLTWH(chartPadding, chartPadding, chartWidth, chartHeight));
+
+      canvas.drawPath(gradientPath, gradientFillPaint);
+    }
+
+    // Draw the main line with smooth curves
+    final linePaint = Paint()
+      ..color = color
+      ..strokeWidth = isZoomed ? 3.0 : 2.5
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+
+    if (points.length > 1) {
+      final smoothPath = Path();
+      smoothPath.moveTo(points[0].dx, points[0].dy);
+
+      for (int i = 1; i < points.length; i++) {
+        final previous = points[i - 1];
+        final current = points[i];
+
+        if (i == 1) {
+          // First curve
+          final controlPoint1 = Offset(
+            previous.dx + (current.dx - previous.dx) * 0.3,
+            previous.dy,
+          );
+          final controlPoint2 = Offset(
+            current.dx - (current.dx - previous.dx) * 0.3,
+            current.dy,
+          );
+          smoothPath.cubicTo(
+            controlPoint1.dx, controlPoint1.dy,
+            controlPoint2.dx, controlPoint2.dy,
+            current.dx, current.dy,
+          );
+        } else {
+          // Smooth curves for subsequent points
+          final next = i < points.length - 1 ? points[i + 1] : current;
+          final controlPoint1 = Offset(
+            previous.dx + (current.dx - previous.dx) * 0.5,
+            previous.dy + (current.dy - previous.dy) * 0.3,
+          );
+          final controlPoint2 = Offset(
+            current.dx - (next.dx - current.dx) * 0.3,
+            current.dy,
+          );
+          smoothPath.cubicTo(
+            controlPoint1.dx, controlPoint1.dy,
+            controlPoint2.dx, controlPoint2.dy,
+            current.dx, current.dy,
+          );
+        }
+      }
+      canvas.drawPath(smoothPath, linePaint);
+    }
+
+    // Draw data points
+    final pointPaint = Paint()
+      ..color = color
+      ..style = PaintingStyle.fill;
+
+    final pointBorderPaint = Paint()
+      ..color = Colors.white
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.0;
+
+    for (int i = 0; i < points.length; i++) {
+      if (isZoomed || i % (points.length ~/ 6).clamp(1, points.length) == 0 ||
+          i == points.length - 1) {
+        // Draw point border
+        canvas.drawCircle(points[i], isZoomed ? 5.0 : 4.0, pointBorderPaint);
+        // Draw point
+        canvas.drawCircle(points[i], isZoomed ? 3.5 : 2.5, pointPaint);
+      }
+    }
+
+    // Highlight current rate point
+    if (points.isNotEmpty) {
+      final currentPoint = points.last;
+      final glowPaint = Paint()
+        ..color = color.withOpacity(0.3)
+        ..style = PaintingStyle.fill
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8.0);
+
+      canvas.drawCircle(currentPoint, 12.0, glowPaint);
+      canvas.drawCircle(currentPoint, 6.0, pointBorderPaint);
+      canvas.drawCircle(currentPoint, 4.0, pointPaint);
+    }
+
+    // Draw axes
     final axisPaint = Paint()
       ..color = Colors.grey[600]!
-      ..strokeWidth = 1.0;
+      ..strokeWidth = 1.5;
 
-    canvas.drawLine(Offset(chartPadding, chartPadding), Offset(chartPadding, chartPadding + chartHeight), axisPaint);
-    canvas.drawLine(Offset(chartPadding, chartPadding + chartHeight), Offset(chartPadding + chartWidth, chartPadding + chartHeight), axisPaint);
+    // Y-axis
+    canvas.drawLine(
+      Offset(chartPadding, chartPadding),
+      Offset(chartPadding, chartPadding + chartHeight),
+      axisPaint,
+    );
 
-    for (int i = 0; i <= 5; i++) {
-      final yValue = minRate + (range * i / 5);
-      final yPos = chartPadding + chartHeight - (i / 5) * chartHeight;
-      _drawText(canvas, yValue.toStringAsFixed(4), Offset(chartPadding - 20, yPos - 5), const TextStyle(color: Colors.grey, fontSize: 10));
+    // X-axis
+    canvas.drawLine(
+      Offset(chartPadding, chartPadding + chartHeight),
+      Offset(chartPadding + chartWidth, chartPadding + chartHeight),
+      axisPaint,
+    );
+
+    // Draw Y-axis labels (rates)
+    final labelCount = isZoomed ? 7 : 5;
+    for (int i = 0; i <= labelCount; i++) {
+      final yValue = paddedMin + (paddedRange * i / labelCount);
+      final yPos = chartPadding + chartHeight - (i / labelCount) * chartHeight;
+
+      _drawText(
+        canvas,
+        yValue.toStringAsFixed(4),
+        Offset(chartPadding - 10, yPos),
+        TextStyle(
+          color: Colors.grey[400],
+          fontSize: isZoomed ? 12 : 10,
+          fontWeight: FontWeight.w500,
+        ),
+        TextAlign.right,
+      );
     }
 
-    final xLabelCount = validRates.length > 5 ? 5 : validRates.length;
-    final xStep = chartWidth / xLabelCount;
+    // Draw X-axis labels (dates)
+    final xLabelCount = isZoomed ? 7 : 4;
     for (int i = 0; i <= xLabelCount; i++) {
       final xPos = chartPadding + (i / xLabelCount) * chartWidth;
-      final index = (i * (validRates.length - 1) / xLabelCount).floor();
+      final index = ((i * (validRates.length - 1)) / xLabelCount).round().clamp(
+          0, validRates.length - 1);
+
       if (index < validRates.length) {
         final date = validRates[index]['date'] as DateTime;
-        final dateStr = '${date.day}/${date.month}';
-        _drawText(canvas, dateStr, Offset(xPos - 15, chartPadding + chartHeight + 10), const TextStyle(color: Colors.grey, fontSize: 10));
+        final dateStr = isZoomed
+            ? '${date.day}/${date.month}/${date.year.toString().substring(2)}'
+            : '${date.day}/${date.month}';
+
+        _drawText(
+          canvas,
+          dateStr,
+          Offset(xPos, chartPadding + chartHeight + 15),
+          TextStyle(
+            color: Colors.grey[400],
+            fontSize: isZoomed ? 11 : 9,
+            fontWeight: FontWeight.w500,
+          ),
+          TextAlign.center,
+        );
       }
     }
 
-    _drawText(canvas, '$baseCurrency/$targetCurrency', Offset(chartPadding, chartPadding - 20), const TextStyle(color: Colors.grey, fontSize: 12));
+    // Draw chart title
+    _drawText(
+      canvas,
+      '$baseCurrency → $targetCurrency',
+      Offset(chartPadding, chartPadding - 25),
+      TextStyle(
+        color: Colors.grey[300],
+        fontSize: isZoomed ? 16 : 14,
+        fontWeight: FontWeight.bold,
+      ),
+      TextAlign.left,
+    );
+
+    // Draw current rate info
+    if (validRates.isNotEmpty) {
+      final currentRate = validRates.last['rate'] as double;
+      final previousRate = validRates.length > 1 ? validRates[validRates
+          .length - 2]['rate'] as double : currentRate;
+      final change = currentRate - previousRate;
+      final changePercent = previousRate != 0
+          ? (change / previousRate) * 100
+          : 0;
+
+      final isPositive = change >= 0;
+      final changeColor = isPositive ? Colors.green[400]! : Colors.red[400]!;
+      final changeIcon = isPositive ? '↗' : '↘';
+
+      final infoText = '$changeIcon ${changePercent.abs().toStringAsFixed(2)}%';
+
+      _drawText(
+        canvas,
+        infoText,
+        Offset(chartPadding + chartWidth, chartPadding - 25),
+        TextStyle(
+          color: changeColor,
+          fontSize: isZoomed ? 14 : 12,
+          fontWeight: FontWeight.bold,
+        ),
+        TextAlign.right,
+      );
+    }
   }
 
   void _drawNoDataMessage(Canvas canvas, Size size) {
-    _drawText(canvas, 'No historical data available', Offset(size.width / 2, size.height / 2), const TextStyle(color: Colors.grey, fontSize: 14));
+    final paint = Paint()
+      ..color = Colors.grey[600]!
+      ..style = PaintingStyle.fill;
+
+    // Draw empty state icon
+    final iconSize = size.width * 0.1;
+    final iconRect = Rect.fromCenter(
+      center: Offset(size.width / 2, size.height / 2 - 20),
+      width: iconSize,
+      height: iconSize,
+    );
+
+    canvas.drawCircle(
+      Offset(size.width / 2, size.height / 2 - 20),
+      iconSize / 2,
+      paint..color = Colors.grey[700]!.withOpacity(0.3),
+    );
+
+    _drawText(
+      canvas,
+      'No historical data available',
+      Offset(size.width / 2, size.height / 2 + 10),
+      TextStyle(
+        color: Colors.grey[500],
+        fontSize: 16,
+        fontWeight: FontWeight.w500,
+      ),
+      TextAlign.center,
+    );
+
+    _drawText(
+      canvas,
+      'Please try a different time period',
+      Offset(size.width / 2, size.height / 2 + 35),
+      TextStyle(
+        color: Colors.grey[600],
+        fontSize: 12,
+      ),
+      TextAlign.center,
+    );
   }
 
-  void _drawText(Canvas canvas, String text, Offset position, TextStyle style) {
+  void _drawText(Canvas canvas, String text, Offset position, TextStyle style,
+      TextAlign align) {
     final textPainter = TextPainter(
       text: TextSpan(text: text, style: style),
       textDirection: TextDirection.ltr,
-    )..layout();
-    textPainter.paint(canvas, Offset(position.dx - textPainter.width / 2, position.dy - textPainter.height / 2));
+      textAlign: align,
+    )
+      ..layout();
+
+    Offset drawPosition;
+    switch (align) {
+      case TextAlign.center:
+        drawPosition = Offset(
+          position.dx - textPainter.width / 2,
+          position.dy - textPainter.height / 2,
+        );
+        break;
+      case TextAlign.right:
+        drawPosition = Offset(
+          position.dx - textPainter.width,
+          position.dy - textPainter.height / 2,
+        );
+        break;
+      default:
+        drawPosition = Offset(
+          position.dx,
+          position.dy - textPainter.height / 2,
+        );
+    }
+
+    textPainter.paint(canvas, drawPosition);
   }
 
   @override
-  bool shouldRepaint(covariant ExchangeRateChart oldDelegate) {
-    return oldDelegate.historicalRates != historicalRates || oldDelegate.color != color;
+  bool shouldRepaint(covariant EnhancedExchangeRateChart oldDelegate) {
+    return oldDelegate.historicalRates != historicalRates ||
+        oldDelegate.color != color ||
+        oldDelegate.isZoomed != isZoomed;
   }
 }

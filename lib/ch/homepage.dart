@@ -1,4 +1,3 @@
-import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -6,16 +5,22 @@ import 'package:flutter/rendering.dart';
 import 'package:fyp/ch/record_transaction.dart';
 import 'package:fyp/ch/settings.dart';
 import 'package:fyp/bottom_nav_bar.dart';
+import 'package:fyp/wc/financial_plan.dart';
 import 'package:fyp/wc/financial_tips.dart';
 import 'package:fyp/ch/persistent_add_button.dart';
 import 'package:intl/intl.dart';
 import 'package:fyp/wc/gamification_page.dart';
+import 'package:fyp/wc/trending.dart';
+import 'package:fyp/wc/financial_plan.dart';
+import 'package:fyp/wc/ban_check_utility.dart';
+import 'dart:async';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
 
   @override
   _HomePageState createState() => _HomePageState();
+
 }
 
 class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin {
@@ -30,6 +35,7 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
   String popupMode = 'month';
   bool _hasShownPopup = false;
   DateTime? _lastSubscriptionCheck;
+  late StreamSubscription<bool>? _banStatusSubscription;
 
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final FirebaseAuth _auth = FirebaseAuth.instance;
@@ -47,14 +53,19 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
     _checkAndGenerateSubscriptions();
     print('HomePage initialized, User ID: ${_auth.currentUser?.uid}');
     _scrollController.addListener(_scrollListener);
-      // Monitor auth state changes (wc's gamification module)
-    FirebaseAuth.instance.authStateChanges().listen((User? user) {
-      print('Auth state changed: ${user?.uid ?? 'No user'}');
-    });
-    _checkNoSpendDay(); // Added: Check for No-Spend Day challenge on page load
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!_hasShownPopup) {
-        _showTipPopup();
+    _checkInitialBanStatus();
+    _setupBanStatusListener();
+  }
+
+  void _checkInitialBanStatus() async {
+    await BanCheckUtility.checkUserBanStatus(context);
+  }
+
+  void _setupBanStatusListener() {
+    _banStatusSubscription = BanCheckUtility.getBanStatusStream().listen((isBanned) {
+      if (isBanned) {
+        // User got banned while app was running
+        BanCheckUtility.checkUserBanStatus(context);
       }
     });
   }
@@ -155,83 +166,12 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
   void dispose() {
     _scrollController.removeListener(_scrollListener);
     _scrollController.dispose();
+    _banStatusSubscription?.cancel();
     super.dispose();
   }
 
   @override
   bool get wantKeepAlive => true;
-
-  // Added: Check for No-Spend Day challenge(gamification module)
-  Future<void> _checkNoSpendDay() async {
-    final userId = _auth.currentUser?.uid;
-    if (userId == null) {
-      print('No user logged in for No-Spend Day check'); // Added: Debugging
-      return;
-    }
-
-    // Check if already completed
-    final challengeDoc = await _firestore
-        .collection('users')
-        .doc(userId)
-        .collection('completed_challenges')
-        .doc('no_spend_day')
-        .get();
-    if (challengeDoc.exists) {
-      print('No-Spend Day challenge already completed for user: $userId'); // Added: Debugging
-      return;
-    }
-
-    final now = DateTime.now();
-    final startOfYesterday = DateTime(now.year, now.month, now.day - 1);
-    final endOfYesterday = startOfYesterday.add(const Duration(days: 1));
-
-    try {
-      final transactions = await _firestore
-          .collection('transactions')
-          .where('userid', isEqualTo: userId)
-          .where('timestamp', isGreaterThanOrEqualTo: Timestamp.fromDate(startOfYesterday))
-          .where('timestamp', isLessThanOrEqualTo: Timestamp.fromDate(endOfYesterday))
-          .get();
-
-      bool hasExpenses = false;
-      for (var doc in transactions.docs) {
-        final categoryRef = doc['category'] as DocumentReference;
-        final categorySnap = await categoryRef.get();
-        if (categorySnap.exists && categorySnap['type'] == 'expense') {
-          hasExpenses = true;
-          break;
-        }
-      }
-
-      if (!hasExpenses) {
-        await _firestore
-            .collection('users')
-            .doc(userId)
-            .collection('completed_challenges')
-            .doc('no_spend_day')
-            .set({
-          'challengeId': 'no_spend_day',
-          'completed': true,
-          'completedAt': Timestamp.now(),
-          'points': 15,
-        });
-
-        await _firestore.collection('users').doc(userId).update({
-          'points': FieldValue.increment(15),
-          'badges.badge_no_spend_day': true,
-        });
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Challenge completed: No-Spend Day! +15 points')),
-        );
-        print('No-Spend Day challenge completed for user: $userId'); // Added: Debugging
-      } else {
-        print('Expenses found for $startOfYesterday, No-Spend Day not completed'); // Added: Debugging
-      }
-    } catch (e) {
-      print('Error checking No-Spend Day: $e'); // Added: Debugging
-    }
-  }
 
   void _scrollListener() {
     if (_scrollController.position.userScrollDirection ==
@@ -434,116 +374,6 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
     }
   }
 
-  Future<void> _showTipPopup() async {
-    final userId = _auth.currentUser?.uid;
-    if (userId == null || _hasShownPopup) {
-      print('No user logged in or popup already shown');
-      return;
-    }
-
-    try {
-      final feedbackSnapshot = await _firestore
-          .collection('users')
-          .doc(userId)
-          .collection('tips_feedback')
-          .doc('1')
-          .get();
-      final feedbackData = feedbackSnapshot.data();
-      final isIrrelevant = feedbackData != null && feedbackData['isIrrelevant'] is bool
-          ? feedbackData['isIrrelevant'] as bool
-          : false;
-
-      if (isIrrelevant) {
-        print('Tip suppressed, skipping popup');
-        return;
-      }
-
-      final now = DateTime.now();
-      final startOfMonth = DateTime(now.year, now.month, 1);
-      final endOfMonth = DateTime(now.year, now.month + 1, 0);
-
-      final transactionSnapshot = await _firestore
-          .collection('transactions')
-          .where('userid', isEqualTo: userId)
-          .where('timestamp', isGreaterThanOrEqualTo: Timestamp.fromDate(startOfMonth))
-          .where('timestamp', isLessThanOrEqualTo: Timestamp.fromDate(endOfMonth))
-          .get();
-
-      double diningSpending = 0.0;
-      for (var doc in transactionSnapshot.docs) {
-        final data = doc.data();
-        final categoryRef = data['category'] as DocumentReference;
-
-        // Check cache first
-        final categoryId = categoryRef.id;
-        Map<String, dynamic>? categoryData = _categoryCache[categoryId];
-
-        if (categoryData == null) {
-          final categorySnapshot = await categoryRef.get();
-          if (!categorySnapshot.exists) {
-            print('Category document does not exist for transaction ${doc.id}');
-            continue;
-          }
-          categoryData = categorySnapshot.data() as Map<String, dynamic>?;
-          // Store non-null data in cache with fallback values
-          _categoryCache[categoryId] = categoryData ?? {'icon': '❓', 'name': 'Unknown Category', 'type': 'unknown'};
-        }
-
-        final categoryName = categoryData != null && categoryData.containsKey('name')
-            ? categoryData['name'] as String? ?? 'unknown'
-            : 'unknown';
-        final categoryType = categoryData != null && categoryData.containsKey('type')
-            ? categoryData['type'] as String? ?? 'unknown'
-            : 'unknown';
-        final amount = (data['amount'] is int)
-            ? (data['amount'] as int).toDouble()
-            : (data['amount'] as double? ?? 0.0);
-
-        if (categoryName == 'Dining' && categoryType == 'expense') {
-          diningSpending += amount.abs();
-        }
-      }
-
-      if (diningSpending > 300.0) {
-        _hasShownPopup = true;
-        showDialog(
-          context: context,
-          builder: (context) => AlertDialog(
-            backgroundColor: const Color.fromRGBO(33, 35, 34, 1),
-            title: const Text('Cook at Home', style: TextStyle(color: Colors.white)),
-            content: const Text(
-              'Your dining expenses are high this month. Try cooking at home to save RM200.',
-              style: TextStyle(color: Colors.white),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('Close', style: TextStyle(color: Colors.teal)),
-              ),
-              TextButton(
-                onPressed: () {
-                  _firestore
-                      .collection('users')
-                      .doc(userId)
-                      .collection('tips_feedback')
-                      .doc('1')
-                      .set({
-                    'isHelpful': false,
-                    'isIrrelevant': true,
-                    'timestamp': Timestamp.now(),
-                  });
-                  Navigator.pop(context);
-                },
-                child: const Text('Dismiss', style: TextStyle(color: Colors.red)),
-              ),
-            ],
-          ),
-        );
-      }
-    } catch (e) {
-      print('Error in _showTipPopup: $e');
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -637,7 +467,7 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
               return true;
             }).toList();
 
-          // Calculate totals
+            // Calculate totals
             double totalExpenses = 0.0;
             double totalIncome = 0.0;
             for (var tx in displayedTransactions) {
@@ -719,38 +549,6 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
                 bottomNavigationBar: BottomNavBar(
                   currentIndex: selectedIndex,
                   onTap: _handleNavBarTap,
-                  onTap: (index) {
-                    setState(() {
-                      selectedIndex = index; // Update selected index
-                      if (index == 0) {
-                        // "Details" selected - stay on HomePage
-                      } else if (index == 1) {
-                        // "Trending" selected - navigate to FinancialTipsScreen
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => const FinancialTipsScreen(),
-                          ),
-                        );
-                      } else if (index == 2) {
-                        // "Insights" selected - navigate to GamificationPage
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => const GamificationPage(),
-                          ),
-                        );
-                      } else if (index == 3) {
-          // "Mine" selected - navigate to SettingsPage
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => const SettingsPage(),
-                          ),
-                        );
-                      }
-                    });
-                  },
                 ),
               );
             }
@@ -784,8 +582,9 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
                   ),
                   IconButton(
                     icon: Icon(
-                        viewMode == 'month' ? Icons.view_agenda : Icons.view_week,
-                        color: Colors.white),
+                      viewMode == 'month' ? Icons.view_agenda : Icons.view_week,
+                      color: Colors.white,
+                    ),
                     onPressed: _toggleViewMode,
                   ),
                 ],
@@ -900,31 +699,6 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
                           final group = _groupTransactions(displayedTransactions)[index];
                           final groupDate = group['date'] as DateTime;
                           final groupTxs = group['transactions'] as List<Map<String, dynamic>>;
-                      child: Builder(
-                        builder: (context) {
-                          Map<DateTime, List<Map<String, dynamic>>> groupedTransactions = {};
-                          for (var tx in displayedTransactions) {
-                            final txDate = tx['timestamp']!.toDate();
-                            final groupKey = viewMode == 'month'
-                                ? DateTime(
-                              txDate.year,
-                              txDate.month,
-                              txDate.day,
-                            )
-                                : DateTime(txDate.year, txDate.month);
-                            groupedTransactions
-                                .putIfAbsent(groupKey, () => [])
-                                .add(tx);
-                          }
-                          final sortedKeys = groupedTransactions.keys.toList()
-                            ..sort((a, b) => b.compareTo(a));
-
-                          return ListView.builder(
-                            controller: _scrollController,
-                            itemCount: sortedKeys.length,
-                            itemBuilder: (context, index) {
-                              final groupDate = sortedKeys[index];
-                              final groupTxs = groupedTransactions[groupDate]!;
 
                           double groupExpenses = 0.0;
                           double groupIncome = 0.0;
@@ -957,7 +731,7 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
                                     Text(
                                       groupLabel,
                                       style: TextStyle(
-                                          color: Colors.white,
+                                        color: Colors.white,
                                       ),
                                       overflow: TextOverflow.ellipsis,
                                     ),
@@ -1040,14 +814,14 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
         Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (context) => const FinancialTipsScreen(),
+            builder: (context) => const TrendingPage(),
           ),
         );
       } else if (index == 2) {
         Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (context) => const GamificationPage(),
+            builder: (context) => const FinancialPlanPage(),
           ),
         );
       } else if (index == 3) {
@@ -1059,44 +833,6 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
         );
       }
     });
-                onTap: (index) {
-                  setState(() {
-                    selectedIndex = index; // Update selected index
-                    if (index == 0) {
-// "Details" selected - stay on HomePage
-                    } else if (index == 1) {
-// "Trending" selected - navigate to FinancialTipsScreen
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => const FinancialTipsScreen(),
-                        ),
-                      );
-                    } else if (index == 2) {
-// "Insights" selected - navigate to GamificationPage
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => const GamificationPage(),
-                        ),
-                      );
-                    } else if (index == 3) {
-// "Mine" selected - navigate to SettingsPage
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => const SettingsPage(),
-                        ),
-                      );
-                    }
-                  });
-                },
-              ),
-            );
-          },
-        );
-      },
-    );
   }
 
   Widget _buildTransactionItem(
@@ -1179,14 +915,14 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
         actions: [
           IconButton(
             icon: Icon(Icons.calendar_today, color: Colors.white),
-            onPressed: null, // Disable during loading
+            onPressed: null,
           ),
           IconButton(
             icon: Icon(
               viewMode == 'month' ? Icons.view_agenda : Icons.view_week,
               color: Colors.white,
             ),
-            onPressed: null, // Disable during loading
+            onPressed: null,
           ),
         ],
       ),
@@ -1282,38 +1018,6 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
       floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
       bottomNavigationBar: BottomNavBar(
         currentIndex: selectedIndex,
-        onTap: (index) {
-          setState(() {
-            selectedIndex = index; // Update selected index
-            if (index == 0) {
-// "Details" selected - stay on HomePage
-            } else if (index == 1) {
-// "Trending" selected - navigate to FinancialTipsScreen
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => const FinancialTipsScreen(),
-                ),
-              );
-            } else if (index == 2) {
-// "Insights" selected - navigate to GamificationPage
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => const GamificationPage(),
-                ),
-              );
-            } else if (index == 3) {
-// "Mine" selected - navigate to SettingsPage
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => const SettingsPage(),
-                ),
-              );
-            }
-          });
-        },
         onTap: _handleNavBarTap,
       ),
     );

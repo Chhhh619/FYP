@@ -60,13 +60,12 @@ class TipService {
       final categoryRef = data['category'] as DocumentReference;
       final categorySnapshot = await categoryRef.get();
       final categoryName = categorySnapshot.get('name') as String? ?? 'unknown';
-      final categoryType = categorySnapshot.get('type') as String? ?? 'unknown';
       final amount = (data['amount'] is int)
           ? (data['amount'] as int).toDouble()
           : (data['amount'] as double? ?? 0.0);
       print(
-          'Transaction: ID=${doc.id}, Category=$categoryName, Amount=$amount, Type=$categoryType');
-      if (categoryType == 'expense') {
+          'Transaction: ID=${doc.id}, Category=$categoryName, Amount=$amount');
+      if (categoryName != 'unknown' && data['type'] == 'expense') {
         spending[categoryName.toLowerCase()] =
             (spending[categoryName.toLowerCase()] ?? 0.0) + amount.abs();
       }
@@ -116,13 +115,16 @@ class TipService {
     });
   }
 
-  Future<int> getEngagedTipsCount(String userId) async {
+  Future<int> getEngagedTipsCount(String userId, Set<String> currentTipIds) async {
     final snapshot = await _firestore
         .collection('users')
         .doc(userId)
         .collection('tips_feedback')
         .get();
-    return snapshot.docs.length;
+
+    return snapshot.docs
+        .where((doc) => currentTipIds.contains(doc.id))
+        .length;
   }
 }
 
@@ -139,11 +141,20 @@ class _FinancialTipsScreenState extends State<FinancialTipsScreen> {
   int _selectedIndex = 1; // Align with "Trending" tab
   int _totalTips = 0;
   int _engagedTips = 0;
+  Set<String> _currentTipIds = {};
 
   @override
   void initState() {
     super.initState();
     _loadTipStats();
+
+    // Add listener for tip changes
+    _tipService.getTips().listen((tips) {
+      setState(() {
+        _currentTipIds = tips.map((tip) => tip.id).toSet();
+      });
+      _loadTipStats();
+    });
   }
 
   Future<void> _loadTipStats() async {
@@ -154,12 +165,23 @@ class _FinancialTipsScreenState extends State<FinancialTipsScreen> {
     }
 
     try {
+      // Get all current tips
       final tipSnapshot = await _tipService.getTips().first;
-      final engagedCount = await _tipService.getEngagedTipsCount(userId);
-      print('Total tips: ${tipSnapshot.length}, Engaged tips: $engagedCount');
+      final currentTipIds = tipSnapshot.map((tip) => tip.id).toSet();
+
+      // Get all engagements
+      final engagementSnapshot = await _tipService.getTipFeedback(userId).first;
+
+      // Count only engagements for tips that still exist
+      final validEngagements = engagementSnapshot.entries
+          .where((entry) => currentTipIds.contains(entry.key))
+          .length;
+
+      print('Total tips: ${tipSnapshot.length}, Valid engagements: $validEngagements');
       setState(() {
         _totalTips = tipSnapshot.length;
-        _engagedTips = engagedCount;
+        _engagedTips = validEngagements;
+        _currentTipIds = currentTipIds;
       });
     } catch (e) {
       print('Error loading tip stats: $e');
@@ -170,9 +192,9 @@ class _FinancialTipsScreenState extends State<FinancialTipsScreen> {
     return {
       'dining': 500.0,
       'budgeting': 300.0,
-      'savings': 200.0,
-      'debt': 400.0,
-      'shopping': 400.0,
+      'savings': 300.0,
+      'debt': 500.0,
+      'shopping': 600.0,
       'transport': 200.0,
       'subscription': 100.0,
     };
@@ -184,7 +206,7 @@ class _FinancialTipsScreenState extends State<FinancialTipsScreen> {
     if (userId == null) {
       print('No user logged in for FinancialTipsScreen');
       return Scaffold(
-        backgroundColor: const Color.fromRGBO(28, 28, 28, 1),
+        backgroundColor: const Color(0xFF1C2322),
         body: const Center(
           child: Text(
             'Please log in to view tips',
@@ -199,9 +221,9 @@ class _FinancialTipsScreenState extends State<FinancialTipsScreen> {
     final endOfMonth = DateTime(now.year, now.month + 1, 0);
 
     return Scaffold(
-      backgroundColor: const Color.fromRGBO(28, 28, 28, 1),
+      backgroundColor: const Color(0xFF1C2322),
       appBar: AppBar(
-        backgroundColor: const Color.fromRGBO(28, 28, 28, 1),
+        backgroundColor: const Color(0xFF1C2322),
         title: const Text(
           'Financial Tips',
           style: TextStyle(color: Colors.white, fontSize: 20),
@@ -212,7 +234,7 @@ class _FinancialTipsScreenState extends State<FinancialTipsScreen> {
         ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.favorite, color: Colors.red),
+            icon: const Icon(Icons.thumb_up, color: Colors.teal),
             onPressed: () {
               Navigator.push(
                 context,
@@ -257,7 +279,7 @@ class _FinancialTipsScreenState extends State<FinancialTipsScreen> {
               stream: _tipService.getTips(),
               builder: (context, tipSnapshot) {
                 if (tipSnapshot.connectionState == ConnectionState.waiting) {
-                  return const Center(child: CircularProgressIndicator());
+                  return const Center(child: CircularProgressIndicator(color: Colors.teal));
                 }
                 if (tipSnapshot.hasError) {
                   print('Tip StreamBuilder Error: ${tipSnapshot.error}');
@@ -271,6 +293,10 @@ class _FinancialTipsScreenState extends State<FinancialTipsScreen> {
                           const TextStyle(color: Colors.white, fontSize: 16),
                         ),
                         ElevatedButton(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.teal,
+                            foregroundColor: Colors.black,
+                          ),
                           onPressed: () => setState(() {}),
                           child: const Text('Retry'),
                         ),
@@ -296,7 +322,7 @@ class _FinancialTipsScreenState extends State<FinancialTipsScreen> {
                   builder: (context, insightsSnapshot) {
                     if (insightsSnapshot.connectionState ==
                         ConnectionState.waiting) {
-                      return const Center(child: CircularProgressIndicator());
+                      return const Center(child: CircularProgressIndicator(color: Colors.teal));
                     }
                     if (insightsSnapshot.hasError) {
                       print('Insights FutureBuilder Error: ${insightsSnapshot.error}');
@@ -317,7 +343,7 @@ class _FinancialTipsScreenState extends State<FinancialTipsScreen> {
                       builder: (context, feedbackSnapshot) {
                         if (feedbackSnapshot.connectionState ==
                             ConnectionState.waiting) {
-                          return const Center(child: CircularProgressIndicator());
+                          return const Center(child: CircularProgressIndicator(color: Colors.teal));
                         }
                         final feedback = feedbackSnapshot.data ?? {};
                         print('Feedback loaded: $feedback');
@@ -325,6 +351,9 @@ class _FinancialTipsScreenState extends State<FinancialTipsScreen> {
                         final thresholds = getSpendingThresholds();
                         final filteredTips = tips
                             .where((tip) {
+                          // Skip if tip was deleted
+                          if (!_currentTipIds.contains(tip.id)) return false;
+
                           final spending =
                               spendingInsights[tip.category.toLowerCase()] ?? 0.0;
                           final threshold =
@@ -372,11 +401,11 @@ class _FinancialTipsScreenState extends State<FinancialTipsScreen> {
                                 : '';
 
                             return Card(
-                              color: const Color.fromRGBO(33, 35, 34, 1),
+                              color: const Color(0xFF212322),
                               child: ListTile(
                                 leading: Icon(
                                   _getIconForCategory(tip.category),
-                                  color: Colors.white,
+                                  color: Colors.teal,
                                 ),
                                 title: Text(
                                   tip.title,
@@ -393,7 +422,7 @@ class _FinancialTipsScreenState extends State<FinancialTipsScreen> {
                                   children: [
                                     IconButton(
                                       icon: const Icon(Icons.thumb_up,
-                                          color: Colors.green),
+                                          color: Colors.teal),
                                       onPressed: () async {
                                         try {
                                           await _tipService.markTipFeedback(
@@ -404,9 +433,7 @@ class _FinancialTipsScreenState extends State<FinancialTipsScreen> {
                                                 content:
                                                 Text('Marked as helpful')),
                                           );
-                                          setState(() {
-                                            _engagedTips++;
-                                          });
+                                          await _loadTipStats();
                                         } catch (e) {
                                           ScaffoldMessenger.of(context)
                                               .showSnackBar(
@@ -428,9 +455,7 @@ class _FinancialTipsScreenState extends State<FinancialTipsScreen> {
                                                 content:
                                                 Text('Marked as irrelevant')),
                                           );
-                                          setState(() {
-                                            _engagedTips++;
-                                          });
+                                          await _loadTipStats();
                                         } catch (e) {
                                           ScaffoldMessenger.of(context)
                                               .showSnackBar(
