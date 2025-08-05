@@ -115,7 +115,7 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
           : StreamBuilder<QuerySnapshot>(
         stream: FirebaseFirestore.instance
             .collection('subscriptions')
-            .where('userid', isEqualTo: user.uid)
+            .where('userId', isEqualTo: user.uid)
             .orderBy('startDate')
             .snapshots(),
         builder: (context, snapshot) {

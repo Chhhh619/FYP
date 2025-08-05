@@ -1,11 +1,8 @@
-
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
-
-import 'package:fyp/ch/SelectCategoryBudgetPage.dart';
-import 'budget_calculator_bottom_sheet.dart';
+import 'package:fyp/ch/billing_date_helper.dart';
 
 class BudgetPage extends StatefulWidget {
   final DateTime? selectedDate;
@@ -40,10 +37,6 @@ class _BudgetPageState extends State<BudgetPage> {
     _loadBudgetData();
   }
 
-  int _getDaysInMonth(int year, int month) {
-    return DateTime(year, month + 1, 0).day;
-  }
-
   Future<void> _loadBudgetData() async {
     try {
       setState(() {
@@ -61,39 +54,38 @@ class _BudgetPageState extends State<BudgetPage> {
       }
 
       final selectedDate = widget.selectedDate ?? DateTime.now();
+      final billingPeriod = await BillingDateHelper.getBillingPeriodForDate(selectedDate);
+      final startOfMonth = billingPeriod['startDate']!;
+      final endOfMonth = billingPeriod['endDate']!;
 
-      final startOfMonth = DateTime(selectedDate.year, selectedDate.month, 1);
-      final endOfMonth = DateTime(selectedDate.year, selectedDate.month + 1, 0);
+      // Calculate week within billing period
+      final daysSinceStart = selectedDate.difference(startOfMonth).inDays;
+      final weekNumber = (daysSinceStart / 7).floor();
+      final startOfWeek = startOfMonth.add(Duration(days: weekNumber * 7));
+      final endOfWeek = startOfWeek.add(const Duration(days: 6)).isAfter(endOfMonth)
+          ? endOfMonth
+          : startOfWeek.add(const Duration(days: 6));
 
-      final startOfWeek = selectedDate.subtract(
-        Duration(days: selectedDate.weekday - 1),
-      );
-      final endOfWeek = startOfWeek.add(const Duration(days: 6));
-
-      final startOfDay = DateTime(
-        selectedDate.year,
-        selectedDate.month,
-        selectedDate.day,
-      );
+      final startOfDay = DateTime(selectedDate.year, selectedDate.month, selectedDate.day);
       final endOfDay = startOfDay.add(const Duration(days: 1));
 
       final monthSnap = await _firestore
           .collection('transactions')
-          .where('userid', isEqualTo: userId)
+          .where('userId', isEqualTo: userId)
           .where('timestamp', isGreaterThanOrEqualTo: Timestamp.fromDate(startOfMonth))
           .where('timestamp', isLessThanOrEqualTo: Timestamp.fromDate(endOfMonth))
           .get();
 
       final weekSnap = await _firestore
           .collection('transactions')
-          .where('userid', isEqualTo: userId)
+          .where('userId', isEqualTo: userId)
           .where('timestamp', isGreaterThanOrEqualTo: Timestamp.fromDate(startOfWeek))
           .where('timestamp', isLessThanOrEqualTo: Timestamp.fromDate(endOfWeek))
           .get();
 
       final daySnap = await _firestore
           .collection('transactions')
-          .where('userid', isEqualTo: userId)
+          .where('userId', isEqualTo: userId)
           .where('timestamp', isGreaterThanOrEqualTo: Timestamp.fromDate(startOfDay))
           .where('timestamp', isLessThanOrEqualTo: Timestamp.fromDate(endOfDay))
           .get();
@@ -118,13 +110,15 @@ class _BudgetPageState extends State<BudgetPage> {
       final weekly = await _calculateTotalSpending(weekSnap.docs);
       final daily = await _calculateTotalSpending(daySnap.docs);
 
+      final daysInPeriod = endOfMonth.difference(startOfMonth).inDays + 1;
+
       setState(() {
         totalSpending = total;
         weeklySpending = weekly;
         dailySpending = daily;
         monthlyBudget = tempMonthlyBudget;
         weeklyBudget = monthlyBudget! / 4;
-        dailyBudget = monthlyBudget! / _getDaysInMonth(selectedDate.year, selectedDate.month);
+        dailyBudget = monthlyBudget! / daysInPeriod;
         _isLoading = false;
       });
     } catch (e) {
@@ -140,11 +134,11 @@ class _BudgetPageState extends State<BudgetPage> {
     double total = 0.0;
     for (var doc in docs) {
       final data = doc.data() as Map<String, dynamic>;
-      if (data.containsKey('category') && doc['amount'] != null) {
+      if (data.containsKey('category') && data['amount'] != null) {
         final categoryRef = data['category'] as DocumentReference;
         final categorySnap = await categoryRef.get();
         if (categorySnap.exists && categorySnap['type'] == 'expense') {
-          final amount = (doc['amount'] as num).toDouble();
+          final amount = (data['amount'] as num).toDouble();
           total += amount.abs();
         }
       }
@@ -157,13 +151,17 @@ class _BudgetPageState extends State<BudgetPage> {
     if (userId == null) return [];
 
     final selectedDate = widget.selectedDate ?? DateTime.now();
+    final billingPeriod = await BillingDateHelper.getBillingPeriodForDate(selectedDate);
+    final startOfPeriod = billingPeriod['startDate']!;
+    final endOfPeriod = billingPeriod['endDate']!;
     final docIdPrefix = DateFormat('yyyy-MM').format(selectedDate);
+
     final snapshot = await _firestore
         .collection('users')
         .doc(userId)
         .collection('categoryBudgets')
-        .where('createdAt', isGreaterThanOrEqualTo: Timestamp.fromDate(DateTime(selectedDate.year, selectedDate.month, 1)))
-        .where('createdAt', isLessThanOrEqualTo: Timestamp.fromDate(DateTime(selectedDate.year, selectedDate.month + 1, 0)))
+        .where('createdAt', isGreaterThanOrEqualTo: Timestamp.fromDate(startOfPeriod))
+        .where('createdAt', isLessThanOrEqualTo: Timestamp.fromDate(endOfPeriod))
         .get();
 
     List<Map<String, dynamic>> categoryBudgets = [];
@@ -178,7 +176,7 @@ class _BudgetPageState extends State<BudgetPage> {
           'budget': (data['amount'] as num).toDouble(),
           'spent': spent,
           'icon': categorySnap['icon'] ?? '❓',
-          'docId': doc.id, // Store document ID for deletion
+          'docId': doc.id,
         });
       }
     }
@@ -187,15 +185,16 @@ class _BudgetPageState extends State<BudgetPage> {
 
   Future<double> _calculateCategorySpending(DocumentReference categoryRef, DateTime selectedDate) async {
     final userId = _auth.currentUser?.uid;
-    final startOfMonth = DateTime(selectedDate.year, selectedDate.month, 1);
-    final endOfMonth = DateTime(selectedDate.year, selectedDate.month + 1, 0);
+    final billingPeriod = await BillingDateHelper.getBillingPeriodForDate(selectedDate);
+    final startOfPeriod = billingPeriod['startDate']!;
+    final endOfPeriod = billingPeriod['endDate']!;
 
     final snapshot = await _firestore
         .collection('transactions')
-        .where('userid', isEqualTo: userId)
+        .where('userId', isEqualTo: userId)
         .where('category', isEqualTo: categoryRef)
-        .where('timestamp', isGreaterThanOrEqualTo: Timestamp.fromDate(startOfMonth))
-        .where('timestamp', isLessThanOrEqualTo: Timestamp.fromDate(endOfMonth))
+        .where('timestamp', isGreaterThanOrEqualTo: Timestamp.fromDate(startOfPeriod))
+        .where('timestamp', isLessThanOrEqualTo: Timestamp.fromDate(endOfPeriod))
         .get();
 
     double total = 0.0;
@@ -223,49 +222,7 @@ class _BudgetPageState extends State<BudgetPage> {
       const SnackBar(content: Text('Category budget deleted')),
     );
 
-    setState(() {}); // Refresh the UI
-  }
-
-  // Added: Check if this is the first budget and update gamification (for my gamification module)
-  Future<void> _updateGamificationForBudget(String userId) async {
-  // Check if user has any budgets
-    final budgetsSnap = await _firestore
-        .collection('users')
-        .doc(userId)
-        .collection('budgets')
-        .limit(1)
-        .get();
-    final categoryBudgetsSnap = await _firestore
-        .collection('users')
-        .doc(userId)
-        .collection('categoryBudgets')
-        .limit(1)
-        .get();
-
-// Only complete challenge if no budgets exist yet
-    if (budgetsSnap.docs.isEmpty && categoryBudgetsSnap.docs.isEmpty) {
-      await _firestore
-          .collection('users')
-          .doc(userId)
-          .collection('completed_challenges')
-          .doc('set_budget')
-          .set({
-        'challengeId': 'set_budget',
-        'completed': true,
-        'completedAt': Timestamp.now(),
-        'points': 25,
-      });
-
-      await _firestore.collection('users').doc(userId).update({
-        'points': FieldValue.increment(25),
-        'badges.badge_first_budget': true,
-      });
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Challenge completed: Set Your First Budget! +25 points')),
-      );
-      print('Set Your First Budget challenge completed for user: $userId'); // Added: Debugging
-    }
+    setState(() {});
   }
 
   void _toggleCalculator() {
@@ -278,7 +235,9 @@ class _BudgetPageState extends State<BudgetPage> {
       backgroundColor: Colors.transparent,
       builder: (BuildContext context) {
         return Padding(
-          padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.of(context).viewInsets.bottom,
+          ),
           child: _buildCalculatorContent(),
         );
       },
@@ -313,7 +272,9 @@ class _BudgetPageState extends State<BudgetPage> {
             } else if (['+', '-', '*', '/'].contains(input)) {
               _calculatorInput += ' $input ';
             } else {
-              _calculatorInput = _calculatorInput == '0' ? input : _calculatorInput + input;
+              _calculatorInput = _calculatorInput == '0'
+                  ? input
+                  : _calculatorInput + input;
             }
           });
         }
@@ -369,18 +330,42 @@ class _BudgetPageState extends State<BudgetPage> {
                 padding: const EdgeInsets.all(8),
                 children: List.generate(17, (index) {
                   final buttons = [
-                    '7', '8', '9', '/',
-                    '4', '5', '6', '*',
-                    '1', '2', '3', '-',
-                    '0', '.', '=', '+',
-                    'delete'
+                    '7',
+                    '8',
+                    '9',
+                    '/',
+                    '4',
+                    '5',
+                    '6',
+                    '*',
+                    '1',
+                    '2',
+                    '3',
+                    '-',
+                    '0',
+                    '.',
+                    '=',
+                    '+',
+                    'delete',
                   ];
                   final icons = [
-                    null, null, null, null,
-                    null, null, null, null,
-                    null, null, null, null,
-                    null, null, null, null,
-                    Icons.backspace
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    Icons.backspace,
                   ];
                   return _buildCalcButton(
                     buttons[index],
@@ -425,7 +410,8 @@ class _BudgetPageState extends State<BudgetPage> {
 
     final selectedDate = widget.selectedDate ?? DateTime.now();
     final docId = DateFormat('yyyy-MM').format(selectedDate);
-    final daysInMonth = _getDaysInMonth(selectedDate.year, selectedDate.month);
+    final billingPeriod = await BillingDateHelper.getBillingPeriodForDate(selectedDate);
+    final daysInPeriod = billingPeriod['endDate']!.difference(billingPeriod['startDate']!).inDays + 1;
 
     final docRef = _firestore
         .collection('users')
@@ -434,16 +420,15 @@ class _BudgetPageState extends State<BudgetPage> {
         .doc(docId);
 
     await docRef.set({'amount': newBudget, 'createdAt': Timestamp.now()});
-    await _updateGamificationForBudget(userId); // Added: Trigger gamification for monthly budget
 
     setState(() {
       monthlyBudget = newBudget;
       weeklyBudget = newBudget / 4;
-      dailyBudget = newBudget / daysInMonth;
+      dailyBudget = newBudget / daysInPeriod;
     });
 
     Navigator.pop(context);
-    setState(() {}); // Refresh the main UI
+    setState(() {});
   }
 
   Widget _buildCalcButton(String text, Function(String) onPressed, {IconData? icon}) {
@@ -472,12 +457,355 @@ class _BudgetPageState extends State<BudgetPage> {
     for (int i = 1; i < parts.length; i += 2) {
       final op = parts[i];
       final num = double.parse(parts[i + 1]);
-      if (op == '+') result += num;
-      else if (op == '-') result -= num;
-      else if (op == '*') result *= num;
-      else if (op == '/') result /= num;
+      if (op == '+')
+        result += num;
+      else if (op == '-')
+        result -= num;
+      else if (op == '*')
+        result *= num;
+      else if (op == '/')
+        result /= num;
     }
     return result;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFF1C1C1C),
+      appBar: AppBar(
+        backgroundColor: const Color(0xFF1C1C1C),
+        elevation: 0,
+        centerTitle: true,
+        title: const Text('Budget', style: TextStyle(color: Colors.white)),
+        leading: const BackButton(color: Colors.white),
+      ),
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator(color: Colors.teal))
+          : _errorMessage != null
+          ? Center(
+        child: Text(
+          _errorMessage!,
+          style: const TextStyle(color: Colors.red, fontSize: 16),
+        ),
+      )
+          : SingleChildScrollView(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            ToggleButtons(
+              isSelected: [_isYearView == false, _isYearView == true],
+              onPressed: (int index) {
+                setState(() {
+                  _isYearView = index == 1;
+                });
+              },
+              borderRadius: BorderRadius.circular(8),
+              selectedColor: Colors.teal,
+              fillColor: Colors.teal.withOpacity(0.2),
+              color: Colors.white,
+              children: const [
+                Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 16),
+                  child: Text('Monthly'),
+                ),
+                Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 16),
+                  child: Text('Year'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            _isYearView
+                ? _buildYearlyBudgetCard()
+                : Column(
+              children: [
+                _buildMainBudgetCard(),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _buildSmallBudgetCard(
+                        'Week',
+                        weeklyBudget ?? 0,
+                        weeklySpending,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: _buildSmallBudgetCard(
+                        'Today',
+                        dailyBudget ?? 0,
+                        dailySpending,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+              ],
+            ),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  'Category budget',
+                  style: TextStyle(color: Colors.white, fontSize: 16),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.add, color: Colors.teal),
+                  onPressed: _showCategoryGridPopup,
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            FutureBuilder<List<Map<String, dynamic>>>(
+              future: _fetchCategoryBudgets(),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(child: CircularProgressIndicator(color: Colors.teal));
+                }
+                if (snapshot.hasError) {
+                  return const Text(
+                    'Error loading category budgets',
+                    style: TextStyle(color: Colors.red),
+                  );
+                }
+                final categoryBudgets = snapshot.data ?? [];
+                if (categoryBudgets.isEmpty) {
+                  return const Text(
+                    'No category budgets set',
+                    style: TextStyle(color: Colors.white70),
+                  );
+                }
+                return Column(
+                  children: categoryBudgets
+                      .map((budget) => Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: _buildCategoryCard(
+                      budget['name'],
+                      budget['budget'],
+                      budget['spent'],
+                      budget['icon'],
+                      budget['docId'],
+                    ),
+                  ))
+                      .toList(),
+                );
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showCategoryGridPopup() async {
+    final userId = _auth.currentUser?.uid;
+    if (userId == null) return;
+
+    final snapshot = await _firestore
+        .collection('categories')
+        .where('type', isEqualTo: 'expense')
+        .get();
+    final categories = snapshot.docs;
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color.fromRGBO(33, 35, 34, 1),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      isScrollControlled: true,
+      builder: (context) {
+        return Padding(
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.of(context).viewInsets.bottom + 16,
+            top: 16,
+            left: 16,
+            right: 16,
+          ),
+          child: GridView.builder(
+            shrinkWrap: true,
+            itemCount: categories.length,
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 4,
+              crossAxisSpacing: 12,
+              mainAxisSpacing: 12,
+            ),
+            itemBuilder: (context, index) {
+              final doc = categories[index];
+              final data = doc.data() as Map<String, dynamic>;
+              return Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  ElevatedButton(
+                    onPressed: () async {
+                      Navigator.pop(context);
+                      final result = await _showCategoryBudgetCalculator(
+                        doc.reference,
+                        data['name'],
+                      );
+                      if (result == true) {
+                        setState(() {});
+                      }
+                    },
+                    style: ElevatedButton.styleFrom(
+                      shape: const CircleBorder(),
+                      padding: const EdgeInsets.all(16),
+                      backgroundColor: const Color(0xFF2C2C2C),
+                    ),
+                    child: Text(
+                      data['icon'] ?? '❓',
+                      style: const TextStyle(fontSize: 20),
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    data['name'],
+                    style: const TextStyle(color: Colors.white, fontSize: 12),
+                  ),
+                ],
+              );
+            },
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildYearlyBudgetCard() {
+    final selectedDate = widget.selectedDate ?? DateTime.now();
+    final year = selectedDate.year;
+
+    return FutureBuilder<Map<String, DateTime>>(
+      future: _getYearPeriodForDate(selectedDate),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator(color: Colors.teal));
+        }
+        if (snapshot.hasError) {
+          return const Text(
+            'Error loading yearly budget',
+            style: TextStyle(color: Colors.red),
+          );
+        }
+
+        final yearlyPeriod = snapshot.data!;
+        final startOfYear = yearlyPeriod['startDate']!;
+        final endOfYear = yearlyPeriod['endDate']!;
+        final yearlyBudget = (monthlyBudget ?? 0) * 12;
+
+        return FutureBuilder<double>(
+          future: _calculateTotalSpendingForPeriod(startOfYear, endOfYear),
+          builder: (context, spendingSnapshot) {
+            if (spendingSnapshot.connectionState == ConnectionState.waiting) {
+              return const Center(child: CircularProgressIndicator(color: Colors.teal));
+            }
+            if (spendingSnapshot.hasError) {
+              return const Text(
+                'Error calculating yearly spending',
+                style: TextStyle(color: Colors.red),
+              );
+            }
+
+            final yearlySpent = spendingSnapshot.data ?? 0.0;
+            final remaining = yearlyBudget - yearlySpent;
+            final progress = yearlyBudget > 0 ? (yearlySpent / yearlyBudget).clamp(0.0, 1.0) : 0.0;
+            final percentage = (progress * 100).toStringAsFixed(1);
+
+            return Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: const Color(0xFF2C2C2C),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '${DateFormat('d MMM').format(startOfYear)} ${startOfYear.year} - '
+                        '${DateFormat('d MMM').format(endOfYear)} ${endOfYear.year}',
+                    style: const TextStyle(color: Colors.white70),
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        'Budget\nRM${yearlyBudget.toStringAsFixed(0)}',
+                        style: const TextStyle(color: Colors.white, fontSize: 18),
+                      ),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          Text(
+                            remaining >= 0 ? 'Remaining' : 'Over Budget',
+                            style: TextStyle(
+                              color: remaining >= 0 ? Colors.white70 : Colors.redAccent,
+                            ),
+                          ),
+                          Text(
+                            'RM${remaining.abs().toStringAsFixed(2)}',
+                            style: TextStyle(
+                              color: remaining >= 0 ? Colors.white70 : Colors.redAccent,
+                              fontSize: 18,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  LinearProgressIndicator(
+                    value: progress,
+                    backgroundColor: Colors.grey[800],
+                    valueColor: const AlwaysStoppedAnimation<Color>(Colors.tealAccent),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    '$percentage% | Exp RM${yearlySpent.toStringAsFixed(2)}',
+                    style: const TextStyle(color: Colors.white70),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<Map<String, DateTime>> _getYearPeriodForDate(DateTime date) async {
+    final billStartDate = await BillingDateHelper.getBillingStartDate();
+    DateTime yearStart, yearEnd;
+
+    if (date.day >= billStartDate) {
+      yearStart = DateTime(date.year, date.month, billStartDate);
+    } else {
+      yearStart = DateTime(date.year - 1, date.month, billStartDate);
+    }
+
+    yearEnd = DateTime(yearStart.year + 1, yearStart.month, billStartDate - 1, 23, 59, 59);
+
+    return {
+      'startDate': yearStart,
+      'endDate': yearEnd,
+    };
+  }
+
+  Future<double> _calculateTotalSpendingForPeriod(DateTime start, DateTime end) async {
+    final userId = _auth.currentUser?.uid;
+    if (userId == null) return 0.0;
+
+    final snapshot = await _firestore
+        .collection('transactions')
+        .where('userId', isEqualTo: userId)
+        .where('timestamp', isGreaterThanOrEqualTo: Timestamp.fromDate(start))
+        .where('timestamp', isLessThanOrEqualTo: Timestamp.fromDate(end))
+        .get();
+
+    return await _calculateTotalSpending(snapshot.docs);
   }
 
   Future<bool> _showCategoryBudgetCalculator(DocumentReference categoryRef, String categoryName) async {
@@ -578,7 +906,9 @@ class _BudgetPageState extends State<BudgetPage> {
                         style: ElevatedButton.styleFrom(
                           backgroundColor: const Color.fromRGBO(40, 42, 41, 1),
                           foregroundColor: Colors.white,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
                           padding: const EdgeInsets.all(16),
                         ),
                         child: isDelete
@@ -613,8 +943,6 @@ class _BudgetPageState extends State<BudgetPage> {
                           'createdAt': Timestamp.now(),
                         });
 
-                        await _updateGamificationForBudget(userId); // Added: Trigger gamification for category budget
-
                         if (context.mounted) {
                           Navigator.pop(context, true);
                           ScaffoldMessenger.of(context).showSnackBar(
@@ -627,7 +955,9 @@ class _BudgetPageState extends State<BudgetPage> {
                       backgroundColor: Colors.teal,
                       foregroundColor: Colors.white,
                       minimumSize: const Size(double.infinity, 50),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
                     ),
                     child: const Text(
                       'Save Budget',
@@ -644,147 +974,6 @@ class _BudgetPageState extends State<BudgetPage> {
     ) ?? false;
   }
 
-  void _showCategoryGridPopup() async {
-    final userId = _auth.currentUser?.uid;
-    if (userId == null) return;
-
-    final snapshot = await _firestore
-        .collection('categories')
-        .where('type', isEqualTo: 'expense')
-        .get();
-    final categories = snapshot.docs;
-
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: const Color.fromRGBO(33, 35, 34, 1),
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      isScrollControlled: true,
-      builder: (context) {
-        return Padding(
-          padding: EdgeInsets.only(
-            bottom: MediaQuery.of(context).viewInsets.bottom + 16,
-            top: 16,
-            left: 16,
-            right: 16,
-          ),
-          child: GridView.builder(
-            shrinkWrap: true,
-            itemCount: categories.length,
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 4,
-              crossAxisSpacing: 12,
-              mainAxisSpacing: 12,
-            ),
-            itemBuilder: (context, index) {
-              final doc = categories[index];
-              final data = doc.data() as Map<String, dynamic>;
-              return Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  ElevatedButton(
-                    onPressed: () async {
-                      Navigator.pop(context);
-                      final result = await _showCategoryBudgetCalculator(
-                        doc.reference,
-                        data['name'],
-                      );
-                      if (result == true) {
-                        setState(() {}); // Refresh the main UI after adding a new category budget
-                      }
-                    },
-                    style: ElevatedButton.styleFrom(
-                      shape: const CircleBorder(),
-                      padding: const EdgeInsets.all(16),
-                      backgroundColor: const Color(0xFF2C2C2C),
-                    ),
-                    child: Text(
-                      data['icon'] ?? '❓',
-                      style: const TextStyle(fontSize: 20),
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    data['name'],
-                    style: const TextStyle(color: Colors.white, fontSize: 12),
-                  ),
-                ],
-              );
-            },
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _buildYearlyBudgetCard() {
-    final selectedDate = widget.selectedDate ?? DateTime.now();
-    final year = selectedDate.year;
-
-    final yearlyBudget = (monthlyBudget ?? 0) * 12;
-    final yearlySpent = totalSpending * 12;
-    final remaining = yearlyBudget - yearlySpent;
-    final progress = yearlyBudget > 0 ? (yearlySpent / yearlyBudget).clamp(0.0, 1.0) : 0.0;
-    final percentage = (progress * 100).toStringAsFixed(1);
-
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: const Color(0xFF2C2C2C),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Year $year',
-            style: const TextStyle(color: Colors.white70),
-          ),
-          const SizedBox(height: 8),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                'Budget\nRM${yearlyBudget.toStringAsFixed(0)}',
-                style: const TextStyle(color: Colors.white, fontSize: 18),
-              ),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Text(
-                    remaining >= 0 ? 'Remaining' : 'Over Budget',
-                    style: TextStyle(
-                      color: remaining >= 0 ? Colors.white70 : Colors.redAccent,
-                    ),
-                  ),
-                  Text(
-                    'RM${remaining.abs().toStringAsFixed(2)}',
-                    style: TextStyle(
-                      color: remaining >= 0 ? Colors.white70 : Colors.redAccent,
-                      fontSize: 18,
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          LinearProgressIndicator(
-            value: progress,
-            backgroundColor: Colors.grey[800],
-            valueColor: const AlwaysStoppedAnimation<Color>(Colors.tealAccent),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            '$percentage% | Exp RM${yearlySpent.toStringAsFixed(2)}',
-            style: const TextStyle(color: Colors.white70),
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _buildMainBudgetCard() {
     final selectedDate = widget.selectedDate ?? DateTime.now();
     final difference = (monthlyBudget ?? 0) - totalSpending;
@@ -795,75 +984,94 @@ class _BudgetPageState extends State<BudgetPage> {
         ? (progress * 100).toStringAsFixed(1)
         : '0.0';
 
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: const Color(0xFF2C2C2C),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            '${DateFormat('d MMM').format(DateTime(selectedDate.year, selectedDate.month, 1))} - '
-                '${DateFormat('d MMM').format(DateTime(selectedDate.year, selectedDate.month + 1, 0))}',
-            style: const TextStyle(color: Colors.white70),
+    return FutureBuilder<Map<String, DateTime>>(
+      future: BillingDateHelper.getBillingPeriodForDate(selectedDate),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator(color: Colors.teal));
+        }
+        if (snapshot.hasError) {
+          return const Text(
+            'Error loading billing period',
+            style: TextStyle(color: Colors.red),
+          );
+        }
+
+        final billingPeriod = snapshot.data!;
+        final startDate = billingPeriod['startDate']!;
+        final endDate = billingPeriod['endDate']!;
+
+        return Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: const Color(0xFF2C2C2C),
+            borderRadius: BorderRadius.circular(12),
           ),
-          const SizedBox(height: 8),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              Text(
+                '${DateFormat('d MMM').format(startDate)} - '
+                    '${DateFormat('d MMM').format(endDate)}',
+                style: const TextStyle(color: Colors.white70),
+              ),
+              const SizedBox(height: 8),
               Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text(
-                    'Budget\nRM${(monthlyBudget ?? 0).toStringAsFixed(0)}',
-                    style: const TextStyle(color: Colors.white, fontSize: 18),
+                  Row(
+                    children: [
+                      Text(
+                        'Budget\nRM${(monthlyBudget ?? 0).toStringAsFixed(0)}',
+                        style: const TextStyle(color: Colors.white, fontSize: 18),
+                      ),
+                      IconButton(
+                        onPressed: _toggleCalculator,
+                        icon: const Icon(
+                          Icons.edit,
+                          color: Colors.white70,
+                          size: 20,
+                        ),
+                        padding: const EdgeInsets.only(left: 4.0),
+                        constraints: const BoxConstraints(),
+                      ),
+                    ],
                   ),
-                  IconButton(
-                    onPressed: _toggleCalculator,
-                    icon: const Icon(
-                      Icons.edit,
-                      color: Colors.white70,
-                      size: 20,
-                    ),
-                    padding: const EdgeInsets.only(left: 4.0),
-                    constraints: const BoxConstraints(),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Text(
+                        difference >= 0 ? 'Remaining' : 'Over Budget',
+                        style: TextStyle(
+                          color: difference >= 0 ? Colors.white70 : Colors.redAccent,
+                        ),
+                      ),
+                      Text(
+                        'RM${difference.abs().toStringAsFixed(2)}',
+                        style: TextStyle(
+                          color: difference >= 0 ? Colors.white70 : Colors.redAccent,
+                          fontSize: 18,
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Text(
-                    difference >= 0 ? 'Remaining' : 'Over Budget',
-                    style: TextStyle(
-                      color: difference >= 0 ? Colors.white70 : Colors.redAccent,
-                    ),
-                  ),
-                  Text(
-                    'RM${difference.abs().toStringAsFixed(2)}',
-                    style: TextStyle(
-                      color: difference >= 0 ? Colors.white70 : Colors.redAccent,
-                      fontSize: 18,
-                    ),
-                  ),
-                ],
+              const SizedBox(height: 8),
+              LinearProgressIndicator(
+                value: progress,
+                backgroundColor: Colors.grey[800],
+                valueColor: const AlwaysStoppedAnimation<Color>(Colors.tealAccent),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                '$percentage% | Exp RM${totalSpending.toStringAsFixed(2)}',
+                style: const TextStyle(color: Colors.white70),
               ),
             ],
           ),
-          const SizedBox(height: 8),
-          LinearProgressIndicator(
-            value: progress,
-            backgroundColor: Colors.grey[800],
-            valueColor: const AlwaysStoppedAnimation<Color>(Colors.tealAccent),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            '$percentage% | Exp RM${totalSpending.toStringAsFixed(2)}',
-            style: const TextStyle(color: Colors.white70),
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
 
@@ -999,137 +1207,6 @@ class _BudgetPageState extends State<BudgetPage> {
                   style: const TextStyle(color: Colors.white),
                 ),
               ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFF1C1C1C),
-      appBar: AppBar(
-        backgroundColor: const Color(0xFF1C1C1C),
-        elevation: 0,
-        centerTitle: true,
-        title: const Text('Budget', style: TextStyle(color: Colors.white)),
-        leading: const BackButton(color: Colors.white),
-      ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator(color: Colors.teal))
-          : _errorMessage != null
-          ? Center(
-        child: Text(
-          _errorMessage!,
-          style: const TextStyle(color: Colors.red, fontSize: 16),
-        ),
-      )
-          : SingleChildScrollView(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            ToggleButtons(
-              isSelected: [_isYearView == false, _isYearView == true],
-              onPressed: (int index) {
-                setState(() {
-                  _isYearView = index == 1;
-                });
-              },
-              borderRadius: BorderRadius.circular(8),
-              selectedColor: Colors.teal,
-              fillColor: Colors.teal.withOpacity(0.2),
-              color: Colors.white,
-              children: const [
-                Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 16),
-                  child: Text('Monthly'),
-                ),
-                Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 16),
-                  child: Text('Year'),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            _isYearView
-                ? _buildYearlyBudgetCard()
-                : Column(
-              children: [
-                _buildMainBudgetCard(),
-                const SizedBox(height: 16),
-                Row(
-                  children: [
-                    Expanded(
-                      child: _buildSmallBudgetCard(
-                        'Week',
-                        weeklyBudget ?? 0,
-                        weeklySpending,
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: _buildSmallBudgetCard(
-                        'Today',
-                        dailyBudget ?? 0,
-                        dailySpending,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-              ],
-            ),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text(
-                  'Category budget',
-                  style: TextStyle(color: Colors.white, fontSize: 16),
-                ),
-                IconButton(
-                  icon: const Icon(Icons.add, color: Colors.teal),
-                  onPressed: _showCategoryGridPopup,
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            FutureBuilder<List<Map<String, dynamic>>>(
-              future: _fetchCategoryBudgets(),
-              builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Center(child: CircularProgressIndicator(color: Colors.teal));
-                }
-                if (snapshot.hasError) {
-                  return const Text(
-                    'Error loading category budgets',
-                    style: TextStyle(color: Colors.red),
-                  );
-                }
-                final categoryBudgets = snapshot.data ?? [];
-                if (categoryBudgets.isEmpty) {
-                  return const Text(
-                    'No category budgets set',
-                    style: TextStyle(color: Colors.white70),
-                  );
-                }
-                return Column(
-                  children: categoryBudgets
-                      .map((budget) => Padding(
-                    padding: const EdgeInsets.only(bottom: 8),
-                    child: _buildCategoryCard(
-                      budget['name'],
-                      budget['budget'],
-                      budget['spent'],
-                      budget['icon'],
-                      budget['docId'],
-                    ),
-                  ))
-                      .toList(),
-                );
-              },
             ),
           ],
         ),

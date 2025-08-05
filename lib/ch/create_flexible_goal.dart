@@ -86,7 +86,7 @@ class _CreateFlexibleGoalPageState extends State<CreateFlexibleGoalPage> {
 
   void _saveGoal() async {
     final goal = {
-      'userid': userId,
+      'userId': userId,
       'name': _nameController.text.trim(),
       'icon': _selectedIcon,
       'startDate': Timestamp.fromDate(_startDate),
@@ -104,11 +104,11 @@ class _CreateFlexibleGoalPageState extends State<CreateFlexibleGoalPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: const Color.fromRGBO(28, 28, 28, 1),
       appBar: AppBar(
         title: const Text('Flexible', style: TextStyle(color: Colors.white)),
         centerTitle: true,
-        backgroundColor: Colors.black,
+        backgroundColor: const Color.fromRGBO(28, 28, 28, 1),
         iconTheme: const IconThemeData(color: Colors.white),
       ),
       body: ListView(

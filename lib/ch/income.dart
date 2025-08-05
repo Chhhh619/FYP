@@ -18,7 +18,7 @@ class _IncomePageState extends State<IncomePage> {
   @override
   void initState() {
     super.initState();
-    _checkAndGenerateIncomes();
+    // Remove the income automation from here since it should run from HomePage
   }
 
   Future<void> _checkAndGenerateIncomes() async {
@@ -31,7 +31,7 @@ class _IncomePageState extends State<IncomePage> {
     try {
       final incomes = await _firestore
           .collection('incomes')
-          .where('userid', isEqualTo: userId)
+          .where('userId', isEqualTo: userId)
           .get();
 
       for (final doc in incomes.docs) {
@@ -50,7 +50,7 @@ class _IncomePageState extends State<IncomePage> {
           // Check if transaction already exists for this date
           final existingTxs = await _firestore
               .collection('transactions')
-              .where('userid', isEqualTo: userId)
+              .where('userId', isEqualTo: userId)
               .where('incomeId', isEqualTo: doc.id)
               .where('timestamp', isGreaterThanOrEqualTo: Timestamp.fromDate(startOfDay))
               .where('timestamp', isLessThan: Timestamp.fromDate(startOfDay.add(Duration(days: 1))))
@@ -62,14 +62,11 @@ class _IncomePageState extends State<IncomePage> {
 
             // Create transaction
             await _firestore.collection('transactions').add({
-              'userid': userId,
+              'userId': userId,
               'amount': data['amount'] ?? 0.0,
               'timestamp': Timestamp.fromDate(startOfDay),
               'category': categoryRef,
-              'icon': data['icon'] ?? '💰',
-              'name': data['name'] ?? 'Income',
-              'incomeId': doc.id,
-              'categoryType': 'income',
+              'incomeId': doc.id, // Add this to track which income generated this transaction
             });
 
             // Update card balance if specified

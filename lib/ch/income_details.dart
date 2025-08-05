@@ -20,7 +20,6 @@ class IncomeDetailsPage extends StatefulWidget {
 
 class _IncomeDetailsPageState extends State<IncomeDetailsPage> {
   final formatter = NumberFormat.currency(symbol: 'RM');
-  late TextEditingController _nameController;
   late TextEditingController _amountController;
   DateTime _startDate = DateTime.now();
   String _repeatType = 'Monthly';
@@ -34,7 +33,6 @@ class _IncomeDetailsPageState extends State<IncomeDetailsPage> {
   @override
   void initState() {
     super.initState();
-    _nameController = TextEditingController();
     _amountController = TextEditingController();
     _loadExistingIncome();
   }
@@ -44,7 +42,7 @@ class _IncomeDetailsPageState extends State<IncomeDetailsPage> {
       final categoryRef = _firestore.collection('categories').doc(widget.categoryId);
       final incomeSnapshot = await _firestore
           .collection('incomes')
-          .where('userid', isEqualTo: userId)
+          .where('userId', isEqualTo: userId)
           .where('category', isEqualTo: categoryRef)
           .limit(1)
           .get();
@@ -53,7 +51,6 @@ class _IncomeDetailsPageState extends State<IncomeDetailsPage> {
         final incomeData = incomeSnapshot.docs.first.data();
         setState(() {
           _existingIncomeId = incomeSnapshot.docs.first.id;
-          _nameController.text = incomeData['name'] ?? '';
           _amountController.text = (incomeData['amount'] ?? 0.0).toString();
           _startDate = (incomeData['startDate'] as Timestamp?)?.toDate() ?? DateTime.now();
           _repeatType = incomeData['repeat'] ?? 'Monthly';
@@ -65,10 +62,8 @@ class _IncomeDetailsPageState extends State<IncomeDetailsPage> {
           }
         });
       } else {
-        // Set default values for new income
-        setState(() {
-          _nameController.text = widget.category['name'] ?? '';
-        });
+        // Set default values for new income - no need to set name since we use category name
+        setState(() {});
       }
     } catch (e) {
       print('Error loading existing income: $e');
@@ -183,14 +178,6 @@ class _IncomeDetailsPageState extends State<IncomeDetailsPage> {
 
   Future<void> _saveIncome() async {
     final enteredAmount = double.tryParse(_amountController.text.trim()) ?? 0;
-    final enteredName = _nameController.text.trim();
-
-    if (enteredName.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter an income name')),
-      );
-      return;
-    }
 
     if (enteredAmount <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -202,8 +189,8 @@ class _IncomeDetailsPageState extends State<IncomeDetailsPage> {
     try {
       final categoryRef = _firestore.collection('categories').doc(widget.categoryId);
       final incomeData = {
-        'userid': userId,
-        'name': enteredName,
+        'userId': userId,
+        'name': widget.category['name'] ?? 'Income', // Use category name
         'amount': enteredAmount,
         'startDate': Timestamp.fromDate(_startDate),
         'repeat': _repeatType,
@@ -223,6 +210,11 @@ class _IncomeDetailsPageState extends State<IncomeDetailsPage> {
         _existingIncomeId = docRef.id;
       }
 
+      // If enabled and start date is today or past, generate first transaction immediately
+      if (_isEnabled && !_startDate.isAfter(DateTime.now())) {
+        await _generateImmediateTransaction();
+      }
+
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(_isEnabled
@@ -235,6 +227,60 @@ class _IncomeDetailsPageState extends State<IncomeDetailsPage> {
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Failed to save income: ${e.toString()}')),
+      );
+    }
+  }
+
+  Future<void> _generateImmediateTransaction() async {
+    if (_existingIncomeId == null) return;
+
+    try {
+      final amount = double.tryParse(_amountController.text.trim()) ?? 0;
+
+      // Always create a new transaction (don't check for existing ones for testing)
+      await _firestore.collection('transactions').add({
+        'userId': userId,
+        'amount': amount,
+        'timestamp': Timestamp.now(), // Use current time for testing
+        'category': _firestore.collection('categories').doc(widget.categoryId),
+        'incomeId': _existingIncomeId, // Add this to track which income generated this transaction
+      });
+
+      // Update card balance if specified
+      if (_toCard != null) {
+        final cardRef = _firestore
+            .collection('users')
+            .doc(userId)
+            .collection('cards')
+            .doc(_toCard!['id']);
+
+        await _firestore.runTransaction((transaction) async {
+          final cardDoc = await transaction.get(cardRef);
+          if (cardDoc.exists) {
+            final currentBalance = (cardDoc.data()!['balance'] ?? 0.0).toDouble();
+            final newBalance = currentBalance + amount;
+            transaction.update(cardRef, {'balance': newBalance});
+
+            // Update local state
+            setState(() {
+              _toCard!['balance'] = newBalance;
+            });
+          }
+        });
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Test transaction generated successfully!'),
+          backgroundColor: Colors.green,
+        ),
+      );
+
+      print('Test income transaction generated');
+    } catch (e) {
+      print('Error generating test transaction: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to generate transaction: $e')),
       );
     }
   }
@@ -421,24 +467,6 @@ class _IncomeDetailsPageState extends State<IncomeDetailsPage> {
           const SizedBox(height: 12),
 
           _buildTile(
-            icon: Icons.edit,
-            title: 'Income Name',
-            trailing: SizedBox(
-              width: 150,
-              child: TextField(
-                controller: _nameController,
-                style: const TextStyle(color: Colors.white),
-                textAlign: TextAlign.end,
-                decoration: const InputDecoration(
-                  border: InputBorder.none,
-                  hintText: 'Enter name',
-                  hintStyle: TextStyle(color: Colors.white54),
-                ),
-              ),
-            ),
-          ),
-
-          _buildTile(
             icon: Icons.monetization_on,
             title: 'Amount',
             trailing: SizedBox(
@@ -526,6 +554,26 @@ class _IncomeDetailsPageState extends State<IncomeDetailsPage> {
           ),
 
           const SizedBox(height: 30),
+
+          // Test button (only show if income exists and is enabled)
+          if (_existingIncomeId != null && _isEnabled) ...[
+            ElevatedButton(
+              onPressed: _generateImmediateTransaction,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.orange,
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
+              ),
+              child: const Text(
+                'Generate Income Record',
+                style: TextStyle(fontSize: 16, color: Colors.white),
+              ),
+            ),
+            const SizedBox(height: 12),
+          ],
+
           ElevatedButton(
             onPressed: _saveIncome,
             style: ElevatedButton.styleFrom(
@@ -547,7 +595,6 @@ class _IncomeDetailsPageState extends State<IncomeDetailsPage> {
 
   @override
   void dispose() {
-    _nameController.dispose();
     _amountController.dispose();
     super.dispose();
   }

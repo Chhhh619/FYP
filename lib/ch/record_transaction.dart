@@ -5,7 +5,7 @@ import 'package:intl/intl.dart';
 import 'package:smooth_page_indicator/smooth_page_indicator.dart';
 import 'categories_list.dart';
 import 'category_grid.dart';
-import 'budget_calculator_bottom_sheet.dart'; //
+import 'select_card_popup.dart';
 
 class RecordTransactionPage extends StatefulWidget {
   const RecordTransactionPage({super.key});
@@ -15,6 +15,8 @@ class RecordTransactionPage extends StatefulWidget {
 }
 
 class _RecordTransactionPageState extends State<RecordTransactionPage> {
+  bool _inputInvalid = false;
+  String? _saveErrorMessage;
   TimeOfDay _selectedTime = TimeOfDay.now();
   String _calculatorInput = '0';
   double _calculatorResult = 0;
@@ -24,6 +26,7 @@ class _RecordTransactionPageState extends State<RecordTransactionPage> {
   String _type = 'expense';
   bool _isCalculatorOpen = false;
   int _currentPage = 0;
+  Map<String, dynamic>? _selectedCard;
 
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final FirebaseAuth _auth = FirebaseAuth.instance;
@@ -59,14 +62,14 @@ class _RecordTransactionPageState extends State<RecordTransactionPage> {
           'name': data['name'],
           'icon': data['icon'],
           'type': data['type'],
-          'userId': data['userId'] ?? data['userid'] ?? null,
+          'userId': data['userId'] ?? null,
         };
       }).toList();
 
-      // Filter for prebuilt (userId is null or '') and custom (userId matches current user)
       final filteredCategories = _categories.where((cat) {
         final catUserId = cat['userId'];
-        return catUserId == null || catUserId == '' ||
+        return catUserId == null ||
+            catUserId == '' ||
             (userId != null && catUserId == userId);
       }).toList();
       _categories = filteredCategories;
@@ -87,8 +90,28 @@ class _RecordTransactionPageState extends State<RecordTransactionPage> {
 
   bool _saveAttempted = false;
 
-  //changed for gamification module
-  void _saveTransaction(String calculatorInput, double calculatorResult, StateSetter setState) { //change for my gamification module
+  Future<void> _selectCard() async {
+    final selectedCard = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (context) => SelectCardPopup(
+        onCardSelected: (card) {
+          Navigator.pop(context, card);
+        },
+      ),
+    );
+
+    if (selectedCard != null) {
+      setState(() {
+        _selectedCard = selectedCard;
+      });
+    }
+  }
+
+  void _saveTransaction(
+      String calculatorInput,
+      double calculatorResult,
+      StateSetter setState,
+      ) async {
     final userId = _auth.currentUser?.uid;
     if (userId == null || _selectedCategoryId == null) {
       setState(() {
@@ -103,42 +126,127 @@ class _RecordTransactionPageState extends State<RecordTransactionPage> {
       calculatorResult = double.nan;
     }
 
-    if (calculatorInput == '0' || calculatorInput == 'Error' || calculatorResult.isNaN || calculatorResult == 0) {
+    if (calculatorInput == '0' ||
+        calculatorInput == 'Error' ||
+        calculatorResult.isNaN ||
+        calculatorResult == 0) {
       setState(() {
-        _saveAttempted = true;
+        _inputInvalid = true;
+        _saveErrorMessage = null;
       });
       return;
     }
 
     setState(() {
-      _saveAttempted = false;
+      _inputInvalid = false;
+      _saveErrorMessage = null;
     });
 
-    _firestore
-        .collection('transactions')
-        .add({
-      'userid': userId,
-      'amount': calculatorResult,
-      'timestamp': Timestamp.fromDate(_selectedDate),
-      'category': _firestore.collection('categories').doc(_selectedCategoryId),
-      'type': _type, // Add type to match HomePage filtering
-    })
-        .then((value) {
-      print('Transaction saved successfully: ${value.id}');
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Transaction recorded')),
-      );
-      Navigator.pop(context); // Return to HomePage
-    })
-        .catchError((error) {
-      print('Error saving transaction: $error');
-      setState(() {
-        _saveAttempted = true;
+    try {
+      // Create the base transaction data with proper validation
+      final transactionData = <String, dynamic>{
+        'userId': userId,
+        'amount': calculatorResult,
+        'timestamp': Timestamp.fromDate(_selectedDate),
+        'category': _firestore.collection('categories').doc(_selectedCategoryId),
+        'type': _type,
+      };
+
+      // Only add cardId if a card is selected
+      if (_selectedCard != null && _selectedCard!['id'] != null) {
+        transactionData['cardId'] = _selectedCard!['id'];
+      }
+
+      await _firestore.runTransaction((transaction) async {
+        // Create the transaction document
+        final transactionRef = _firestore.collection('transactions').doc();
+
+        // If a card is selected, update card balance
+        if (_selectedCard != null && _selectedCard!['id'] != null) {
+          // Get the card reference
+          final cardRef = _firestore
+              .collection('users')
+              .doc(userId)
+              .collection('cards')
+              .doc(_selectedCard!['id']);
+
+          // Read current card data
+          final cardDoc = await transaction.get(cardRef);
+          if (!cardDoc.exists) {
+            throw Exception('Card not found');
+          }
+
+          final cardData = cardDoc.data();
+          if (cardData == null) {
+            throw Exception('Card data is null');
+          }
+
+          final currentBalance = (cardData['balance'] ?? 0.0).toDouble();
+          double newBalance;
+
+          // Calculate new balance based on transaction type
+          if (_type == 'income') {
+            newBalance = currentBalance + calculatorResult;
+          } else {
+            // expense
+            newBalance = currentBalance - calculatorResult;
+
+            // Check for sufficient balance (optional - remove if you want to allow negative balances)
+            if (newBalance < 0) {
+              throw Exception(
+                'Insufficient balance in ${_selectedCard!['name']}',
+              );
+            }
+          }
+
+          // Update card balance
+          transaction.update(cardRef, {'balance': newBalance});
+        }
+
+        // Set the transaction
+        transaction.set(transactionRef, transactionData);
       });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to record transaction: $error')),
-      );
-    });
+
+      // Update local card balance if card was selected
+      if (_selectedCard != null) {
+        setState(() {
+          if (_type == 'income') {
+            _selectedCard!['balance'] =
+                (_selectedCard!['balance'] ?? 0.0) + calculatorResult;
+          } else {
+            _selectedCard!['balance'] =
+                (_selectedCard!['balance'] ?? 0.0) - calculatorResult;
+          }
+        });
+      }
+
+      Navigator.of(context).popUntil((route) => route.isFirst);
+    } catch (error) {
+      String errorMessage;
+      print('Transaction error: $error'); // Debug logging
+
+      if (error.toString().contains('Insufficient balance')) {
+        errorMessage = error.toString();
+      } else if (error.toString().contains('Permission denied')) {
+        errorMessage = 'Permission denied. Please check your account permissions.';
+      } else if (error.toString().contains('network')) {
+        errorMessage = 'Network error. Please check your internet connection.';
+      } else {
+        errorMessage = 'Failed to save transaction. Please try again.';
+      }
+
+      Navigator.of(context).pop();
+
+      Future.delayed(const Duration(milliseconds: 300), () {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(errorMessage),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      });
+    }
   }
 
   Future<void> _selectDate(BuildContext context, StateSetter setState) async {
@@ -146,9 +254,7 @@ class _RecordTransactionPageState extends State<RecordTransactionPage> {
       context: context,
       initialDate: _selectedDate,
       firstDate: DateTime(2000),
-      lastDate: DateTime(DateTime
-          .now()
-          .year, 12, 31),
+      lastDate: DateTime(DateTime.now().year, 12, 31),
       builder: (BuildContext context, Widget? child) {
         return Theme(
           data: ThemeData(
@@ -169,7 +275,13 @@ class _RecordTransactionPageState extends State<RecordTransactionPage> {
     );
     if (picked != null) {
       setState(() {
-        _selectedDate = picked;
+        _selectedDate = DateTime(
+          picked.year,
+          picked.month,
+          picked.day,
+          _selectedTime.hour,
+          _selectedTime.minute,
+        );
       });
     }
   }
@@ -217,10 +329,9 @@ class _RecordTransactionPageState extends State<RecordTransactionPage> {
       backgroundColor: Colors.transparent,
       builder: (BuildContext context) {
         return Padding(
-          padding: EdgeInsets.only(bottom: MediaQuery
-              .of(context)
-              .viewInsets
-              .bottom),
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.of(context).viewInsets.bottom,
+          ),
           child: _buildCalculatorContent(),
         );
       },
@@ -244,8 +355,10 @@ class _RecordTransactionPageState extends State<RecordTransactionPage> {
               }
             } else if (input == 'delete') {
               if (_calculatorInput.length > 1) {
-                _calculatorInput =
-                    _calculatorInput.substring(0, _calculatorInput.length - 1);
+                _calculatorInput = _calculatorInput.substring(
+                  0,
+                  _calculatorInput.length - 1,
+                );
               } else {
                 _calculatorInput = '0';
               }
@@ -267,165 +380,325 @@ class _RecordTransactionPageState extends State<RecordTransactionPage> {
           });
         }
 
+        // Get screen dimensions and calculate available height
+        final screenHeight = MediaQuery.of(context).size.height;
+        final screenWidth = MediaQuery.of(context).size.width;
+        final keyboardHeight = MediaQuery.of(context).viewInsets.bottom;
+        final statusBarHeight = MediaQuery.of(context).padding.top;
+        final bottomSafeArea = MediaQuery.of(context).padding.bottom;
+
+        // Calculate maximum available height for the modal
+        final maxHeight = screenHeight - statusBarHeight - keyboardHeight - 100; // 100px buffer
+
+        // Calculate dynamic spacing and sizes
+        final isSmallScreen = screenHeight < 700;
+        final titleSize = isSmallScreen ? 18.0 : 20.0;
+        final cardHeight = isSmallScreen ? 75.0 : 85.0;
+        final buttonHeight = isSmallScreen ? 44.0 : 48.0;
+        final gridSpacing = isSmallScreen ? 8.0 : 10.0;
+        final verticalPadding = isSmallScreen ? 12.0 : 16.0;
+        final sectionSpacing = isSmallScreen ? 8.0 : 12.0;
+
         return Container(
+          constraints: BoxConstraints(
+            maxHeight: maxHeight,
+          ),
           decoration: const BoxDecoration(
             color: Color.fromRGBO(33, 35, 34, 1),
             borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
           ),
-          padding: const EdgeInsets.all(16),
-          child: Wrap(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
             children: [
-              Center(
-                child: Container(
-                  width: 40,
-                  height: 4,
-                  margin: const EdgeInsets.only(bottom: 16),
-                  decoration: BoxDecoration(
-                    color: Colors.white30,
-                    borderRadius: BorderRadius.circular(2),
-                  ),
+              // Handle bar
+              Container(
+                width: 40,
+                height: 4,
+                margin: EdgeInsets.symmetric(vertical: sectionSpacing * 0.75),
+                decoration: BoxDecoration(
+                  color: Colors.white30,
+                  borderRadius: BorderRadius.circular(2),
                 ),
               ),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Transaction Details',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 22,
-                      fontWeight: FontWeight.bold,
-                    ),
+
+              // Scrollable content
+              Flexible(
+                child: SingleChildScrollView(
+                  padding: EdgeInsets.symmetric(
+                    horizontal: 20,
+                    vertical: verticalPadding * 0.5,
                   ),
-                  const SizedBox(height: 8),
-                  if (_selectedCategoryId != null)
-                    Text(
-                      'Category: ${_categories.firstWhere((cat) =>
-                      cat['id'] == _selectedCategoryId)['name']}',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 18,
-                      ),
-                    ),
-                  const SizedBox(height: 8),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        _calculatorInput,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 36,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
                       Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Text('Date', style: TextStyle(
-                                  color: Colors.white, fontSize: 14)),
-                              const SizedBox(height: 4),
-                              ElevatedButton(
-                                onPressed: () => _selectDate(context, setState),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: Colors.teal,
-                                  foregroundColor: Colors.white,
-                                  minimumSize: const Size(80, 36),
-                                ),
-                                child: Text(
-                                    DateFormat('d MMM').format(_selectedDate)),
+                          // Category and Amount (Left side)
+                          Expanded(
+                            child: Container(
+                              padding: const EdgeInsets.all(16),
+                              height: cardHeight,
+                              decoration: BoxDecoration(
+                                color: Colors.grey[800]?.withOpacity(0.2),
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(color: Colors.grey.withOpacity(0.2)),
                               ),
-                            ],
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  if (_selectedCategoryId != null) ...[
+                                    Row(
+                                      children: [
+                                        _buildCategoryIcon(),
+                                        const SizedBox(width: 8),
+                                        Expanded(
+                                          child: Text(
+                                            _categories.firstWhere((cat) => cat['id'] == _selectedCategoryId)['name'],
+                                            style: const TextStyle(color: Colors.white, fontSize: 16),
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    Flexible(
+                                      child: Text(
+                                        'RM$_calculatorInput',
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 20,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                  ],
+                                ],
+                              ),
+                            ),
                           ),
-                          const SizedBox(width: 12),
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Text('Time', style: TextStyle(
-                                  color: Colors.white, fontSize: 14)),
-                              const SizedBox(height: 4),
-                              ElevatedButton(
-                                onPressed: () => _selectTime(context, setState),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: Colors.teal,
-                                  foregroundColor: Colors.white,
-                                  minimumSize: const Size(80, 36),
+
+                          const SizedBox(width: 16),
+
+                          // Card Selection (Right side)
+                          Expanded(
+                            child: GestureDetector(
+                              onTap: () async {
+                                final card = await showDialog<Map<String, dynamic>>(
+                                  context: context,
+                                  builder: (context) => SelectCardPopup(
+                                    onCardSelected: (card) {
+                                      Navigator.pop(context, card);
+                                    },
+                                  ),
+                                );
+                                if (card != null) {
+                                  setState(() {
+                                    _selectedCard = card;
+                                  });
+                                }
+                              },
+                              child: Container(
+                                padding: const EdgeInsets.all(16),
+                                height: cardHeight,
+                                decoration: BoxDecoration(
+                                  color: Colors.grey[800]?.withOpacity(0.3),
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(color: Colors.teal.withOpacity(0.3)),
                                 ),
-                                child: Text(_selectedTime.format(context)),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    Text(
+                                      _selectedCard != null
+                                          ? _selectedCard!['name']
+                                          : 'Select Card',
+                                      style: TextStyle(
+                                        color: _selectedCard != null
+                                            ? Colors.white
+                                            : Colors.white70,
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                    if (_selectedCard != null) ...[
+                                      Text(
+                                        'RM${(_selectedCard!['balance'] ?? 0.0).toStringAsFixed(2)}',
+                                        style: const TextStyle(
+                                          color: Colors.white60,
+                                          fontSize: 14,
+                                        ),
+                                      ),
+                                    ] else ...[
+                                      const Text(
+                                        '(Optional)',
+                                        style: TextStyle(
+                                          color: Colors.white60,
+                                          fontSize: 14,
+                                        ),
+                                      ),
+                                    ],
+                                  ],
+                                ),
                               ),
-                            ],
+                            ),
                           ),
                         ],
                       ),
+
+                      SizedBox(height: sectionSpacing),
+
+                      // Date and Time Row
+                      Row(
+                        children: [
+                          Expanded(
+                            child: GestureDetector(
+                              onTap: () => _selectDate(context, setState),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                                decoration: BoxDecoration(
+                                  color: Colors.teal.withOpacity(0.15),
+                                  borderRadius: BorderRadius.circular(6),
+                                  border: Border.all(color: Colors.teal.withOpacity(0.4)),
+                                ),
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    Text(
+                                      DateFormat('d MMM yyyy').format(_selectedDate),
+                                      style: const TextStyle(color: Colors.white, fontSize: 14),
+                                    ),
+                                    const Icon(Icons.calendar_today, color: Colors.teal, size: 16),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: GestureDetector(
+                              onTap: () => _selectTime(context, setState),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                                decoration: BoxDecoration(
+                                  color: Colors.teal.withOpacity(0.15),
+                                  borderRadius: BorderRadius.circular(6),
+                                  border: Border.all(color: Colors.teal.withOpacity(0.4)),
+                                ),
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    Text(
+                                      _selectedTime.format(context),
+                                      style: const TextStyle(color: Colors.white, fontSize: 14),
+                                    ),
+                                    const Icon(Icons.access_time, color: Colors.teal, size: 16),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+
+                      SizedBox(height: sectionSpacing),
+
+                      // Error messages
+                      if (_saveAttempted && (_calculatorInput == '0' || _calculatorInput == 'Error'))
+                        Padding(
+                          padding: EdgeInsets.only(bottom: sectionSpacing * 0.5),
+                          child: const Text(
+                            'Please enter an amount before saving.',
+                            style: TextStyle(color: Colors.red, fontSize: 14),
+                          ),
+                        ),
+
+                      if (_inputInvalid)
+                        Padding(
+                          padding: EdgeInsets.only(bottom: sectionSpacing * 0.5),
+                          child: const Text(
+                            'Please enter a valid amount.',
+                            style: TextStyle(color: Colors.red, fontSize: 14),
+                          ),
+                        ),
+
+                      // Calculator Grid - with constrained height
+                      LayoutBuilder(
+                        builder: (context, constraints) {
+                          final availableWidth = constraints.maxWidth;
+                          final buttonSize = (availableWidth - (3 * gridSpacing)) / 4;
+
+                          return GridView.count(
+                            crossAxisCount: 4,
+                            shrinkWrap: true,
+                            physics: const NeverScrollableScrollPhysics(),
+                            crossAxisSpacing: gridSpacing,
+                            mainAxisSpacing: gridSpacing,
+                            childAspectRatio: 1.0,
+                            children: [
+                              _buildCalcButton('7', (input) => _calculate(input, setState)),
+                              _buildCalcButton('8', (input) => _calculate(input, setState)),
+                              _buildCalcButton('9', (input) => _calculate(input, setState)),
+                              _buildCalcButton('/', (input) => _calculate(input, setState)),
+                              _buildCalcButton('4', (input) => _calculate(input, setState)),
+                              _buildCalcButton('5', (input) => _calculate(input, setState)),
+                              _buildCalcButton('6', (input) => _calculate(input, setState)),
+                              _buildCalcButton('*', (input) => _calculate(input, setState)),
+                              _buildCalcButton('1', (input) => _calculate(input, setState)),
+                              _buildCalcButton('2', (input) => _calculate(input, setState)),
+                              _buildCalcButton('3', (input) => _calculate(input, setState)),
+                              _buildCalcButton('-', (input) => _calculate(input, setState)),
+                              _buildCalcButton('.', (input) => _calculate(input, setState)),
+                              _buildCalcButton('0', (input) => _calculate(input, setState)),
+                              _buildCalcButton(
+                                'delete',
+                                    (input) => _calculate(input, setState),
+                                icon: Icons.backspace,
+                              ),
+                              _buildCalcButton('+', (input) => _calculate(input, setState)),
+                            ],
+                          );
+                        },
+                      ),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: ElevatedButton(
+                              onPressed: () {
+                                setState(() {
+                                  _saveAttempted = false;
+                                  _inputInvalid = false;
+                                });
+                                _saveTransaction(
+                                  _calculatorInput,
+                                  _calculatorResult,
+                                  setState,
+                                );
+                              },
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.teal,
+                                foregroundColor: Colors.white,
+                                minimumSize: Size(0, buttonHeight),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                              ),
+                              child: const Text(
+                                'Add',
+                                style: TextStyle(fontSize: 16),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      SizedBox(height: bottomSafeArea > 0 ? bottomSafeArea * 0.8 : sectionSpacing),
                     ],
                   ),
-                  if (_saveAttempted)
-                    const Padding(
-                      padding: EdgeInsets.only(top: 8.0),
-                      child: Text(
-                        'Please enter an amount before saving.',
-                        style: TextStyle(color: Colors.red, fontSize: 14),
-                      ),
-                    ),
-                ],
-              ),
-              const SizedBox(height: 20),
-              GridView.count(
-                crossAxisCount: 4,
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                crossAxisSpacing: 10,
-                mainAxisSpacing: 10,
-                padding: const EdgeInsets.all(8),
-                children: [
-                  _buildCalcButton('7', (input) => _calculate(input, setState)),
-                  _buildCalcButton('8', (input) => _calculate(input, setState)),
-                  _buildCalcButton('9', (input) => _calculate(input, setState)),
-                  _buildCalcButton('/', (input) => _calculate(input, setState)),
-                  _buildCalcButton('4', (input) => _calculate(input, setState)),
-                  _buildCalcButton('5', (input) => _calculate(input, setState)),
-                  _buildCalcButton('6', (input) => _calculate(input, setState)),
-                  _buildCalcButton('*', (input) => _calculate(input, setState)),
-                  _buildCalcButton('1', (input) => _calculate(input, setState)),
-                  _buildCalcButton('2', (input) => _calculate(input, setState)),
-                  _buildCalcButton('3', (input) => _calculate(input, setState)),
-                  _buildCalcButton('-', (input) => _calculate(input, setState)),
-                  _buildCalcButton('0', (input) => _calculate(input, setState)),
-                  _buildCalcButton('.', (input) => _calculate(input, setState)),
-                  _buildCalcButton('=', (input) => _calculate(input, setState)),
-                  _buildCalcButton('+', (input) => _calculate(input, setState)),
-                  _buildCalcButton(
-                      'delete', (input) => _calculate(input, setState),
-                      icon: Icons.backspace),
-                ],
-              ),
-              const SizedBox(height: 16),
-              ElevatedButton(
-                onPressed: () {
-                  setState(() {
-                    _saveAttempted = false;
-                  });
-                  _saveTransaction(
-                      _calculatorInput, _calculatorResult, setState);
-                },
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.teal,
-                  minimumSize: const Size(double.infinity, 50),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                ),
-                child: const Text(
-                  'Save Transaction',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 18,
-                  ),
                 ),
               ),
-              const SizedBox(height: 16),
             ],
           ),
         );
@@ -433,8 +706,47 @@ class _RecordTransactionPageState extends State<RecordTransactionPage> {
     );
   }
 
-  Widget _buildCalcButton(String text, Function(String) onPressed,
-      {IconData? icon}) {
+  Widget _buildCategoryIcon() {
+    if (_selectedCategoryId == null) {
+      return const Icon(Icons.category, color: Colors.white, size: 24);
+    }
+
+    final category = _categories.firstWhere((cat) => cat['id'] == _selectedCategoryId);
+    final iconString = category['icon'].toString();
+
+    // Try to parse as integer (MaterialIcons codepoint)
+    try {
+      final iconCode = int.parse(iconString);
+      return Icon(
+        IconData(iconCode, fontFamily: 'MaterialIcons'),
+        color: Colors.white,
+        size: 24,
+      );
+    } catch (e) {
+      // If it's not a number, it might be an emoji or text
+      if (iconString.length == 1 || iconString.length == 2) {
+        // Likely an emoji
+        return Container(
+          width: 24,
+          height: 24,
+          alignment: Alignment.center,
+          child: Text(
+            iconString,
+            style: const TextStyle(fontSize: 20),
+          ),
+        );
+      } else {
+        // Fallback to default icon
+        return const Icon(Icons.category, color: Colors.white, size: 24);
+      }
+    }
+  }
+
+  Widget _buildCalcButton(
+      String text,
+      Function(String) onPressed, {
+        IconData? icon,
+      }) {
     return ElevatedButton(
       onPressed: () => onPressed(text),
       style: ElevatedButton.styleFrom(
@@ -445,10 +757,7 @@ class _RecordTransactionPageState extends State<RecordTransactionPage> {
       ),
       child: icon != null
           ? Icon(icon, size: 20)
-          : Text(
-        text,
-        style: const TextStyle(fontSize: 20),
-      ),
+          : Text(text, style: const TextStyle(fontSize: 20)),
     );
   }
 
@@ -469,7 +778,8 @@ class _RecordTransactionPageState extends State<RecordTransactionPage> {
         result -= num;
       else if (op == '*')
         result *= num;
-      else if (op == '/') result /= num;
+      else if (op == '/')
+        result /= num;
     }
     return result;
   }
@@ -484,8 +794,9 @@ class _RecordTransactionPageState extends State<RecordTransactionPage> {
       print('Filtered categories for $_type: ${filteredCategories.length}');
       if (filteredCategories.isNotEmpty) {
         _selectedCategoryId = filteredCategories.first['id'];
-        print('Selected category for $_type: ${filteredCategories
-            .first['name']}');
+        print(
+          'Selected category for $_type: ${filteredCategories.first['name']}',
+        );
       } else {
         _selectedCategoryId = null;
         print('No categories found for $_type.');
@@ -512,7 +823,7 @@ class _RecordTransactionPageState extends State<RecordTransactionPage> {
                 left: 0,
                 top: 38.0,
                 child: IconButton(
-                  icon: const Icon(Icons.arrow_back, color: Colors.white),
+                  icon: const Icon(Icons.close, color: Colors.white),
                   onPressed: () => Navigator.pop(context),
                 ),
               ),
@@ -525,7 +836,9 @@ class _RecordTransactionPageState extends State<RecordTransactionPage> {
                       child: Text(
                         _currentPage == 0 ? 'Expenses' : 'Income',
                         style: const TextStyle(
-                            color: Colors.white, fontSize: 18),
+                          color: Colors.white,
+                          fontSize: 18,
+                        ),
                         textAlign: TextAlign.center,
                       ),
                     ),
@@ -582,7 +895,9 @@ class _RecordTransactionPageState extends State<RecordTransactionPage> {
               controller: _controller,
               children: [
                 CategoryGrid(
-                  categories: _categories.where((cat) => cat['type'] == 'expense').toList(),
+                  categories: _categories
+                      .where((cat) => cat['type'] == 'expense')
+                      .toList(),
                   selectedCategoryId: _selectedCategoryId,
                   onCategorySelected: (id) {
                     setState(() {
@@ -593,7 +908,9 @@ class _RecordTransactionPageState extends State<RecordTransactionPage> {
                   },
                 ),
                 CategoryGrid(
-                  categories: _categories.where((cat) => cat['type'] == 'income').toList(),
+                  categories: _categories
+                      .where((cat) => cat['type'] == 'income')
+                      .toList(),
                   selectedCategoryId: _selectedCategoryId,
                   onCategorySelected: (id) {
                     setState(() {

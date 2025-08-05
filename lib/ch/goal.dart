@@ -3,7 +3,6 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'goal_progress.dart';
-import 'create_goal.dart';
 import 'goal_type.dart';
 
 class GoalPage extends StatefulWidget {
@@ -23,12 +22,10 @@ class _GoalPageState extends State<GoalPage> {
       body: SafeArea(
         child: Column(
           children: [
-            // Top bar with back arrow, title and + icon
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               child: Row(
                 children: [
-                  // Back arrow button
                   GestureDetector(
                     onTap: () {
                       Navigator.pop(context);
@@ -81,7 +78,7 @@ class _GoalPageState extends State<GoalPage> {
               child: StreamBuilder<QuerySnapshot>(
                 stream: FirebaseFirestore.instance
                     .collection('goals')
-                    .where('userid', isEqualTo: userId)
+                    .where('userId', isEqualTo: userId)
                     .snapshots(),
                 builder: (context, snapshot) {
                   if (!snapshot.hasData) {
@@ -107,6 +104,7 @@ class _GoalPageState extends State<GoalPage> {
                       final icon = goal['icon'] ?? '🎯';
                       final totalRaw = goal['totalAmount'] ?? 1;
                       final depositedRaw = goal['depositedAmount'] ?? 0;
+                      final status = goal['status'] ?? 'active';
 
                       final totalAmount = totalRaw is String
                           ? double.tryParse(totalRaw) ?? 1
@@ -123,13 +121,19 @@ class _GoalPageState extends State<GoalPage> {
 
                       final progress = (depositedAmount / totalAmount).clamp(0.0, 1.0);
                       final formatter = NumberFormat.currency(symbol: 'RM');
+                      final isCompleted = status == 'completed';
+
+                      // Choose colors based on completion status
+                      final backgroundColor = isCompleted ? Colors.teal.withOpacity(0.15) : Colors.grey[900];
+                      final borderColor = isCompleted ? Colors.tealAccent.withOpacity(0.5) : Colors.grey[700];
+                      final progressColor = isCompleted ? Colors.tealAccent[100] : Colors.tealAccent;
 
                       return GestureDetector(
                         onTap: () {
                           Navigator.push(
                             context,
                             MaterialPageRoute(
-                              builder: (_) => GoalProgressPage(goal: goal, goalId: doc.id),
+                              builder: (_) => GoalProgressPage(goalId: doc.id),
                             ),
                           );
                         },
@@ -138,33 +142,48 @@ class _GoalPageState extends State<GoalPage> {
                             context: context,
                             builder: (_) => AlertDialog(
                               backgroundColor: Colors.grey[900],
-                              title: const Text('Delete Goal', style: TextStyle(color: Colors.white)),
-                              content: Text(
-                                'Are you sure you want to delete the goal "$name"?',
-                                style: const TextStyle(color: Colors.white70),
+                              title: const Text('Goal Options', style: TextStyle(color: Colors.white)),
+                              content: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  if (!isCompleted) ...[
+                                    ListTile(
+                                      leading: const Icon(Icons.check_circle, color: Colors.tealAccent),
+                                      title: const Text('Mark as Completed', style: TextStyle(color: Colors.white)),
+                                      onTap: () async {
+                                        Navigator.pop(context);
+                                        await _markGoalAsCompleted(doc.id);
+                                      },
+                                    ),
+                                  ] else ...[
+                                    ListTile(
+                                      leading: const Icon(Icons.restart_alt, color: Colors.orange),
+                                      title: const Text('Reactivate Goal', style: TextStyle(color: Colors.white)),
+                                      onTap: () async {
+                                        Navigator.pop(context);
+                                        await _reactivateGoal(doc.id);
+                                      },
+                                    ),
+                                  ],
+                                  ListTile(
+                                    leading: const Icon(Icons.delete, color: Colors.redAccent),
+                                    title: const Text('Delete Goal', style: TextStyle(color: Colors.white)),
+                                    onTap: () async {
+                                      Navigator.pop(context);
+                                      _showDeleteConfirmation(context, doc.id, name);
+                                    },
+                                  ),
+                                ],
                               ),
-                              actions: [
-                                TextButton(
-                                  onPressed: () => Navigator.pop(context),
-                                  child: const Text('Cancel', style: TextStyle(color: Colors.white54)),
-                                ),
-                                TextButton(
-                                  onPressed: () async {
-                                    Navigator.pop(context);
-                                    await FirebaseFirestore.instance.collection('goals').doc(doc.id).delete();
-                                  },
-                                  child: const Text('Delete', style: TextStyle(color: Colors.redAccent)),
-                                ),
-                              ],
                             ),
                           );
                         },
                         child: Container(
                           padding: const EdgeInsets.all(16),
                           decoration: BoxDecoration(
-                            color: Colors.grey[900],
+                            color: backgroundColor,
                             borderRadius: BorderRadius.circular(16),
-                            border: Border.all(color: Colors.grey[700]!),
+                            border: Border.all(color: borderColor!),
                           ),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
@@ -180,6 +199,23 @@ class _GoalPageState extends State<GoalPage> {
                                             fontSize: 18,
                                             fontWeight: FontWeight.bold)),
                                   ),
+                                  if (isCompleted)
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                      decoration: BoxDecoration(
+                                        color: Colors.tealAccent.withOpacity(0.2),
+                                        borderRadius: BorderRadius.circular(12),
+                                        border: Border.all(color: Colors.tealAccent, width: 1),
+                                      ),
+                                      child: const Text(
+                                        'COMPLETED',
+                                        style: TextStyle(
+                                          color: Colors.tealAccent,
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                    ),
                                 ],
                               ),
                               const SizedBox(height: 10),
@@ -196,7 +232,7 @@ class _GoalPageState extends State<GoalPage> {
                               LinearProgressIndicator(
                                 value: progress,
                                 backgroundColor: Colors.grey[800],
-                                color: Colors.tealAccent,
+                                color: progressColor,
                                 minHeight: 8,
                               ),
                               const SizedBox(height: 10),
@@ -224,6 +260,81 @@ class _GoalPageState extends State<GoalPage> {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Future<void> _markGoalAsCompleted(String goalId) async {
+    try {
+      await FirebaseFirestore.instance.collection('goals').doc(goalId).update({
+        'status': 'completed',
+        'completedDate': FieldValue.serverTimestamp(),
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Goal marked as completed!'),
+            backgroundColor: Colors.tealAccent,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to update goal: ${e.toString()}')),
+        );
+      }
+    }
+  }
+
+  Future<void> _reactivateGoal(String goalId) async {
+    try {
+      await FirebaseFirestore.instance.collection('goals').doc(goalId).update({
+        'status': 'active',
+        'completedDate': FieldValue.delete(),
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Goal reactivated!'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to reactivate goal: ${e.toString()}')),
+        );
+      }
+    }
+  }
+
+  void _showDeleteConfirmation(BuildContext context, String goalId, String goalName) {
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        backgroundColor: Colors.grey[900],
+        title: const Text('Delete Goal', style: TextStyle(color: Colors.white)),
+        content: Text(
+          'Are you sure you want to delete the goal "$goalName"?',
+          style: const TextStyle(color: Colors.white70),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel', style: TextStyle(color: Colors.white54)),
+          ),
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              await FirebaseFirestore.instance.collection('goals').doc(goalId).delete();
+            },
+            child: const Text('Delete', style: TextStyle(color: Colors.redAccent)),
+          ),
+        ],
       ),
     );
   }

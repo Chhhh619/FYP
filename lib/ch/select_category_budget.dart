@@ -2,8 +2,13 @@ import 'package:flutter/material.dart';
 
 class SelectCategoryBudgetPage extends StatefulWidget {
   final List<Map<String, dynamic>> categories;
+  final DateTime? selectedDate;
 
-  const SelectCategoryBudgetPage({super.key, required this.categories});
+  const SelectCategoryBudgetPage({
+    super.key,
+    required this.categories,
+    this.selectedDate,
+  });
 
   @override
   _SelectCategoryBudgetPageState createState() => _SelectCategoryBudgetPageState();
