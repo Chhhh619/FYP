@@ -65,7 +65,7 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
     try {
       final subscriptions = await _firestore
           .collection('subscriptions')
-          .where('userid', isEqualTo: userId)
+          .where('userId', isEqualTo: userId)
           .get();
 
       print('Found ${subscriptions.docs.length} subscriptions');
@@ -88,7 +88,7 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
 
           final existingTxs = await _firestore
               .collection('transactions')
-              .where('userid', isEqualTo: userId)
+              .where('userId', isEqualTo: userId)
               .where('subscriptionId', isEqualTo: doc.id)
               .where('timestamp', isGreaterThanOrEqualTo: Timestamp.fromDate(startOfDay))
               .where('timestamp', isLessThan: Timestamp.fromDate(startOfDay.add(Duration(days: 1))))
@@ -97,7 +97,7 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
           if (existingTxs.docs.isEmpty) {
             print('No existing transaction found for ${data['name']} on $startOfDay, creating new one');
             await _firestore.collection('transactions').add({
-              'userid': userId,
+              'userId': userId,
               'amount': data['amount'] ?? 0.0,
               'timestamp': Timestamp.fromDate(startOfDay),
               'category': _firestore.doc('/categories/qOIeFiz2HjETIU1dyerW'),
@@ -394,7 +394,7 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
     try {
       final incomes = await _firestore
           .collection('incomes')
-          .where('userid', isEqualTo: userId)
+          .where('userId', isEqualTo: userId)
           .where('isEnabled', isEqualTo: true)
           .get();
 
@@ -411,7 +411,7 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
 
           final existingTxs = await _firestore
               .collection('transactions')
-              .where('userid', isEqualTo: userId)
+              .where('userId', isEqualTo: userId)
               .where('incomeId', isEqualTo: doc.id)
               .where('timestamp', isGreaterThanOrEqualTo: Timestamp.fromDate(startOfDay))
               .where('timestamp', isLessThan: Timestamp.fromDate(startOfDay.add(Duration(days: 1))))
@@ -421,7 +421,7 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
             final categoryRef = data['category'] as DocumentReference;
 
             await _firestore.collection('transactions').add({
-              'userid': userId,
+              'userId': userId,
               'amount': data['amount'] ?? 0.0,
               'timestamp': Timestamp.fromDate(startOfDay),
               'category': categoryRef,
@@ -493,7 +493,7 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
 
       final transactionSnapshot = await _firestore
           .collection('transactions')
-          .where('userid', isEqualTo: userId)
+          .where('userId', isEqualTo: userId)
           .where('timestamp', isGreaterThanOrEqualTo: Timestamp.fromDate(startOfMonth))
           .where('timestamp', isLessThanOrEqualTo: Timestamp.fromDate(endOfMonth))
           .get();
@@ -570,7 +570,7 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
     }
 
     return StreamBuilder<QuerySnapshot>(
-      stream: _firestore.collection('transactions').where('userid', isEqualTo: userId).orderBy('timestamp', descending: true).snapshots(),
+      stream: _firestore.collection('transactions').where('userId', isEqualTo: userId).orderBy('timestamp', descending: true).snapshots(),
       builder: (context, snapshot) {
         if (!snapshot.hasData) {
           return _buildLoadingSkeleton();

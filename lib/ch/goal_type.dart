@@ -8,10 +8,10 @@ class GoalTypeSelectionPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: const Color.fromRGBO(28, 28, 28, 1),
       appBar: AppBar(
         title: const Text("Create New Goal", style: TextStyle(color: Colors.white)),
-        backgroundColor: Colors.black,
+        backgroundColor: const Color.fromRGBO(28, 28, 28, 1),
         iconTheme: const IconThemeData(color: Colors.white),
       ),
       body: Padding(

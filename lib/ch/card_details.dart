@@ -38,7 +38,7 @@ class _CardDetailsPageState extends State<CardDetailsPage> {
       try {
         final QuerySnapshot incomingTransfers = await FirebaseFirestore.instance
             .collection('transactions')
-            .where('userid', isEqualTo: userId)
+            .where('userId', isEqualTo: userId)
             .where('toCardId', isEqualTo: currentCard.id)
             .orderBy('timestamp', descending: true)
             .get();
@@ -46,14 +46,30 @@ class _CardDetailsPageState extends State<CardDetailsPage> {
         // Process incoming transfers
         for (var doc in incomingTransfers.docs) {
           final data = doc.data() as Map<String, dynamic>;
+          String type = data['type'] ?? 'Transfer In';
+          String description = data['description'] ?? 'Transfer received';
+          IconData icon;
+
+          // Handle different transaction types
+          switch (type) {
+            case 'goal_deposit':
+              icon = Icons.savings;
+              break;
+            case 'transfer':
+              icon = Icons.arrow_downward;
+              break;
+            default:
+              icon = Icons.arrow_downward;
+          }
+
           allTransactions.add(Transaction(
             id: doc.id,
-            type: 'Transfer In',
-            description: data['description'] ?? 'Transfer received',
+            type: _formatTransactionType(type),
+            description: description,
             amount: (data['amount'] ?? 0.0).toDouble(),
             date: (data['timestamp'] as Timestamp).toDate(),
             isIncoming: true,
-            icon: Icons.arrow_downward,
+            icon: icon,
           ));
         }
         print('Found ${incomingTransfers.docs.length} incoming transfers');
@@ -65,7 +81,7 @@ class _CardDetailsPageState extends State<CardDetailsPage> {
       try {
         final QuerySnapshot outgoingTransfers = await FirebaseFirestore.instance
             .collection('transactions')
-            .where('userid', isEqualTo: userId)
+            .where('userId', isEqualTo: userId)
             .where('fromCardId', isEqualTo: currentCard.id)
             .orderBy('timestamp', descending: true)
             .get();
@@ -73,14 +89,30 @@ class _CardDetailsPageState extends State<CardDetailsPage> {
         // Process outgoing transfers
         for (var doc in outgoingTransfers.docs) {
           final data = doc.data() as Map<String, dynamic>;
+          String type = data['type'] ?? 'Transfer Out';
+          String description = data['description'] ?? 'Transfer sent';
+          IconData icon;
+
+          // Handle different transaction types
+          switch (type) {
+            case 'goal_deposit':
+              icon = Icons.savings;
+              break;
+            case 'transfer':
+              icon = Icons.arrow_upward;
+              break;
+            default:
+              icon = Icons.arrow_upward;
+          }
+
           allTransactions.add(Transaction(
             id: doc.id,
-            type: 'Transfer Out',
-            description: data['description'] ?? 'Transfer sent',
+            type: _formatTransactionType(type),
+            description: description,
             amount: (data['amount'] ?? 0.0).toDouble(),
             date: (data['timestamp'] as Timestamp).toDate(),
             isIncoming: false,
-            icon: Icons.arrow_upward,
+            icon: icon,
           ));
         }
         print('Found ${outgoingTransfers.docs.length} outgoing transfers');
@@ -92,7 +124,7 @@ class _CardDetailsPageState extends State<CardDetailsPage> {
       try {
         final QuerySnapshot cardTransactions = await FirebaseFirestore.instance
             .collection('transactions')
-            .where('userid', isEqualTo: userId)
+            .where('userId', isEqualTo: userId)
             .where('cardId', isEqualTo: currentCard.id)
             .orderBy('timestamp', descending: true)
             .get();
@@ -141,7 +173,7 @@ class _CardDetailsPageState extends State<CardDetailsPage> {
       try {
         final QuerySnapshot incomesSnapshot = await FirebaseFirestore.instance
             .collection('incomes')
-            .where('userid', isEqualTo: userId)
+            .where('userId', isEqualTo: userId)
             .where('toCardId', isEqualTo: currentCard.id)
             .orderBy('lastGenerated', descending: true)
             .get();
@@ -199,6 +231,17 @@ class _CardDetailsPageState extends State<CardDetailsPage> {
           SnackBar(content: Text('Error loading transactions: $e')),
         );
       }
+    }
+  }
+
+  String _formatTransactionType(String type) {
+    switch (type) {
+      case 'goal_deposit':
+        return 'Goal Deposit';
+      case 'transfer':
+        return 'Transfer';
+      default:
+        return type;
     }
   }
 
@@ -414,7 +457,7 @@ class _CardDetailsPageState extends State<CardDetailsPage> {
         // Create transaction record
         final transactionRef = FirebaseFirestore.instance.collection('transactions').doc();
         txn.set(transactionRef, {
-          'userid': userId,
+          'userId': userId,
           'amount': amount,
           'timestamp': Timestamp.now(),
           'fromCardId': currentCard.id,
@@ -437,7 +480,6 @@ class _CardDetailsPageState extends State<CardDetailsPage> {
         );
       });
 
-      // Reload transactions to show the new transfer
       _loadTransactions();
 
       ScaffoldMessenger.of(context).showSnackBar(

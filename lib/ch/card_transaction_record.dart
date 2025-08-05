@@ -64,7 +64,7 @@ class _CardTransactionPageState extends State<CardTransactionPage> {
             'name': data['name'],
             'icon': data['icon'],
             'type': data['type'],
-            'userId': data['userId'] ?? data['userid'] ?? null,
+            'userId': data['userId'] ?? data['userId'] ?? null,
           };
         }).toList();
 
@@ -274,7 +274,7 @@ class _CardTransactionPageState extends State<CardTransactionPage> {
         // Create transaction record
         final transactionRef = _firestore.collection('transactions').doc();
         txn.set(transactionRef, {
-          'userid': userId,
+          'userId': userId,
           'amount': amount,
           'timestamp': Timestamp.fromDate(_selectedDate),
           'cardId': widget.card.id,

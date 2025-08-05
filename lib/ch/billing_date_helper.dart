@@ -113,7 +113,7 @@ class BillingDateHelper {
     try {
       final snapshot = await FirebaseFirestore.instance
           .collection('transactions')
-          .where('userid', isEqualTo: userId)
+          .where('userId', isEqualTo: userId)
           .where('timestamp', isGreaterThanOrEqualTo: Timestamp.fromDate(startDate))
           .where('timestamp', isLessThanOrEqualTo: Timestamp.fromDate(endDate))
           .orderBy('timestamp', descending: true)
@@ -134,7 +134,7 @@ class BillingDateHelper {
     try {
       final snapshot = await FirebaseFirestore.instance
           .collection('transactions')
-          .where('userid', isEqualTo: userId)
+          .where('userId', isEqualTo: userId)
           .where('timestamp', isGreaterThanOrEqualTo: Timestamp.fromDate(periodStartDate))
           .where('timestamp', isLessThanOrEqualTo: Timestamp.fromDate(periodEndDate))
           .orderBy('timestamp', descending: true)

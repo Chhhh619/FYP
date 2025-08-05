@@ -81,7 +81,7 @@ class _CreateGoalPageState extends State<CreateGoalPage> {
 
   void _saveGoal() async {
     final goal = {
-      'userid': userId,
+      'userId': userId,
       'name': _nameController.text.trim(),
       'icon': _selectedIcon,
       'startDate': Timestamp.fromDate(_startDate),

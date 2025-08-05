@@ -94,7 +94,7 @@ class _GoalDetailsPageState extends State<GoalDetailsPage> {
 
     try {
       await FirebaseFirestore.instance.runTransaction((txn) async {
-        // FIRST: Do all reads
+        // FIRST: Read all required documents
         DocumentReference<Map<String, dynamic>>? fromCardRef;
         DocumentReference<Map<String, dynamic>>? toCardRef;
         DocumentSnapshot<Map<String, dynamic>>? fromCardDoc;
@@ -124,9 +124,8 @@ class _GoalDetailsPageState extends State<GoalDetailsPage> {
             throw Exception('From card not found: ${_fromCard!['name']}');
           }
           final currentFromBalance = (fromCardDoc.data()!['balance'] ?? 0.0).toDouble();
-          final newFromBalance = currentFromBalance - diff;
 
-          if (newFromBalance < 0 && diff > 0) {
+          if (diff > 0 && currentFromBalance < diff) {
             throw Exception('Insufficient balance in ${_fromCard!['name']}. Available: RM${currentFromBalance.toStringAsFixed(2)}, Required: RM${diff.toStringAsFixed(2)}');
           }
         }
@@ -137,7 +136,7 @@ class _GoalDetailsPageState extends State<GoalDetailsPage> {
           }
         }
 
-        // SECOND: Do all writes
+        // SECOND: Perform all writes
         // Update goal progress
         final currentIntervalsDeposited = Map<String, dynamic>.from(
           widget.goal['intervalsDeposited'] ?? {},
@@ -149,30 +148,80 @@ class _GoalDetailsPageState extends State<GoalDetailsPage> {
           'depositedAmount': FieldValue.increment(diff),
         });
 
-        // Update card balances
+        // Update card balances and create transaction records
         if (_fromCard != null && fromCardRef != null && fromCardDoc != null) {
           final currentFromBalance = (fromCardDoc.data()!['balance'] ?? 0.0).toDouble();
-          final newFromBalance = currentFromBalance - diff;
-          txn.update(fromCardRef, {'balance': newFromBalance});
+          txn.update(fromCardRef, {'balance': currentFromBalance - diff});
+
+          // Create transaction record for from card (outgoing)
+          if (diff != 0) {
+            final transactionRef = FirebaseFirestore.instance.collection('transactions').doc();
+            txn.set(transactionRef, {
+              'userId': userId,
+              'amount': diff.abs(),
+              'timestamp': FieldValue.serverTimestamp(),
+              'fromCardId': _fromCard!['id'],
+              'toCardId': _toCard?['id'], // nullable
+              'type': 'goal_deposit',
+              'description': 'Goal deposit: ${widget.goal['name']}',
+              'goalId': widget.goalId,
+              'intervalIndex': widget.intervalIndex,
+            });
+          }
         }
 
         if (_toCard != null && toCardRef != null && toCardDoc != null) {
           final currentToBalance = (toCardDoc.data()!['balance'] ?? 0.0).toDouble();
-          final newToBalance = currentToBalance + diff;
-          txn.update(toCardRef, {'balance': newToBalance});
+          txn.update(toCardRef, {'balance': currentToBalance + diff});
+
+          // Create transaction record for to card (incoming) - only if different from fromCard
+          if (diff != 0 && (_fromCard == null || _fromCard!['id'] != _toCard!['id'])) {
+            final transactionRef = FirebaseFirestore.instance.collection('transactions').doc();
+            txn.set(transactionRef, {
+              'userId': userId,
+              'amount': diff.abs(),
+              'timestamp': FieldValue.serverTimestamp(),
+              'fromCardId': _fromCard?['id'], // nullable
+              'toCardId': _toCard!['id'],
+              'type': 'goal_deposit',
+              'description': 'Goal deposit received: ${widget.goal['name']}',
+              'goalId': widget.goalId,
+              'intervalIndex': widget.intervalIndex,
+            });
+          }
         }
       });
 
-      // Update local state after successful transaction
+      // Update local state after successful transaction - fetch fresh data
+      if (_fromCard != null) {
+        final updatedFromCard = await FirebaseFirestore.instance
+            .collection('users')
+            .doc(userId)
+            .collection('cards')
+            .doc(_fromCard!['id'])
+            .get();
+        if (updatedFromCard.exists) {
+          setState(() {
+            _fromCard!['balance'] = (updatedFromCard.data()!['balance'] ?? 0.0).toDouble();
+          });
+        }
+      }
+
+      if (_toCard != null) {
+        final updatedToCard = await FirebaseFirestore.instance
+            .collection('users')
+            .doc(userId)
+            .collection('cards')
+            .doc(_toCard!['id'])
+            .get();
+        if (updatedToCard.exists) {
+          setState(() {
+            _toCard!['balance'] = (updatedToCard.data()!['balance'] ?? 0.0).toDouble();
+          });
+        }
+      }
+
       setState(() {
-        if (_fromCard != null) {
-          final currentFromBalance = (_fromCard!['balance'] ?? 0.0).toDouble();
-          _fromCard!['balance'] = currentFromBalance - diff;
-        }
-        if (_toCard != null) {
-          final currentToBalance = (_toCard!['balance'] ?? 0.0).toDouble();
-          _toCard!['balance'] = currentToBalance + diff;
-        }
         deposited = enteredAmount;
       });
 
@@ -229,7 +278,6 @@ class _GoalDetailsPageState extends State<GoalDetailsPage> {
           padding: const EdgeInsets.symmetric(horizontal: 4),
           child: Row(
             children: [
-              // Back arrow button with grey background
               GestureDetector(
                 onTap: () {
                   Navigator.pop(context);

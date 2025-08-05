@@ -72,7 +72,7 @@ class _CategoriesListPageState extends State<CategoriesListPage>
         'name': data['name'],
         'icon': data['icon'],
         'type': data['type'],
-        'userId': data['userId'] ?? data['userid'] ?? null,
+        'userId': data['userId'] ?? data['userId'] ?? null,
         // Handle both fields
       };
     }).toList();

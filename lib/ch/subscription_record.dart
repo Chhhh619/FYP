@@ -213,7 +213,7 @@ class _AddSubscriptionPageState extends State<AddSubscriptionPage> {
     final categoryRef = _firestore.collection('categories').doc('qOIeFiz2HjETIU1dyerW');
 
     await _firestore.collection('subscriptions').add({
-      'userid': user.uid,
+      'userId': user.uid,
       'name': _nameController.text.trim(),
       'amount': amount,
       'startDate': Timestamp.fromDate(_startDate),
@@ -245,12 +245,6 @@ class _AddSubscriptionPageState extends State<AddSubscriptionPage> {
         ),
         title: const Text('Add new Subscription', style: TextStyle(color: Colors.white)),
         centerTitle: true,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.close, color: Colors.white),
-            onPressed: () => Navigator.pop(context),
-          ),
-        ],
       ),
       bottomNavigationBar: Padding(
         padding: const EdgeInsets.fromLTRB(16.0, 8.0, 16.0, 32.0),

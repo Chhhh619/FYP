@@ -42,7 +42,7 @@ class _IncomeDetailsPageState extends State<IncomeDetailsPage> {
       final categoryRef = _firestore.collection('categories').doc(widget.categoryId);
       final incomeSnapshot = await _firestore
           .collection('incomes')
-          .where('userid', isEqualTo: userId)
+          .where('userId', isEqualTo: userId)
           .where('category', isEqualTo: categoryRef)
           .limit(1)
           .get();
@@ -189,7 +189,7 @@ class _IncomeDetailsPageState extends State<IncomeDetailsPage> {
     try {
       final categoryRef = _firestore.collection('categories').doc(widget.categoryId);
       final incomeData = {
-        'userid': userId,
+        'userId': userId,
         'name': widget.category['name'] ?? 'Income', // Use category name
         'amount': enteredAmount,
         'startDate': Timestamp.fromDate(_startDate),
@@ -239,7 +239,7 @@ class _IncomeDetailsPageState extends State<IncomeDetailsPage> {
 
       // Always create a new transaction (don't check for existing ones for testing)
       await _firestore.collection('transactions').add({
-        'userid': userId,
+        'userId': userId,
         'amount': amount,
         'timestamp': Timestamp.now(), // Use current time for testing
         'category': _firestore.collection('categories').doc(widget.categoryId),

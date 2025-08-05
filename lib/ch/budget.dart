@@ -71,21 +71,21 @@ class _BudgetPageState extends State<BudgetPage> {
 
       final monthSnap = await _firestore
           .collection('transactions')
-          .where('userid', isEqualTo: userId)
+          .where('userId', isEqualTo: userId)
           .where('timestamp', isGreaterThanOrEqualTo: Timestamp.fromDate(startOfMonth))
           .where('timestamp', isLessThanOrEqualTo: Timestamp.fromDate(endOfMonth))
           .get();
 
       final weekSnap = await _firestore
           .collection('transactions')
-          .where('userid', isEqualTo: userId)
+          .where('userId', isEqualTo: userId)
           .where('timestamp', isGreaterThanOrEqualTo: Timestamp.fromDate(startOfWeek))
           .where('timestamp', isLessThanOrEqualTo: Timestamp.fromDate(endOfWeek))
           .get();
 
       final daySnap = await _firestore
           .collection('transactions')
-          .where('userid', isEqualTo: userId)
+          .where('userId', isEqualTo: userId)
           .where('timestamp', isGreaterThanOrEqualTo: Timestamp.fromDate(startOfDay))
           .where('timestamp', isLessThanOrEqualTo: Timestamp.fromDate(endOfDay))
           .get();
@@ -191,7 +191,7 @@ class _BudgetPageState extends State<BudgetPage> {
 
     final snapshot = await _firestore
         .collection('transactions')
-        .where('userid', isEqualTo: userId)
+        .where('userId', isEqualTo: userId)
         .where('category', isEqualTo: categoryRef)
         .where('timestamp', isGreaterThanOrEqualTo: Timestamp.fromDate(startOfPeriod))
         .where('timestamp', isLessThanOrEqualTo: Timestamp.fromDate(endOfPeriod))
@@ -800,7 +800,7 @@ class _BudgetPageState extends State<BudgetPage> {
 
     final snapshot = await _firestore
         .collection('transactions')
-        .where('userid', isEqualTo: userId)
+        .where('userId', isEqualTo: userId)
         .where('timestamp', isGreaterThanOrEqualTo: Timestamp.fromDate(start))
         .where('timestamp', isLessThanOrEqualTo: Timestamp.fromDate(end))
         .get();

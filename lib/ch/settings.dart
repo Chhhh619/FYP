@@ -95,7 +95,7 @@ class _SettingsPageState extends State<SettingsPage> {
   Future<int> _calculateTotalTransactions(String userId) async {
     final snapshot = await FirebaseFirestore.instance
         .collection('transactions')
-        .where('userid', isEqualTo: userId)
+        .where('userId', isEqualTo: userId)
         .get();
     return snapshot.size;
   }
@@ -103,7 +103,7 @@ class _SettingsPageState extends State<SettingsPage> {
   Future<int> _calculateTotalSubscriptions(String userId) async {
     final snapshot = await FirebaseFirestore.instance
         .collection('subscriptions')
-        .where('userid', isEqualTo: userId)
+        .where('userId', isEqualTo: userId)
         .get();
     return snapshot.size;
   }
