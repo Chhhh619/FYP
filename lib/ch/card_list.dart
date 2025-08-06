@@ -7,6 +7,7 @@ import '../models/card_model.dart';
 import '../wc/financial_tips.dart';
 import '../wc/gamification_page.dart';
 import '../ch/settings.dart';
+import 'card_options.dart';
 
 class CardListPage extends StatefulWidget {
   @override
@@ -14,82 +15,21 @@ class CardListPage extends StatefulWidget {
 }
 
 class _CardListPageState extends State<CardListPage> {
-  List<CardModel> debitCards = [];
-  List<CardModel> creditCards = [];
-  bool isLoading = true;
   int _selectedIndex = 0;
-
-  @override
-  void initState() {
-    super.initState();
-    _fetchCards();
-  }
-
-  Future<void> _fetchCards() async {
-    try {
-      final String userId = FirebaseAuth.instance.currentUser!.uid;
-      final QuerySnapshot snapshot = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(userId)
-          .collection('cards')
-          .orderBy('timestamp', descending: true)
-          .get();
-
-      List<CardModel> fetchedDebitCards = [];
-      List<CardModel> fetchedCreditCards = [];
-
-      for (var doc in snapshot.docs) {
-        final data = doc.data() as Map<String, dynamic>;
-        final card = CardModel(
-          id: doc.id,
-          name: data['name'] ?? '',
-          type: data['type'] ?? 'Debit',
-          balance: (data['balance'] ?? 0.0).toDouble(),
-          bankName: data['bankName'] ?? '',
-          bankLogo: data['bankLogo'] ?? 'assets/images/ambank.png',
-          last4: data['last4'] ?? '',
-        );
-
-        if (card.type.toLowerCase() == 'debit') {
-          fetchedDebitCards.add(card);
-        } else {
-          fetchedCreditCards.add(card);
-        }
-      }
-
-      setState(() {
-        debitCards = fetchedDebitCards;
-        creditCards = fetchedCreditCards;
-        isLoading = false;
-      });
-    } catch (e) {
-      print('Error fetching cards: $e');
-      setState(() {
-        isLoading = false;
-      });
-    }
-  }
-
-  double get totalBalance =>
-      debitCards.fold(0.0, (sum, card) => sum + card.balance);
-
-  double get totalCreditAvailable =>
-      creditCards.fold(0.0, (sum, card) => sum + card.balance);
 
   void _onBottomNavTapped(int index) {
     setState(() => _selectedIndex = index);
 
     switch (index) {
       case 0:
-        _fetchCards();
-        break;
+        break; // Already on this page
       case 1:
-        Navigator.push(context,
-            MaterialPageRoute(builder: (_) => const FinancialTipsScreen()));
+        Navigator.push(
+            context, MaterialPageRoute(builder: (_) => const FinancialTipsScreen()));
         break;
       case 2:
-        Navigator.push(context,
-            MaterialPageRoute(builder: (_) => const GamificationPage()));
+        Navigator.push(
+            context, MaterialPageRoute(builder: (_) => const GamificationPage()));
         break;
       case 3:
         Navigator.push(
@@ -105,81 +45,131 @@ class _CardListPageState extends State<CardListPage> {
       body: SafeArea(
         child: Column(
           children: [
-            // Custom back + title + plus button
-            Padding(
+            Container(
               padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
               child: Row(
                 children: [
                   GestureDetector(
                     onTap: () => Navigator.pop(context),
                     child: Container(
-                      padding: const EdgeInsets.all(8),
+                      width: 40,
+                      height: 40,
                       decoration: BoxDecoration(
                         color: Colors.grey[850],
                         borderRadius: BorderRadius.circular(12),
                       ),
-                      child: const Icon(Icons.arrow_back, color: Colors.white),
+                      child: const Icon(Icons.arrow_back, color: Colors.white, size: 20),
                     ),
                   ),
-                  const SizedBox(width: 12),
-                  const Text(
-                    'Assets',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 20,
-                      fontWeight: FontWeight.w600,
+                  const Expanded(
+                    child: Text(
+                      'Assets',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 20,
+                        fontWeight: FontWeight.w600,
+                      ),
+                      textAlign: TextAlign.center,
                     ),
                   ),
-                  const Spacer(),
-                  IconButton(
-                    icon: const Icon(Icons.add, color: Colors.white),
-                    onPressed: () async {
-                      final result = await Navigator.push(
+                  GestureDetector(
+                    onTap: () async {
+                      await Navigator.push(
                         context,
                         MaterialPageRoute(
-                            builder: (_) => CardTypeSelectionPage()),
+                          builder: (_) => CardOptionsPage(cardType: 'Debit'),
+                        ),
                       );
-                      if (result == true) _fetchCards();
                     },
+                    child: Container(
+                      width: 40,
+                      height: 40,
+                      decoration: BoxDecoration(
+                        color: Colors.grey[850],
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: const Icon(Icons.add, color: Colors.white, size: 20),
+                    ),
                   ),
                 ],
               ),
             ),
-
             Expanded(
-              child: isLoading
-                  ? Center(
-                child: CircularProgressIndicator(color: Colors.teal[600]),
-              )
-                  : RefreshIndicator(
-                onRefresh: _fetchCards,
-                color: Colors.teal[600],
-                backgroundColor: Colors.grey[800],
-                child: SingleChildScrollView(
-                  physics: const AlwaysScrollableScrollPhysics(),
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // Summary card
-                      _buildSummaryCard(),
+              child: StreamBuilder<QuerySnapshot>(
+                stream: FirebaseFirestore.instance
+                    .collection('users')
+                    .doc(FirebaseAuth.instance.currentUser!.uid)
+                    .collection('cards')
+                    .orderBy('timestamp', descending: true)
+                    .snapshots(),
+                builder: (context, snapshot) {
+                  if (snapshot.connectionState == ConnectionState.waiting) {
+                    return Center(
+                      child: CircularProgressIndicator(color: Colors.teal[600]),
+                    );
+                  }
 
-                      const SizedBox(height: 24),
-                      _buildSection(
-                          title: 'Debit Cards',
-                          cards: debitCards,
-                          balance: totalBalance),
-                      if (creditCards.isNotEmpty)
-                        _buildSection(
-                          title: 'Credit Cards',
-                          cards: creditCards,
-                          balance: totalCreditAvailable,
-                          isCredit: true,
-                        ),
-                      const SizedBox(height: 100),
-                    ],
-                  ),
-                ),
+                  if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+                    return Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: const [
+                          Icon(Icons.credit_card_off, color: Colors.grey, size: 48),
+                          SizedBox(height: 16),
+                          Text('No cards yet',
+                              style: TextStyle(color: Colors.white70, fontSize: 16)),
+                        ],
+                      ),
+                    );
+                  }
+
+                  final docs = snapshot.data!.docs;
+                  final debitCards = <CardModel>[];
+                  final creditCards = <CardModel>[];
+
+                  for (var doc in docs) {
+                    final data = doc.data() as Map<String, dynamic>;
+                    final card = CardModel(
+                      id: doc.id,
+                      name: data['name'] ?? '',
+                      type: data['type'] ?? 'Debit',
+                      balance: (data['balance'] ?? 0.0).toDouble(),
+                      bankName: data['bankName'] ?? '',
+                      bankLogo: data['bankLogo'] ?? 'assets/images/ambank.png',
+                      last4: data['last4'] ?? '',
+                    );
+
+                    if (card.type.toLowerCase() == 'debit') {
+                      debitCards.add(card);
+                    } else {
+                      creditCards.add(card);
+                    }
+                  }
+
+                  final totalBalance = debitCards.fold(0.0, (sum, c) => sum + c.balance);
+                  final totalCredit = creditCards.fold(0.0, (sum, c) => sum + c.balance);
+
+                  return SingleChildScrollView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _buildSummaryCard(totalBalance, debitCards.length + creditCards.length),
+                        const SizedBox(height: 24),
+                        _buildSection(title: 'Debit Cards', cards: debitCards, balance: totalBalance),
+                        if (creditCards.isNotEmpty)
+                          _buildSection(
+                            title: 'Credit Cards',
+                            cards: creditCards,
+                            balance: totalCredit,
+                            isCredit: true,
+                          ),
+                        const SizedBox(height: 100),
+                      ],
+                    ),
+                  );
+                },
               ),
             ),
           ],
@@ -188,37 +178,58 @@ class _CardListPageState extends State<CardListPage> {
     );
   }
 
-  Widget _buildSummaryCard() {
+  Widget _buildSummaryCard(double totalBalance, int cardCount) {
     return Container(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
         gradient: LinearGradient(
           colors: [Colors.teal[600]!, Colors.teal[800]!],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.teal.withOpacity(0.3),
+            blurRadius: 20,
+            offset: const Offset(0, 8),
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text('Total Balance',
-              style: TextStyle(color: Colors.white70, fontSize: 14)),
-          const SizedBox(height: 8),
+              style: TextStyle(color: Colors.white70, fontSize: 16)),
+          const SizedBox(height: 12),
           Text('RM${totalBalance.toStringAsFixed(0)}',
               style: const TextStyle(
                   color: Colors.white,
-                  fontSize: 32,
+                  fontSize: 36,
                   fontWeight: FontWeight.bold)),
-          const SizedBox(height: 12),
+          const SizedBox(height: 16),
           Row(
             children: [
-              Text(
-                '${debitCards.length + creditCards.length} card${(debitCards.length + creditCards.length) != 1 ? 's' : ''}',
-                style: const TextStyle(color: Colors.white70, fontSize: 14),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(
+                  '$cardCount card${cardCount != 1 ? 's' : ''}',
+                  style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w500),
+                ),
               ),
               const Spacer(),
-              const Icon(Icons.trending_up, color: Colors.white70, size: 20),
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Icon(Icons.trending_up, color: Colors.white, size: 20),
+              ),
             ],
           ),
         ],
@@ -254,20 +265,35 @@ class _CardListPageState extends State<CardListPage> {
         ),
         const SizedBox(height: 16),
         if (cards.isEmpty)
-          Padding(
-            padding: const EdgeInsets.all(32),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(40),
+            decoration: BoxDecoration(
+              color: Colors.grey[850],
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: Colors.grey[700]!, width: 1),
+            ),
             child: Column(
               children: [
-                const Icon(Icons.credit_card_off,
-                    color: Colors.grey, size: 48),
-                const SizedBox(height: 12),
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.grey[800],
+                    borderRadius: BorderRadius.circular(50),
+                  ),
+                  child: const Icon(Icons.credit_card_off,
+                      color: Colors.grey, size: 48),
+                ),
+                const SizedBox(height: 16),
                 Text('No ${title.toLowerCase()} found',
                     style: const TextStyle(
-                        color: Colors.grey, fontWeight: FontWeight.w500)),
-                const SizedBox(height: 4),
-                const Text('Tap the + button to add your first card',
+                        color: Colors.white,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w500)),
+                const SizedBox(height: 8),
+                const Text('Tap the + button above to add your first card',
                     textAlign: TextAlign.center,
-                    style: TextStyle(color: Colors.grey, fontSize: 13)),
+                    style: TextStyle(color: Colors.grey, fontSize: 14)),
               ],
             ),
           )
@@ -286,28 +312,36 @@ class _CardListPageState extends State<CardListPage> {
       margin: const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
         color: Colors.grey[800],
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(16),
         border: Border.all(color: Colors.grey[700]!, width: 1),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.2),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
       ),
       child: InkWell(
         onTap: () => Navigator.push(
           context,
           MaterialPageRoute(builder: (_) => CardDetailsPage(card: card)),
         ),
-        borderRadius: BorderRadius.circular(12),
+        onLongPress: () => _showDeleteDialog(card),
+        borderRadius: BorderRadius.circular(16),
         child: Padding(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.all(20),
           child: Row(
             children: [
               Container(
-                width: 48,
-                height: 48,
-                padding: const EdgeInsets.all(8),
+                width: 52,
+                height: 52,
+                padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(14),
                   gradient: LinearGradient(
                     colors: [
-                      Colors.white.withOpacity(0.1),
+                      Colors.white.withOpacity(0.15),
                       Colors.white.withOpacity(0.05),
                     ],
                     begin: Alignment.topLeft,
@@ -318,7 +352,7 @@ class _CardListPageState extends State<CardListPage> {
                   logoPath,
                   fit: BoxFit.contain,
                   errorBuilder: (_, __, ___) => const Icon(Icons.account_balance,
-                      color: Colors.white70, size: 24),
+                      color: Colors.white70, size: 28),
                 ),
               ),
               const SizedBox(width: 16),
@@ -329,11 +363,12 @@ class _CardListPageState extends State<CardListPage> {
                       Text(card.name,
                           style: const TextStyle(
                               color: Colors.white,
-                              fontWeight: FontWeight.w500)),
-                      const SizedBox(height: 4),
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600)),
+                      const SizedBox(height: 6),
                       Text('${card.type} •••• ${card.last4}',
                           style: TextStyle(
-                              color: Colors.grey[400], fontSize: 13)),
+                              color: Colors.grey[400], fontSize: 14)),
                     ]),
               ),
               Column(
@@ -342,9 +377,11 @@ class _CardListPageState extends State<CardListPage> {
                     const Text('Balance',
                         style:
                         TextStyle(color: Colors.grey, fontSize: 12)),
+                    const SizedBox(height: 4),
                     Text('RM${card.balance.toStringAsFixed(0)}',
                         style: const TextStyle(
                             color: Colors.white,
+                            fontSize: 16,
                             fontWeight: FontWeight.w600)),
                   ]),
               const SizedBox(width: 8),
@@ -353,6 +390,57 @@ class _CardListPageState extends State<CardListPage> {
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  void _showDeleteDialog(CardModel card) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: Colors.grey[850],
+        title: const Text(
+          'Delete Card',
+          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+        ),
+        content: Text(
+          'Are you sure you want to delete ${card.name} (${card.type} •••• ${card.last4})?',
+          style: const TextStyle(color: Colors.white70),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel', style: TextStyle(color: Colors.teal)),
+          ),
+          TextButton(
+            onPressed: () async {
+              try {
+                await FirebaseFirestore.instance
+                    .collection('users')
+                    .doc(FirebaseAuth.instance.currentUser!.uid)
+                    .collection('cards')
+                    .doc(card.id)
+                    .delete();
+                Navigator.pop(context);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    backgroundColor: Colors.teal[600],
+                    content: const Text('Card deleted successfully'),
+                  ),
+                );
+              } catch (e) {
+                Navigator.pop(context);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    backgroundColor: Colors.red[600],
+                    content: const Text('Failed to delete card'),
+                  ),
+                );
+              }
+            },
+            child: const Text('Delete', style: TextStyle(color: Colors.red)),
+          ),
+        ],
       ),
     );
   }

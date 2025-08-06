@@ -13,25 +13,44 @@ class GoalProgressPage extends StatefulWidget {
 }
 
 class _GoalProgressPageState extends State<GoalProgressPage> {
-  DateTime _calculateIntervalDate(DateTime startDate, String repeatType, int intervalIndex) {
+  DateTime _calculateIntervalDate(
+    DateTime startDate,
+    String repeatType,
+    int intervalIndex,
+  ) {
     switch (repeatType.toLowerCase()) {
       case 'daily':
         return startDate.add(Duration(days: intervalIndex));
       case 'weekly':
         return startDate.add(Duration(days: intervalIndex * 7));
       case 'monthly':
-        return DateTime(startDate.year, startDate.month + intervalIndex, startDate.day);
+        return DateTime(
+          startDate.year,
+          startDate.month + intervalIndex,
+          startDate.day,
+        );
       case 'yearly':
-        return DateTime(startDate.year + intervalIndex, startDate.month, startDate.day);
+        return DateTime(
+          startDate.year + intervalIndex,
+          startDate.month,
+          startDate.day,
+        );
       default:
-        return DateTime(startDate.year, startDate.month + intervalIndex, startDate.day);
+        return DateTime(
+          startDate.year,
+          startDate.month + intervalIndex,
+          startDate.day,
+        );
     }
   }
 
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<DocumentSnapshot>(
-      stream: FirebaseFirestore.instance.collection('goals').doc(widget.goalId).snapshots(),
+      stream: FirebaseFirestore.instance
+          .collection('goals')
+          .doc(widget.goalId)
+          .snapshots(),
       builder: (context, snapshot) {
         if (!snapshot.hasData || !snapshot.data!.exists) {
           return const Scaffold(
@@ -63,7 +82,10 @@ class _GoalProgressPageState extends State<GoalProgressPage> {
       appBar: AppBar(
         backgroundColor: const Color.fromRGBO(28, 28, 28, 1),
         iconTheme: const IconThemeData(color: Colors.white),
-        title: Text(goal['name'] ?? 'Goal', style: const TextStyle(color: Colors.white)),
+        title: Text(
+          goal['name'] ?? 'Goal',
+          style: const TextStyle(color: Colors.white),
+        ),
       ),
       body: Padding(
         padding: const EdgeInsets.all(16),
@@ -79,24 +101,40 @@ class _GoalProgressPageState extends State<GoalProgressPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(goal['name'] ?? '',
-                      style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white)),
+                  Text(
+                    goal['name'] ?? '',
+                    style: const TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
+                  ),
                   const SizedBox(height: 6),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Text('Planned Deposit', style: TextStyle(color: Colors.white70)),
-                      Text(formatter.format(totalAmount), style: const TextStyle(color: Colors.tealAccent)),
+                      const Text(
+                        'Planned Deposit',
+                        style: TextStyle(color: Colors.white70),
+                      ),
+                      Text(
+                        formatter.format(totalAmount),
+                        style: const TextStyle(color: Colors.tealAccent),
+                      ),
                     ],
                   ),
                   const SizedBox(height: 10),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text('Saved ${formatter.format(deposited)}',
-                          style: const TextStyle(color: Colors.white)),
-                      Text('Remaining ${formatter.format(totalAmount - deposited)}',
-                          style: const TextStyle(color: Colors.white70)),
+                      Text(
+                        'Saved ${formatter.format(deposited)}',
+                        style: const TextStyle(color: Colors.white),
+                      ),
+                      Text(
+                        'Remaining ${formatter.format(totalAmount - deposited)}',
+                        style: const TextStyle(color: Colors.white70),
+                      ),
                     ],
                   ),
                   const SizedBox(height: 8),
@@ -110,10 +148,15 @@ class _GoalProgressPageState extends State<GoalProgressPage> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text(DateFormat('dd MMM yyyy').format(start), style: const TextStyle(color: Colors.white54)),
+                      Text(
+                        DateFormat('dd MMM yyyy').format(start),
+                        style: const TextStyle(color: Colors.white54),
+                      ),
                       Text(
                         goal['type'] == 'flexible' && goal['endDate'] != null
-                            ? DateFormat('dd MMM yyyy').format((goal['endDate'] as Timestamp).toDate())
+                            ? DateFormat(
+                                'dd MMM yyyy',
+                              ).format((goal['endDate'] as Timestamp).toDate())
                             : 'No End Date',
                         style: const TextStyle(color: Colors.white54),
                       ),
@@ -126,9 +169,15 @@ class _GoalProgressPageState extends State<GoalProgressPage> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text('Savings Progress', style: TextStyle(color: Colors.white, fontSize: 16)),
+                const Text(
+                  'Savings Progress',
+                  style: TextStyle(color: Colors.white, fontSize: 16),
+                ),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
                   decoration: BoxDecoration(
                     color: Colors.teal.withOpacity(0.2),
                     borderRadius: BorderRadius.circular(8),
@@ -156,18 +205,32 @@ class _GoalProgressPageState extends State<GoalProgressPage> {
                   crossAxisSpacing: 12,
                 ),
                 itemBuilder: (context, index) {
-                  final intervalDate = _calculateIntervalDate(start, repeatType, index);
+                  final intervalDate = _calculateIntervalDate(
+                    start,
+                    repeatType,
+                    index,
+                  );
                   final intervalsDeposited = goal['intervalsDeposited'] ?? {};
-                  final depositedValue = intervalsDeposited['$index'];
-                  final isDeposited = depositedValue != null;
+                  final intervalData = intervalsDeposited['$index'];
+                  final isDeposited = intervalData != null;
 
-                  final amount = depositedValue is String
-                      ? double.tryParse(depositedValue) ?? amountPerInterval
-                      : (depositedValue as num?)?.toDouble() ?? amountPerInterval;
+                  double amount = amountPerInterval;
+                  String? cardUsed;
+
+                  if (intervalData is Map<String, dynamic>) {
+                    amount =
+                        (intervalData['amount'] as num?)?.toDouble() ??
+                        amountPerInterval;
+                    cardUsed = intervalData['cardId'];
+                  } else if (intervalData is num) {
+                    // Support old format
+                    amount = intervalData.toDouble();
+                  }
 
                   final now = DateTime.now();
                   final isOverdue = !isDeposited && intervalDate.isBefore(now);
-                  final isDueToday = !isDeposited &&
+                  final isDueToday =
+                      !isDeposited &&
                       intervalDate.year == now.year &&
                       intervalDate.month == now.month &&
                       intervalDate.day == now.day;
@@ -201,6 +264,8 @@ class _GoalProgressPageState extends State<GoalProgressPage> {
                             intervalIndex: index,
                             intervalDueDate: intervalDate,
                             amountPerInterval: amountPerInterval,
+                            selectedFromCardId: isDeposited ? cardUsed : null, // Pass the last used card ID
+                            selectedToCardId: null, // Add logic for To Card if needed
                           ),
                         ),
                       );
@@ -216,14 +281,29 @@ class _GoalProgressPageState extends State<GoalProgressPage> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(statusText,
-                              style: TextStyle(
-                                color: statusColor,
-                                fontSize: 12,
-                              )),
+                          Text(
+                            statusText,
+                            style: TextStyle(color: statusColor, fontSize: 12),
+                          ),
                           const SizedBox(height: 6),
-                          Text('RM${amount.toStringAsFixed(0)}',
-                              style: const TextStyle(fontSize: 18, color: Colors.tealAccent)),
+                          Text(
+                            'RM${amount.toStringAsFixed(0)}',
+                            style: const TextStyle(
+                              fontSize: 18,
+                              color: Colors.tealAccent,
+                            ),
+                          ),
+                          if (cardUsed != null)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 2),
+                              child: Text(
+                                'Card: $cardUsed',
+                                style: const TextStyle(
+                                  color: Colors.white38,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ),
                           const SizedBox(height: 6),
                           Text(
                             _getFormattedDate(intervalDate, repeatType),
@@ -232,8 +312,7 @@ class _GoalProgressPageState extends State<GoalProgressPage> {
                         ],
                       ),
                     ),
-                  );
-                },
+                  );                },
               ),
             ),
           ],

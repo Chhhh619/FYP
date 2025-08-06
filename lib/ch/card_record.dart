@@ -64,7 +64,6 @@ class _CardRecordPageState extends State<CardRecordPage> {
           'userId': userId,
           'cardId': cardDocRef.id,
           'type': 'card_creation',
-          'description': 'Initial card setup - $name',
           'amount': balance,
           'timestamp': FieldValue.serverTimestamp(),
           'category': 'setup',
@@ -79,11 +78,9 @@ class _CardRecordPageState extends State<CardRecordPage> {
         ),
       );
 
-      // Navigate back to the main page with success result
-      Navigator.popUntil(context, (route) => route.isFirst);
-      // Return true to indicate success
-      Navigator.pop(context, true);
-
+      if (Navigator.canPop(context)) {
+        Navigator.pop(context, true); // Just pop once with success result
+      }
     } catch (e) {
       print("Failed to save card: $e");
       ScaffoldMessenger.of(context).showSnackBar(
@@ -92,9 +89,17 @@ class _CardRecordPageState extends State<CardRecordPage> {
           backgroundColor: Colors.red,
         ),
       );
+    } finally {
+      setState(() => _isLoading = false);
     }
+  }
 
-    setState(() => _isLoading = false);
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _last4Controller.dispose();
+    _balanceController.dispose();
+    super.dispose();
   }
 
   @override
@@ -102,9 +107,9 @@ class _CardRecordPageState extends State<CardRecordPage> {
     final isDebit = widget.cardType.toLowerCase() == 'debit';
 
     return Scaffold(
-      backgroundColor: Color.fromRGBO(28, 28, 28, 1),
+      backgroundColor: const Color.fromRGBO(28, 28, 28, 1),
       appBar: AppBar(
-        backgroundColor: Color.fromRGBO(28, 28, 28, 1),
+        backgroundColor: const Color.fromRGBO(28, 28, 28, 1),
         iconTheme: const IconThemeData(color: Colors.white),
         title: const Text('Card Info', style: TextStyle(color: Colors.white)),
       ),
@@ -120,10 +125,6 @@ class _CardRecordPageState extends State<CardRecordPage> {
                   width: 40,
                   height: 40,
                   padding: const EdgeInsets.all(4),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
                   child: Image.asset(
                     widget.bankLogo,
                     fit: BoxFit.contain,
@@ -135,7 +136,7 @@ class _CardRecordPageState extends State<CardRecordPage> {
                           color: Colors.grey[700],
                           borderRadius: BorderRadius.circular(8),
                         ),
-                        child: Icon(Icons.account_balance, color: Colors.white),
+                        child: const Icon(Icons.account_balance, color: Colors.white),
                       );
                     },
                   ),
@@ -146,7 +147,11 @@ class _CardRecordPageState extends State<CardRecordPage> {
                   children: [
                     Text(
                       widget.bankName,
-                      style: const TextStyle(fontSize: 20, color: Colors.white, fontWeight: FontWeight.w600),
+                      style: const TextStyle(
+                        fontSize: 20,
+                        color: Colors.white,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                     Text(
                       '${widget.cardType} Card',
@@ -156,13 +161,15 @@ class _CardRecordPageState extends State<CardRecordPage> {
                 ),
               ],
             ),
-
             const SizedBox(height: 32),
-
             // Card Name Field
             Text(
               '${isDebit ? "Debit" : "Credit"} Card Name',
-              style: const TextStyle(color: Colors.white70, fontSize: 16, fontWeight: FontWeight.w500),
+              style: const TextStyle(
+                color: Colors.white70,
+                fontSize: 16,
+                fontWeight: FontWeight.w500,
+              ),
             ),
             const SizedBox(height: 8),
             TextField(
@@ -183,20 +190,26 @@ class _CardRecordPageState extends State<CardRecordPage> {
                 ),
               ),
             ),
-
             const SizedBox(height: 20),
-
             // Last 4 Digits Field
-            Text(
+            const Text(
               'Last 4 Digits',
-              style: const TextStyle(color: Colors.white70, fontSize: 16, fontWeight: FontWeight.w500),
+              style: TextStyle(
+                color: Colors.white70,
+                fontSize: 16,
+                fontWeight: FontWeight.w500,
+              ),
             ),
             const SizedBox(height: 8),
             TextField(
               controller: _last4Controller,
               keyboardType: TextInputType.number,
               maxLength: 4,
-              style: const TextStyle(color: Colors.white, fontSize: 18, letterSpacing: 2),
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 18,
+                letterSpacing: 2,
+              ),
               decoration: InputDecoration(
                 counterText: '',
                 hintText: '1234',
@@ -213,18 +226,20 @@ class _CardRecordPageState extends State<CardRecordPage> {
                 ),
               ),
             ),
-
             const SizedBox(height: 20),
-
             // Initial Balance Field
-            Text(
+            const Text(
               'Current Balance',
-              style: const TextStyle(color: Colors.white70, fontSize: 16, fontWeight: FontWeight.w500),
+              style: TextStyle(
+                color: Colors.white70,
+                fontSize: 16,
+                fontWeight: FontWeight.w500,
+              ),
             ),
             const SizedBox(height: 8),
             TextField(
               controller: _balanceController,
-              keyboardType: TextInputType.numberWithOptions(decimal: true),
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
               style: const TextStyle(color: Colors.white),
               decoration: InputDecoration(
                 hintText: '0.00',
@@ -243,15 +258,12 @@ class _CardRecordPageState extends State<CardRecordPage> {
                 ),
               ),
             ),
-
             const SizedBox(height: 8),
             Text(
               'Enter your current card balance',
               style: TextStyle(color: Colors.grey[500], fontSize: 12),
             ),
-
             const Spacer(),
-
             // Save Button
             SizedBox(
               width: double.infinity,
@@ -277,11 +289,13 @@ class _CardRecordPageState extends State<CardRecordPage> {
                 )
                     : const Text(
                   'Save Card',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ),
             ),
-
             const SizedBox(height: 20),
           ],
         ),

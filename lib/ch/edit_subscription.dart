@@ -9,14 +9,21 @@ import 'package:intl/intl.dart';
 import 'package:crop_your_image/crop_your_image.dart';
 import 'select_card_popup.dart';
 
-class AddSubscriptionPage extends StatefulWidget {
-  const AddSubscriptionPage({super.key});
+class EditSubscriptionPage extends StatefulWidget {
+  final String subscriptionId;
+  final Map<String, dynamic> subscriptionData;
+
+  const EditSubscriptionPage({
+    super.key,
+    required this.subscriptionId,
+    required this.subscriptionData,
+  });
 
   @override
-  State<AddSubscriptionPage> createState() => _AddSubscriptionPageState();
+  State<EditSubscriptionPage> createState() => _EditSubscriptionPageState();
 }
 
-class _AddSubscriptionPageState extends State<AddSubscriptionPage> {
+class _EditSubscriptionPageState extends State<EditSubscriptionPage> {
   final TextEditingController _nameController = TextEditingController();
   final TextEditingController _amountController = TextEditingController();
   DateTime _startDate = DateTime.now();
@@ -36,6 +43,52 @@ class _AddSubscriptionPageState extends State<AddSubscriptionPage> {
     {'label': 'Spotify', 'path': 'assets/images/spotify.png'},
     {'label': 'YouTube', 'path': 'assets/images/youtube.png'},
   ];
+
+  @override
+  void initState() {
+    super.initState();
+    _initializeFields();
+    _loadSelectedCard();
+  }
+
+  void _initializeFields() {
+    final data = widget.subscriptionData;
+    _nameController.text = data['name'] ?? '';
+    _amountController.text = (data['amount'] ?? 0.0).toString();
+    _startDate = (data['startDate'] as Timestamp).toDate();
+    _repeatType = data['repeat'] ?? 'Monthly';
+    _selectedIcon = data['icon'] ?? '';
+  }
+
+  Future<void> _loadSelectedCard() async {
+    final fromCardId = widget.subscriptionData['fromCardId'];
+    if (fromCardId != null && fromCardId.isNotEmpty) {
+      try {
+        final userId = _auth.currentUser?.uid;
+        if (userId != null) {
+          final cardDoc = await _firestore
+              .collection('users')
+              .doc(userId)
+              .collection('cards')
+              .doc(fromCardId)
+              .get();
+
+          if (cardDoc.exists) {
+            final cardData = cardDoc.data()!;
+            setState(() {
+              _selectedCard = {
+                'id': cardDoc.id,
+                'name': cardData['name'] ?? 'Unknown Card',
+                'balance': (cardData['balance'] ?? 0.0).toDouble(),
+              };
+            });
+          }
+        }
+      } catch (e) {
+        print('Error loading selected card: $e');
+      }
+    }
+  }
 
   void _selectCard() async {
     final selectedCard = await showDialog<Map<String, dynamic>>(
@@ -190,14 +243,16 @@ class _AddSubscriptionPageState extends State<AddSubscriptionPage> {
     );
   }
 
-  Future<void> _submitSubscription() async {
+  Future<void> _updateSubscription() async {
     final user = _auth.currentUser;
     if (user == null) return;
 
     final amount = double.tryParse(_amountController.text.trim()) ?? 0.0;
-    String? iconToSave = _selectedIcon.isNotEmpty ? _selectedIcon : null;
+    String? iconToSave;
 
+    // Determine which icon to save
     if (_croppedImage != null) {
+      // New custom image uploaded
       iconToSave = await _uploadImageToStorage(_croppedImage!, user.uid);
       if (iconToSave == null) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -205,19 +260,34 @@ class _AddSubscriptionPageState extends State<AddSubscriptionPage> {
         );
         return;
       }
+    } else if (_selectedIcon.isNotEmpty) {
+      // Selected from local icons or keeping existing
+      iconToSave = _selectedIcon;
+    } else {
+      // Fallback
+      iconToSave = '❔';
     }
 
-    await _firestore.collection('subscriptions').add({
-      'userId': user.uid,
-      'name': _nameController.text.trim(),
-      'amount': amount,
-      'startDate': Timestamp.fromDate(_startDate),
-      'repeat': _repeatType,
-      'icon': iconToSave ?? '❔',
-      'fromCardId': _selectedCard?['id'],
-    });
+    try {
+      await _firestore.collection('subscriptions').doc(widget.subscriptionId).update({
+        'name': _nameController.text.trim(),
+        'amount': amount,
+        'startDate': Timestamp.fromDate(_startDate),
+        'repeat': _repeatType,
+        'icon': iconToSave,
+        'fromCardId': _selectedCard?['id'],
+      });
 
-    Navigator.pop(context);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Subscription updated successfully')),
+      );
+
+      Navigator.pop(context, true); // Return true to indicate successful update
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to update subscription: $e')),
+      );
+    }
   }
 
   Widget _buildTile({
@@ -247,6 +317,60 @@ class _AddSubscriptionPageState extends State<AddSubscriptionPage> {
     );
   }
 
+  Widget _buildCurrentIcon() {
+    // If there's a cropped image, show it
+    if (_croppedImage != null) {
+      return CircleAvatar(
+        radius: 20,
+        backgroundColor: Colors.teal.withOpacity(0.2),
+        backgroundImage: MemoryImage(_croppedImage!),
+      );
+    }
+
+    // If there's a custom file, show it
+    if (_customIconFile != null) {
+      return CircleAvatar(
+        radius: 20,
+        backgroundColor: Colors.teal.withOpacity(0.2),
+        backgroundImage: FileImage(_customIconFile!),
+      );
+    }
+
+    // If selected icon is an asset path
+    if (_selectedIcon.isNotEmpty && _selectedIcon.startsWith('assets/')) {
+      return CircleAvatar(
+        radius: 20,
+        backgroundColor: Colors.teal.withOpacity(0.2),
+        backgroundImage: AssetImage(_selectedIcon),
+      );
+    }
+
+    // If selected icon is a URL (existing custom icon)
+    if (_selectedIcon.isNotEmpty && (_selectedIcon.startsWith('http://') || _selectedIcon.startsWith('https://'))) {
+      return CircleAvatar(
+        radius: 20,
+        backgroundColor: Colors.teal.withOpacity(0.2),
+        backgroundImage: NetworkImage(_selectedIcon),
+      );
+    }
+
+    // If selected icon is an emoji or text
+    if (_selectedIcon.isNotEmpty) {
+      return CircleAvatar(
+        radius: 20,
+        backgroundColor: Colors.teal.withOpacity(0.2),
+        child: Text(_selectedIcon, style: const TextStyle(fontSize: 16)),
+      );
+    }
+
+    // Default fallback
+    return CircleAvatar(
+      radius: 20,
+      backgroundColor: Colors.teal.withOpacity(0.2),
+      child: const Icon(Icons.image, color: Colors.teal),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -257,19 +381,19 @@ class _AddSubscriptionPageState extends State<AddSubscriptionPage> {
           icon: const Icon(Icons.arrow_back, color: Colors.white),
           onPressed: () => Navigator.pop(context),
         ),
-        title: const Text('Add new Subscription', style: TextStyle(color: Colors.white)),
+        title: const Text('Edit Subscription', style: TextStyle(color: Colors.white)),
         centerTitle: true,
       ),
       bottomNavigationBar: Padding(
         padding: const EdgeInsets.fromLTRB(16.0, 8.0, 16.0, 32.0),
         child: ElevatedButton(
-          onPressed: _submitSubscription,
+          onPressed: _updateSubscription,
           style: ElevatedButton.styleFrom(
             backgroundColor: Colors.teal,
             padding: const EdgeInsets.symmetric(vertical: 16),
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           ),
-          child: const Text('Add Subscription', style: TextStyle(color: Colors.white)),
+          child: const Text('Update Subscription', style: TextStyle(color: Colors.white)),
         ),
       ),
       body: ListView(
@@ -287,22 +411,7 @@ class _AddSubscriptionPageState extends State<AddSubscriptionPage> {
               children: [
                 GestureDetector(
                   onTap: _showIconSelector,
-                  child: CircleAvatar(
-                    radius: 20,
-                    backgroundColor: Colors.teal.withOpacity(0.2),
-                    backgroundImage: _customIconFile != null
-                        ? FileImage(_customIconFile!)
-                        : _croppedImage != null
-                        ? MemoryImage(_croppedImage!) as ImageProvider
-                        : (_selectedIcon.isNotEmpty
-                        ? AssetImage(_selectedIcon)
-                        : null),
-                    child: (_customIconFile == null &&
-                        _croppedImage == null &&
-                        _selectedIcon.isEmpty)
-                        ? const Icon(Icons.image, color: Colors.teal)
-                        : null,
-                  ),
+                  child: _buildCurrentIcon(),
                 ),
                 const SizedBox(width: 8),
                 Expanded(
