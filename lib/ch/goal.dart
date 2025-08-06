@@ -169,7 +169,7 @@ class _GoalPageState extends State<GoalPage> {
 
                       final progress = (depositedAmount / totalAmount).clamp(0.0, 1.0);
                       final formatter = NumberFormat.currency(symbol: 'RM');
-                      final isCompleted = status == 'completed';
+                      bool isCompleted = status == 'completed' && depositedAmount >= totalAmount;
 
                       // Enhanced colors and styling based on completion status
                       final backgroundColor = isCompleted ? Colors.teal.withOpacity(0.15) : Colors.grey[850];

@@ -15,6 +15,7 @@ import 'package:intl/intl.dart';
 import 'package:fyp/wc/financial_tips.dart';
 import 'package:fyp/wc/gamification_page.dart';
 import 'card_list.dart';
+import 'export_page.dart';
 import 'income.dart';
 import 'billing_start_date_page.dart';
 
@@ -456,6 +457,22 @@ class _SettingsPageState extends State<SettingsPage> {
                       context,
                       MaterialPageRoute(
                         builder: (context) => const IncomePage(),
+                      ),
+                    );
+                  },
+                ),
+                _buildListTile(
+                  leadingIcon: Icons.currency_exchange,
+                  title: 'Export Report',
+                  trailing: const Icon(
+                    Icons.chevron_right,
+                    color: Colors.white70,
+                  ),
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const ExportReportPage(),
                       ),
                     );
                   },

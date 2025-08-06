@@ -38,6 +38,9 @@ class _GoalDetailsPageState extends State<GoalDetailsPage> {
   final userId = FirebaseAuth.instance.currentUser!.uid;
 
   @override
+  @override
+  @override
+  @override
   void initState() {
     super.initState();
 
@@ -45,17 +48,69 @@ class _GoalDetailsPageState extends State<GoalDetailsPage> {
       widget.goal['intervalsDeposited'] ?? {},
     );
 
-    final existingAmount = intervalsDeposited['${widget.intervalIndex}'];
-    if (existingAmount != null) {
-      // Pre-fill with deposited amount if it exists
-      _amountController = TextEditingController(
-        text: (existingAmount as num).toStringAsFixed(0),
-      );
+    final intervalData = intervalsDeposited['${widget.intervalIndex}'];
+    if (intervalData != null) {
+      if (intervalData is Map<String, dynamic>) {
+        // New format: {amount: 400.0, cardId: "4LEt0WSpu8sneAdpFpzY"}
+        _amountController = TextEditingController(
+          text: (intervalData['amount'] as num).toStringAsFixed(0),
+        );
+        // Prefill From Card if cardId exists
+        if (intervalData['cardId'] != null) {
+          _fetchCardDetails(intervalData['cardId'] as String, 'from');
+        }
+        // Prefill To Card if toCardId exists (add if needed)
+        // if (intervalData['toCardId'] != null) {
+        //   _fetchCardDetails(intervalData['toCardId'] as String, 'to');
+        // }
+      } else if (intervalData is num) {
+        // Legacy format: 400.0
+        _amountController = TextEditingController(
+          text: intervalData.toStringAsFixed(0),
+        );
+        // No cardId in legacy format, rely on selectedFromCardId if provided
+        if (widget.selectedFromCardId != null) {
+          _fetchCardDetails(widget.selectedFromCardId!, 'from');
+        }
+      }
     } else {
-      // Otherwise use calculated amount per interval
+      // No existing data, use calculated amount per interval
       _amountController = TextEditingController(
         text: widget.amountPerInterval.toStringAsFixed(0),
       );
+    }
+
+    // Prefill From Card if selectedFromCardId is provided and _fromCard is null
+    if (widget.selectedFromCardId != null && _fromCard == null) {
+      _fetchCardDetails(widget.selectedFromCardId!, 'from');
+    }
+    // Prefill To Card if selectedToCardId is provided and _toCard is null (add if needed)
+    if (widget.selectedToCardId != null && _toCard == null) {
+      _fetchCardDetails(widget.selectedToCardId!, 'to');
+    }
+  }
+// Make _fetchCardDetails async and handle the fetch
+  Future<void> _fetchCardDetails(String cardId, String role) async {
+    try {
+      final userId = FirebaseAuth.instance.currentUser!.uid;
+      final cardRef = FirebaseFirestore.instance
+          .collection('users')
+          .doc(userId)
+          .collection('cards')
+          .doc(cardId);
+
+      final cardSnap = await cardRef.get();
+      if (cardSnap.exists) {
+        setState(() {
+          if (role == 'from') {
+            _fromCard = cardSnap.data() as Map<String, dynamic>;
+          } else {
+            _toCard = cardSnap.data() as Map<String, dynamic>;
+          }
+        });
+      }
+    } catch (e) {
+      print('Error fetching card details: $e');
     }
   }
 
@@ -97,8 +152,8 @@ class _GoalDetailsPageState extends State<GoalDetailsPage> {
     final totalAmount = (goalData['totalAmount'] ?? 0).toDouble();
     final intervalsDeposited =
     Map<String, dynamic>.from(goalData['intervalsDeposited'] ?? {});
-    final oldAmount =
-    (intervalsDeposited['${widget.intervalIndex}'] ?? 0).toDouble();
+    final intervalData = intervalsDeposited['${widget.intervalIndex}'] ?? {};
+    final oldAmount = (intervalData['amount'] ?? 0).toDouble();
 
     final diff = enteredAmount - oldAmount;
     final updatedDeposited =
@@ -152,7 +207,13 @@ class _GoalDetailsPageState extends State<GoalDetailsPage> {
         }
       }
 
-      intervalsDeposited['${widget.intervalIndex}'] = enteredAmount;
+      // Update intervalData with amount and cardId
+      final updatedIntervalData = {
+        'amount': enteredAmount,
+        'cardId': _fromCard?['id'], // Store the fromCardId
+        // 'toCardId': _toCard?['id'], // Uncomment if you want to store toCardId
+      };
+      intervalsDeposited['${widget.intervalIndex}'] = updatedIntervalData;
 
       final updates = {
         'intervalsDeposited': intervalsDeposited,
@@ -195,7 +256,6 @@ class _GoalDetailsPageState extends State<GoalDetailsPage> {
 
     Navigator.pop(context, true);
   }
-
   Widget _buildTile({
     required IconData icon,
     required String title,
