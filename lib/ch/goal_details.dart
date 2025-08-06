@@ -10,6 +10,8 @@ class GoalDetailsPage extends StatefulWidget {
   final int intervalIndex;
   final DateTime intervalDueDate;
   final double amountPerInterval;
+  final String? selectedFromCardId;
+  final String? selectedToCardId;
 
   const GoalDetailsPage({
     super.key,
@@ -18,6 +20,8 @@ class GoalDetailsPage extends StatefulWidget {
     required this.intervalIndex,
     required this.intervalDueDate,
     required this.amountPerInterval,
+    this.selectedFromCardId,
+    this.selectedToCardId,
   });
 
   @override
@@ -36,13 +40,23 @@ class _GoalDetailsPageState extends State<GoalDetailsPage> {
   @override
   void initState() {
     super.initState();
-    _amountController = TextEditingController(
-      text: widget.amountPerInterval.toStringAsFixed(0),
-    );
+
     final intervalsDeposited = Map<String, dynamic>.from(
       widget.goal['intervalsDeposited'] ?? {},
     );
-    deposited = (intervalsDeposited['${widget.intervalIndex}'] ?? 0).toDouble();
+
+    final existingAmount = intervalsDeposited['${widget.intervalIndex}'];
+    if (existingAmount != null) {
+      // Pre-fill with deposited amount if it exists
+      _amountController = TextEditingController(
+        text: (existingAmount as num).toStringAsFixed(0),
+      );
+    } else {
+      // Otherwise use calculated amount per interval
+      _amountController = TextEditingController(
+        text: widget.amountPerInterval.toStringAsFixed(0),
+      );
+    }
   }
 
   void _selectCard(String role) async {
@@ -66,174 +80,120 @@ class _GoalDetailsPageState extends State<GoalDetailsPage> {
     }
   }
 
-  Future<void> _saveDeposit() async {
-    final enteredAmount = double.tryParse(_amountController.text.trim()) ?? 0;
-
-    if (enteredAmount <= 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter a valid amount')),
-      );
-      return;
-    }
-
-    // Check if at least one card is selected
-    if (_fromCard == null && _toCard == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please select at least one card')),
-      );
-      return;
-    }
-
-    // Calculate the difference from previous deposit
-    final previousDeposit = deposited ?? 0;
-    final diff = enteredAmount - previousDeposit;
-
+  Future<void> _saveDeposit(double enteredAmount) async {
     final goalRef = FirebaseFirestore.instance
         .collection('goals')
         .doc(widget.goalId);
 
-    try {
-      await FirebaseFirestore.instance.runTransaction((txn) async {
-        // FIRST: Read all required documents
-        DocumentReference<Map<String, dynamic>>? fromCardRef;
-        DocumentReference<Map<String, dynamic>>? toCardRef;
-        DocumentSnapshot<Map<String, dynamic>>? fromCardDoc;
-        DocumentSnapshot<Map<String, dynamic>>? toCardDoc;
-
-        if (_fromCard != null) {
-          fromCardRef = FirebaseFirestore.instance
-              .collection('users')
-              .doc(userId)
-              .collection('cards')
-              .doc(_fromCard!['id']);
-          fromCardDoc = await txn.get(fromCardRef);
-        }
-
-        if (_toCard != null) {
-          toCardRef = FirebaseFirestore.instance
-              .collection('users')
-              .doc(userId)
-              .collection('cards')
-              .doc(_toCard!['id']);
-          toCardDoc = await txn.get(toCardRef);
-        }
-
-        // Validate card existence and balance
-        if (_fromCard != null && fromCardDoc != null) {
-          if (!fromCardDoc.exists) {
-            throw Exception('From card not found: ${_fromCard!['name']}');
-          }
-          final currentFromBalance = (fromCardDoc.data()!['balance'] ?? 0.0).toDouble();
-
-          if (diff > 0 && currentFromBalance < diff) {
-            throw Exception('Insufficient balance in ${_fromCard!['name']}. Available: RM${currentFromBalance.toStringAsFixed(2)}, Required: RM${diff.toStringAsFixed(2)}');
-          }
-        }
-
-        if (_toCard != null && toCardDoc != null) {
-          if (!toCardDoc.exists) {
-            throw Exception('To card not found: ${_toCard!['name']}');
-          }
-        }
-
-        // SECOND: Perform all writes
-        // Update goal progress
-        final currentIntervalsDeposited = Map<String, dynamic>.from(
-          widget.goal['intervalsDeposited'] ?? {},
-        );
-        currentIntervalsDeposited['${widget.intervalIndex}'] = enteredAmount;
-
-        txn.update(goalRef, {
-          'intervalsDeposited': currentIntervalsDeposited,
-          'depositedAmount': FieldValue.increment(diff),
-        });
-
-        // Update card balances and create transaction records
-        if (_fromCard != null && fromCardRef != null && fromCardDoc != null) {
-          final currentFromBalance = (fromCardDoc.data()!['balance'] ?? 0.0).toDouble();
-          txn.update(fromCardRef, {'balance': currentFromBalance - diff});
-
-          // Create transaction record for from card (outgoing)
-          if (diff != 0) {
-            final transactionRef = FirebaseFirestore.instance.collection('transactions').doc();
-            txn.set(transactionRef, {
-              'userId': userId,
-              'amount': diff.abs(),
-              'timestamp': FieldValue.serverTimestamp(),
-              'fromCardId': _fromCard!['id'],
-              'toCardId': _toCard?['id'], // nullable
-              'type': 'goal_deposit',
-              'description': 'Goal deposit: ${widget.goal['name']}',
-              'goalId': widget.goalId,
-              'intervalIndex': widget.intervalIndex,
-            });
-          }
-        }
-
-        if (_toCard != null && toCardRef != null && toCardDoc != null) {
-          final currentToBalance = (toCardDoc.data()!['balance'] ?? 0.0).toDouble();
-          txn.update(toCardRef, {'balance': currentToBalance + diff});
-
-          // Create transaction record for to card (incoming) - only if different from fromCard
-          if (diff != 0 && (_fromCard == null || _fromCard!['id'] != _toCard!['id'])) {
-            final transactionRef = FirebaseFirestore.instance.collection('transactions').doc();
-            txn.set(transactionRef, {
-              'userId': userId,
-              'amount': diff.abs(),
-              'timestamp': FieldValue.serverTimestamp(),
-              'fromCardId': _fromCard?['id'], // nullable
-              'toCardId': _toCard!['id'],
-              'type': 'goal_deposit',
-              'description': 'Goal deposit received: ${widget.goal['name']}',
-              'goalId': widget.goalId,
-              'intervalIndex': widget.intervalIndex,
-            });
-          }
-        }
-      });
-
-      // Update local state after successful transaction - fetch fresh data
-      if (_fromCard != null) {
-        final updatedFromCard = await FirebaseFirestore.instance
-            .collection('users')
-            .doc(userId)
-            .collection('cards')
-            .doc(_fromCard!['id'])
-            .get();
-        if (updatedFromCard.exists) {
-          setState(() {
-            _fromCard!['balance'] = (updatedFromCard.data()!['balance'] ?? 0.0).toDouble();
-          });
-        }
-      }
-
-      if (_toCard != null) {
-        final updatedToCard = await FirebaseFirestore.instance
-            .collection('users')
-            .doc(userId)
-            .collection('cards')
-            .doc(_toCard!['id'])
-            .get();
-        if (updatedToCard.exists) {
-          setState(() {
-            _toCard!['balance'] = (updatedToCard.data()!['balance'] ?? 0.0).toDouble();
-          });
-        }
-      }
-
-      setState(() {
-        deposited = enteredAmount;
-      });
-
+    final goalSnap = await goalRef.get();
+    if (!goalSnap.exists) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Deposit saved successfully!')),
+        const SnackBar(content: Text('Goal not found'), backgroundColor: Colors.redAccent),
       );
-      Navigator.pop(context, true); // Return true to indicate success
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to save deposit: ${e.toString()}')),
-      );
+      return;
     }
+
+    final goalData = goalSnap.data() as Map<String, dynamic>;
+    final totalAmount = (goalData['totalAmount'] ?? 0).toDouble();
+    final intervalsDeposited =
+    Map<String, dynamic>.from(goalData['intervalsDeposited'] ?? {});
+    final oldAmount =
+    (intervalsDeposited['${widget.intervalIndex}'] ?? 0).toDouble();
+
+    final diff = enteredAmount - oldAmount;
+    final updatedDeposited =
+        (goalData['depositedAmount'] ?? 0).toDouble() + diff;
+
+    // 🚫 Prevent over-deposit BEFORE transaction
+    if (updatedDeposited > totalAmount) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+              'Deposit exceeds goal amount by RM${(updatedDeposited - totalAmount).toStringAsFixed(2)}'),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+      return;
+    }
+
+    final fromCardRef = _fromCard != null
+        ? FirebaseFirestore.instance
+        .collection('users')
+        .doc(userId)
+        .collection('cards')
+        .doc(_fromCard!['id'])
+        : null;
+
+    final toCardRef = _toCard != null
+        ? FirebaseFirestore.instance
+        .collection('users')
+        .doc(userId)
+        .collection('cards')
+        .doc(_toCard!['id'])
+        : null;
+
+    // ✅ Run transaction only if deposit is valid
+    await FirebaseFirestore.instance.runTransaction((txn) async {
+      if (fromCardRef != null) {
+        final fromCardSnap = await txn.get(fromCardRef);
+        if (fromCardSnap.exists) {
+          txn.update(fromCardRef, {
+            'balance': (fromCardSnap['balance'] ?? 0).toDouble() - diff,
+          });
+        }
+      }
+
+      if (toCardRef != null) {
+        final toCardSnap = await txn.get(toCardRef);
+        if (toCardSnap.exists) {
+          txn.update(toCardRef, {
+            'balance': (toCardSnap['balance'] ?? 0).toDouble() + diff,
+          });
+        }
+      }
+
+      intervalsDeposited['${widget.intervalIndex}'] = enteredAmount;
+
+      final updates = {
+        'intervalsDeposited': intervalsDeposited,
+        'depositedAmount': updatedDeposited,
+      };
+
+      if (updatedDeposited >= totalAmount) {
+        updates['status'] = 'completed';
+        updates['completedDate'] = FieldValue.serverTimestamp();
+      }
+
+      txn.update(goalRef, updates);
+    });
+
+    // 🔹 Log transaction
+    final transactionsRef =
+    FirebaseFirestore.instance.collection('transactions').doc();
+
+    if (diff > 0 && _fromCard != null) {
+      await transactionsRef.set({
+        'userId': userId,
+        'fromCardId': _fromCard!['id'],
+        'toCardId': _toCard?['id'],
+        'type': 'goal_deposit',
+        'description': 'Deposit to goal ${widget.goal['name']}',
+        'amount': diff,
+        'timestamp': FieldValue.serverTimestamp(),
+      });
+    } else if (diff < 0 && _fromCard != null) {
+      await transactionsRef.set({
+        'userId': userId,
+        'fromCardId': _toCard?['id'],
+        'toCardId': _fromCard!['id'],
+        'type': 'goal_withdrawal',
+        'description': 'Refund from goal ${widget.goal['name']}',
+        'amount': diff.abs(),
+        'timestamp': FieldValue.serverTimestamp(),
+      });
+    }
+
+    Navigator.pop(context, true);
   }
 
   Widget _buildTile({
@@ -428,7 +388,10 @@ class _GoalDetailsPageState extends State<GoalDetailsPage> {
           ),
           const SizedBox(height: 30),
           ElevatedButton(
-            onPressed: _saveDeposit,
+            onPressed: () {
+              final enteredAmount = double.tryParse(_amountController.text) ?? 0.0;
+              _saveDeposit(enteredAmount);
+            },
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.teal,
               padding: const EdgeInsets.symmetric(vertical: 14),

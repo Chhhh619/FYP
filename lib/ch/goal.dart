@@ -22,25 +22,27 @@ class _GoalPageState extends State<GoalPage> {
       body: SafeArea(
         child: Column(
           children: [
-            Padding(
+            // Enhanced header with proper centering
+            Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               child: Row(
                 children: [
+                  // Back button
                   GestureDetector(
                     onTap: () {
                       Navigator.pop(context);
                     },
                     child: Container(
-                      padding: const EdgeInsets.all(8),
+                      width: 40,
+                      height: 40,
                       decoration: BoxDecoration(
                         color: Colors.grey[850],
                         borderRadius: BorderRadius.circular(12),
                       ),
-                      child: const Icon(Icons.arrow_back, color: Colors.white),
+                      child: const Icon(Icons.arrow_back, color: Colors.white, size: 20),
                     ),
                   ),
-                  const SizedBox(width: 16),
-                  // Title
+                  // Centered title with proper flex
                   const Expanded(
                     child: Text(
                       "My Goals",
@@ -61,12 +63,13 @@ class _GoalPageState extends State<GoalPage> {
                       );
                     },
                     child: Container(
-                      padding: const EdgeInsets.all(8),
+                      width: 40,
+                      height: 40,
                       decoration: BoxDecoration(
                         color: Colors.grey[850],
                         borderRadius: BorderRadius.circular(12),
                       ),
-                      child: const Icon(Icons.add, color: Colors.white),
+                      child: const Icon(Icons.add, color: Colors.white, size: 20),
                     ),
                   ),
                 ],
@@ -82,21 +85,66 @@ class _GoalPageState extends State<GoalPage> {
                     .snapshots(),
                 builder: (context, snapshot) {
                   if (!snapshot.hasData) {
-                    return const Center(child: CircularProgressIndicator());
+                    return const Center(
+                      child: CircularProgressIndicator(color: Colors.tealAccent),
+                    );
                   }
 
                   final goals = snapshot.data!.docs;
 
                   if (goals.isEmpty) {
-                    return const Center(
-                      child: Text('No goals found.', style: TextStyle(color: Colors.white70)),
+                    return Center(
+                      child: Container(
+                        padding: const EdgeInsets.all(40),
+                        margin: const EdgeInsets.all(20),
+                        decoration: BoxDecoration(
+                          color: Colors.grey[850],
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(color: Colors.grey[700]!, width: 1),
+                        ),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(20),
+                              decoration: BoxDecoration(
+                                color: Colors.grey[800],
+                                borderRadius: BorderRadius.circular(50),
+                              ),
+                              child: const Icon(
+                                Icons.flag_outlined,
+                                color: Colors.grey,
+                                size: 48,
+                              ),
+                            ),
+                            const SizedBox(height: 20),
+                            const Text(
+                              'No goals found',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 18,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            const Text(
+                              'Tap the + button above to create your first savings goal',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                color: Colors.grey,
+                                fontSize: 14,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                     );
                   }
 
                   return ListView.separated(
                     padding: const EdgeInsets.all(16),
                     itemCount: goals.length,
-                    separatorBuilder: (_, __) => const SizedBox(height: 12),
+                    separatorBuilder: (_, __) => const SizedBox(height: 16),
                     itemBuilder: (context, index) {
                       final doc = goals[index];
                       final goal = doc.data() as Map<String, dynamic>;
@@ -123,8 +171,8 @@ class _GoalPageState extends State<GoalPage> {
                       final formatter = NumberFormat.currency(symbol: 'RM');
                       final isCompleted = status == 'completed';
 
-                      // Choose colors based on completion status
-                      final backgroundColor = isCompleted ? Colors.teal.withOpacity(0.15) : Colors.grey[900];
+                      // Enhanced colors and styling based on completion status
+                      final backgroundColor = isCompleted ? Colors.teal.withOpacity(0.15) : Colors.grey[850];
                       final borderColor = isCompleted ? Colors.tealAccent.withOpacity(0.5) : Colors.grey[700];
                       final progressColor = isCompleted ? Colors.tealAccent[100] : Colors.tealAccent;
 
@@ -142,11 +190,14 @@ class _GoalPageState extends State<GoalPage> {
                             context: context,
                             builder: (_) => AlertDialog(
                               backgroundColor: Colors.grey[900],
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(16),
+                              ),
                               title: const Text('Goal Options', style: TextStyle(color: Colors.white)),
                               content: Column(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
-                                  if (!isCompleted) ...[
+                                  if (!isCompleted)
                                     ListTile(
                                       leading: const Icon(Icons.check_circle, color: Colors.tealAccent),
                                       title: const Text('Mark as Completed', style: TextStyle(color: Colors.white)),
@@ -155,16 +206,6 @@ class _GoalPageState extends State<GoalPage> {
                                         await _markGoalAsCompleted(doc.id);
                                       },
                                     ),
-                                  ] else ...[
-                                    ListTile(
-                                      leading: const Icon(Icons.restart_alt, color: Colors.orange),
-                                      title: const Text('Reactivate Goal', style: TextStyle(color: Colors.white)),
-                                      onTap: () async {
-                                        Navigator.pop(context);
-                                        await _reactivateGoal(doc.id);
-                                      },
-                                    ),
-                                  ],
                                   ListTile(
                                     leading: const Icon(Icons.delete, color: Colors.redAccent),
                                     title: const Text('Delete Goal', style: TextStyle(color: Colors.white)),
@@ -179,19 +220,33 @@ class _GoalPageState extends State<GoalPage> {
                           );
                         },
                         child: Container(
-                          padding: const EdgeInsets.all(16),
+                          padding: const EdgeInsets.all(20),
                           decoration: BoxDecoration(
                             color: backgroundColor,
-                            borderRadius: BorderRadius.circular(16),
+                            borderRadius: BorderRadius.circular(20),
                             border: Border.all(color: borderColor!),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withOpacity(0.2),
+                                blurRadius: 10,
+                                offset: const Offset(0, 4),
+                              ),
+                            ],
                           ),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Row(
                                 children: [
-                                  Text(icon, style: const TextStyle(fontSize: 24)),
-                                  const SizedBox(width: 8),
+                                  Container(
+                                    padding: const EdgeInsets.all(12),
+                                    decoration: BoxDecoration(
+                                      color: Colors.white.withOpacity(0.1),
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    child: Text(icon, style: const TextStyle(fontSize: 24)),
+                                  ),
+                                  const SizedBox(width: 12),
                                   Expanded(
                                     child: Text(name,
                                         style: const TextStyle(
@@ -201,10 +256,10 @@ class _GoalPageState extends State<GoalPage> {
                                   ),
                                   if (isCompleted)
                                     Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                                       decoration: BoxDecoration(
                                         color: Colors.tealAccent.withOpacity(0.2),
-                                        borderRadius: BorderRadius.circular(12),
+                                        borderRadius: BorderRadius.circular(20),
                                         border: Border.all(color: Colors.tealAccent, width: 1),
                                       ),
                                       child: const Text(
@@ -218,34 +273,49 @@ class _GoalPageState extends State<GoalPage> {
                                     ),
                                 ],
                               ),
-                              const SizedBox(height: 10),
+                              const SizedBox(height: 16),
                               Row(
                                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                 children: [
                                   Text('Goal: ${formatter.format(totalAmount)}',
-                                      style: const TextStyle(color: Colors.white70)),
+                                      style: const TextStyle(color: Colors.white70, fontSize: 14)),
                                   Text('Saved: ${formatter.format(depositedAmount)}',
-                                      style: const TextStyle(color: Colors.white70)),
+                                      style: const TextStyle(color: Colors.white70, fontSize: 14)),
                                 ],
                               ),
-                              const SizedBox(height: 6),
-                              LinearProgressIndicator(
-                                value: progress,
-                                backgroundColor: Colors.grey[800],
-                                color: progressColor,
-                                minHeight: 8,
+                              const SizedBox(height: 12),
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(10),
+                                child: LinearProgressIndicator(
+                                  value: progress,
+                                  backgroundColor: Colors.grey[800],
+                                  color: progressColor,
+                                  minHeight: 10,
+                                ),
                               ),
-                              const SizedBox(height: 10),
+                              const SizedBox(height: 12),
                               Row(
                                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                 children: [
-                                  Text(DateFormat('dd MMM yyyy').format(startDate),
-                                      style: const TextStyle(color: Colors.white54)),
-                                  Text(
-                                    hasEndDate
-                                        ? DateFormat('dd MMM yyyy').format(endDate!)
-                                        : 'No End Date',
-                                    style: const TextStyle(color: Colors.white54),
+                                  Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      const Text('Started', style: TextStyle(color: Colors.grey, fontSize: 12)),
+                                      Text(DateFormat('dd MMM yyyy').format(startDate),
+                                          style: const TextStyle(color: Colors.white54, fontSize: 13)),
+                                    ],
+                                  ),
+                                  Column(
+                                    crossAxisAlignment: CrossAxisAlignment.end,
+                                    children: [
+                                      const Text('Target Date', style: TextStyle(color: Colors.grey, fontSize: 12)),
+                                      Text(
+                                        hasEndDate
+                                            ? DateFormat('dd MMM yyyy').format(endDate!)
+                                            : 'No End Date',
+                                        style: const TextStyle(color: Colors.white54, fontSize: 13),
+                                      ),
+                                    ],
                                   ),
                                 ],
                               ),
@@ -273,40 +343,23 @@ class _GoalPageState extends State<GoalPage> {
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Goal marked as completed!'),
+          SnackBar(
+            content: const Text('Goal marked as completed!'),
             backgroundColor: Colors.tealAccent,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
           ),
         );
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to update goal: ${e.toString()}')),
-        );
-      }
-    }
-  }
-
-  Future<void> _reactivateGoal(String goalId) async {
-    try {
-      await FirebaseFirestore.instance.collection('goals').doc(goalId).update({
-        'status': 'active',
-        'completedDate': FieldValue.delete(),
-      });
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Goal reactivated!'),
-            backgroundColor: Colors.orange,
+          SnackBar(
+            content: Text('Failed to update goal: ${e.toString()}'),
+            backgroundColor: Colors.redAccent,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
           ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to reactivate goal: ${e.toString()}')),
         );
       }
     }
@@ -317,6 +370,7 @@ class _GoalPageState extends State<GoalPage> {
       context: context,
       builder: (_) => AlertDialog(
         backgroundColor: Colors.grey[900],
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: const Text('Delete Goal', style: TextStyle(color: Colors.white)),
         content: Text(
           'Are you sure you want to delete the goal "$goalName"?',
@@ -325,13 +379,30 @@ class _GoalPageState extends State<GoalPage> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
+            style: TextButton.styleFrom(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
             child: const Text('Cancel', style: TextStyle(color: Colors.white54)),
           ),
           TextButton(
             onPressed: () async {
               Navigator.pop(context);
               await FirebaseFirestore.instance.collection('goals').doc(goalId).delete();
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: const Text('Goal deleted successfully'),
+                    backgroundColor: Colors.redAccent,
+                    behavior: SnackBarBehavior.floating,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                );
+              }
             },
+            style: TextButton.styleFrom(
+              backgroundColor: Colors.redAccent.withOpacity(0.1),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
             child: const Text('Delete', style: TextStyle(color: Colors.redAccent)),
           ),
         ],

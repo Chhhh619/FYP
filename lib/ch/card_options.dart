@@ -21,11 +21,11 @@ class CardOptionsPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Color.fromRGBO(28, 28, 28, 1),
+      backgroundColor: const Color.fromRGBO(28, 28, 28, 1),
       appBar: AppBar(
-        title: Text('Select Bank', style: TextStyle(color: Colors.white)),
-        backgroundColor: Color.fromRGBO(28, 28, 28, 1),
-        iconTheme: IconThemeData(color: Colors.white),
+        title: const Text('Select Bank', style: TextStyle(color: Colors.white)),
+        backgroundColor: const Color.fromRGBO(28, 28, 28, 1),
+        iconTheme: const IconThemeData(color: Colors.white),
       ),
       body: ListView.separated(
         padding: const EdgeInsets.all(16),
@@ -34,8 +34,8 @@ class CardOptionsPage extends StatelessWidget {
         itemBuilder: (context, index) {
           final bank = banks[index];
           return GestureDetector(
-            onTap: () {
-              Navigator.push(
+            onTap: () async {
+              final result = await Navigator.push(
                 context,
                 MaterialPageRoute(
                   builder: (_) => CardRecordPage(
@@ -71,7 +71,7 @@ class CardOptionsPage extends StatelessWidget {
                       bank['logo'],
                       fit: BoxFit.contain,
                       errorBuilder: (context, error, stackTrace) {
-                        return Icon(Icons.account_balance,
+                        return const Icon(Icons.account_balance,
                           color: Colors.white70,
                           size: 20,
                         );

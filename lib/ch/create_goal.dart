@@ -146,7 +146,7 @@ class _CreateGoalPageState extends State<CreateGoalPage> {
             ),
           ),
           const SizedBox(height: 24),
-          const Text('周期设置', style: TextStyle(color: Colors.white70)),
+          const Text('Intervals Setting', style: TextStyle(color: Colors.white70)),
           const SizedBox(height: 12),
           _buildSettingTile(
             icon: Icons.calendar_today,

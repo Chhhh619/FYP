@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
 import 'subscription_record.dart';
+import 'edit_subscription.dart'; // Import the new edit page
 
 class SubscriptionPage extends StatefulWidget {
   const SubscriptionPage({super.key});
@@ -38,6 +39,23 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
     }
   }
 
+  Future<void> _editSubscription(String subscriptionId, Map<String, dynamic> subscriptionData) async {
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => EditSubscriptionPage(
+          subscriptionId: subscriptionId,
+          subscriptionData: subscriptionData,
+        ),
+      ),
+    );
+
+    // Refresh the page if the subscription was updated
+    if (result == true) {
+      setState(() {});
+    }
+  }
+
   Future<void> _deleteSubscription(String subscriptionId) async {
     try {
       await _firestore.collection('subscriptions').doc(subscriptionId).delete();
@@ -49,6 +67,91 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
         SnackBar(content: Text('Failed to delete subscription: $e')),
       );
     }
+  }
+
+  void _showSubscriptionOptions(QueryDocumentSnapshot doc) {
+    final data = doc.data() as Map<String, dynamic>;
+    final name = data['name'] ?? 'Unnamed';
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color.fromRGBO(28, 28, 28, 1),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) {
+        return Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 40,
+                height: 4,
+                margin: const EdgeInsets.only(bottom: 20),
+                decoration: BoxDecoration(
+                  color: Colors.grey[600],
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              Text(
+                name,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 20),
+              ListTile(
+                leading: const Icon(Icons.edit, color: Colors.teal),
+                title: const Text('Edit Subscription', style: TextStyle(color: Colors.white)),
+                onTap: () {
+                  Navigator.pop(context);
+                  _editSubscription(doc.id, data);
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.delete, color: Colors.red),
+                title: const Text('Delete Subscription', style: TextStyle(color: Colors.white)),
+                onTap: () {
+                  Navigator.pop(context);
+                  _showDeleteConfirmation(doc.id, name);
+                },
+              ),
+              const SizedBox(height: 10),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  void _showDeleteConfirmation(String subscriptionId, String name) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color.fromRGBO(33, 35, 34, 1),
+        title: const Text('Delete Subscription', style: TextStyle(color: Colors.white)),
+        content: Text(
+          'Are you sure you want to delete the "$name" subscription?',
+          style: const TextStyle(color: Colors.white),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel', style: TextStyle(color: Colors.teal)),
+          ),
+          TextButton(
+            onPressed: () {
+              _deleteSubscription(subscriptionId);
+              Navigator.pop(context);
+            },
+            child: const Text('Delete', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -125,7 +228,35 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
 
           final docs = snapshot.data!.docs;
           if (docs.isEmpty) {
-            return const Center(child: Text('No subscriptions yet', style: TextStyle(color: Colors.white)));
+            return Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    Icons.subscriptions,
+                    size: 80,
+                    color: Colors.grey[600],
+                  ),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'No subscriptions yet',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Add your first subscription to get started',
+                    style: TextStyle(
+                      color: Colors.grey[400],
+                      fontSize: 14,
+                    ),
+                  ),
+                ],
+              ),
+            );
           }
 
           final now = DateTime.now();
@@ -144,20 +275,17 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
 
           return ListView(
             children: [
-              const Padding(
-                padding: EdgeInsets.all(16.0),
-                child: Text(
-                  'Pending Bills (Next 7 Days)',
-                  style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
-                ),
-              ),
-              if (pendingBills.isEmpty)
+              if (pendingBills.isNotEmpty) ...[
                 const Padding(
                   padding: EdgeInsets.all(16.0),
-                  child: Text('No pending bills in the next 7 days', style: TextStyle(color: Colors.white)),
-                )
-              else
+                  child: Text(
+                    'Pending Bills (Next 7 Days)',
+                    style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
+                ),
                 ...pendingBills.map((doc) => _buildSubscriptionTile(doc, now, true)).toList(),
+                const SizedBox(height: 16),
+              ],
 
               const Padding(
                 padding: EdgeInsets.all(16.0),
@@ -193,50 +321,81 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
     final isImageUrl = icon.startsWith('http://') || icon.startsWith('https://');
 
     return GestureDetector(
-      onLongPress: () {
-        showDialog(
-          context: context,
-          builder: (context) => AlertDialog(
-            backgroundColor: const Color.fromRGBO(33, 35, 34, 1),
-            title: const Text('Delete Subscription', style: TextStyle(color: Colors.white)),
-            content: Text(
-              'Are you sure you want to delete the \"$name\" subscription?',
-              style: const TextStyle(color: Colors.white),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('Cancel', style: TextStyle(color: Colors.teal)),
-              ),
-              TextButton(
-                onPressed: () {
-                  _deleteSubscription(doc.id);
-                  Navigator.pop(context);
-                },
-                child: const Text('Delete', style: TextStyle(color: Colors.red)),
-              ),
-            ],
-          ),
-        );
-      },
+      onTap: () => _showSubscriptionOptions(doc),
+      onLongPress: () => _showDeleteConfirmation(doc.id, name),
       child: Card(
-        color: Colors.grey[800],
+        color: isPending ? Colors.orange[900]?.withOpacity(0.3) : Colors.grey[800],
         margin: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 16.0),
         child: ListTile(
+          contentPadding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 16.0),
           leading: CircleAvatar(
             backgroundColor: Colors.teal.withOpacity(0.2),
             child: isAssetPath
-                ? ClipOval(child: Image.asset(icon, width: 36, height: 36, fit: BoxFit.cover))
+                ? ClipOval(
+              child: Image.asset(
+                icon,
+                width: 36,
+                height: 36,
+                fit: BoxFit.cover,
+                errorBuilder: (context, error, stackTrace) {
+                  return Text(
+                    '❔',
+                    style: const TextStyle(fontSize: 18, color: Colors.white),
+                  );
+                },
+              ),
+            )
                 : isImageUrl
-                ? ClipOval(child: Image.network(icon, width: 36, height: 36, fit: BoxFit.cover))
+                ? ClipOval(
+              child: Image.network(
+                icon,
+                width: 36,
+                height: 36,
+                fit: BoxFit.cover,
+                errorBuilder: (context, error, stackTrace) {
+                  return Text(
+                    '❔',
+                    style: const TextStyle(fontSize: 18, color: Colors.white),
+                  );
+                },
+              ),
+            )
                 : Text(icon, style: const TextStyle(fontSize: 18, color: Colors.white)),
           ),
           title: Text(name, style: const TextStyle(color: Colors.white)),
-          subtitle: Text(
-            isPending ? 'Due: $formattedDate' : 'Next: $formattedDate',
-            style: const TextStyle(color: Colors.cyan),
+          subtitle: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                isPending ? 'Due: $formattedDate' : 'Next: $formattedDate',
+                style: TextStyle(
+                  color: isPending ? Colors.orange[300] : Colors.cyan,
+                  fontWeight: isPending ? FontWeight.w500 : FontWeight.normal,
+                ),
+              ),
+              Text(
+                'Repeats $repeat',
+                style: TextStyle(
+                  color: Colors.grey[400],
+                  fontSize: 12,
+                ),
+              ),
+            ],
           ),
-          trailing: Text('RM$amount', style: const TextStyle(color: Colors.cyan)),
+          trailing: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(
+                'RM$amount',
+                style: TextStyle(
+                  color: isPending ? Colors.orange[300] : Colors.cyan,
+                  fontWeight: FontWeight.w600,
+                  fontSize: 16,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

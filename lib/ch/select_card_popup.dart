@@ -81,13 +81,12 @@ class SelectCardPopup extends StatelessWidget {
             ),
             const SizedBox(height: 12),
             ElevatedButton.icon(
-              onPressed: () {
-                Navigator.pop(context); // Close this popup
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const CardTypeSelectionPage()),
-                );
-              },
+                onPressed: () {
+                  Navigator.pop(context); // Close popup
+                  Navigator.of(context, rootNavigator: true).push(
+                    MaterialPageRoute(builder: (_) => const CardTypeSelectionPage()),
+                  );
+                },
               icon: const Icon(Icons.add),
               label: const Text('Add New Card'),
               style: ElevatedButton.styleFrom(

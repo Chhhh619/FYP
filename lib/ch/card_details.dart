@@ -2,9 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../models/card_model.dart';
-import 'card_transaction_record.dart';
-import 'select_card_popup.dart'; // You'll need to import this from your goal_details.dart location
-import 'record_transaction.dart'; // Import for the transaction recording
+import 'card_transfer.dart'; // Import the card transfer page
 
 class CardDetailsPage extends StatefulWidget {
   final CardModel card;
@@ -34,188 +32,79 @@ class _CardDetailsPageState extends State<CardDetailsPage> {
 
       print('Loading transactions for card: ${currentCard.id}');
 
-      // Query 1: Incoming transfers (where this card is the recipient)
+      // Query 1: Transactions where this card receives money (toCardId)
+      // This includes: transfers, goal deposits to card, income transactions etc.
       try {
-        final QuerySnapshot incomingTransfers = await FirebaseFirestore.instance
+        final QuerySnapshot incomingQuery = await FirebaseFirestore.instance
             .collection('transactions')
             .where('userId', isEqualTo: userId)
             .where('toCardId', isEqualTo: currentCard.id)
             .orderBy('timestamp', descending: true)
             .get();
 
-        // Process incoming transfers
-        for (var doc in incomingTransfers.docs) {
+        for (var doc in incomingQuery.docs) {
           final data = doc.data() as Map<String, dynamic>;
-          String type = data['type'] ?? 'Transfer In';
-          String description = data['description'] ?? 'Transfer received';
-          IconData icon;
-
-          // Handle different transaction types
-          switch (type) {
-            case 'goal_deposit':
-              icon = Icons.savings;
-              break;
-            case 'transfer':
-              icon = Icons.arrow_downward;
-              break;
-            default:
-              icon = Icons.arrow_downward;
-          }
-
-          allTransactions.add(Transaction(
-            id: doc.id,
-            type: _formatTransactionType(type),
-            description: description,
-            amount: (data['amount'] ?? 0.0).toDouble(),
-            date: (data['timestamp'] as Timestamp).toDate(),
-            isIncoming: true,
-            icon: icon,
-          ));
+          allTransactions.add(_createTransactionFromData(doc.id, data, true));
         }
-        print('Found ${incomingTransfers.docs.length} incoming transfers');
+        print('Found ${incomingQuery.docs.length} incoming transactions');
       } catch (e) {
-        print('Error loading incoming transfers: $e');
+        print('Error loading incoming transactions: $e');
       }
 
-      // Query 2: Outgoing transfers (where this card is the sender)
+      // Query 2: Transactions where this card sends money (fromCardId)
+      // This includes: transfers, goal deposits from card, subscription payments, etc.
       try {
-        final QuerySnapshot outgoingTransfers = await FirebaseFirestore.instance
+        final QuerySnapshot outgoingQuery = await FirebaseFirestore.instance
             .collection('transactions')
             .where('userId', isEqualTo: userId)
             .where('fromCardId', isEqualTo: currentCard.id)
             .orderBy('timestamp', descending: true)
             .get();
 
-        // Process outgoing transfers
-        for (var doc in outgoingTransfers.docs) {
+        for (var doc in outgoingQuery.docs) {
           final data = doc.data() as Map<String, dynamic>;
-          String type = data['type'] ?? 'Transfer Out';
-          String description = data['description'] ?? 'Transfer sent';
-          IconData icon;
-
-          // Handle different transaction types
-          switch (type) {
-            case 'goal_deposit':
-              icon = Icons.savings;
-              break;
-            case 'transfer':
-              icon = Icons.arrow_upward;
-              break;
-            default:
-              icon = Icons.arrow_upward;
-          }
-
-          allTransactions.add(Transaction(
-            id: doc.id,
-            type: _formatTransactionType(type),
-            description: description,
-            amount: (data['amount'] ?? 0.0).toDouble(),
-            date: (data['timestamp'] as Timestamp).toDate(),
-            isIncoming: false,
-            icon: icon,
-          ));
+          // For outgoing transactions, they are expenses (money leaving the card)
+          allTransactions.add(_createTransactionFromData(doc.id, data, false));
         }
-        print('Found ${outgoingTransfers.docs.length} outgoing transfers');
+        print('Found ${outgoingQuery.docs.length} outgoing transactions (including subscriptions)');
       } catch (e) {
-        print('Error loading outgoing transfers: $e');
+        print('Error loading outgoing transactions: $e');
       }
 
-      // Query 3: Direct card transactions (income, expenses, etc.)
+      // Query 3: Direct card transactions (cardId field)
+      // This includes: manual income/expense recordings
       try {
-        final QuerySnapshot cardTransactions = await FirebaseFirestore.instance
+        final QuerySnapshot cardQuery = await FirebaseFirestore.instance
             .collection('transactions')
             .where('userId', isEqualTo: userId)
             .where('cardId', isEqualTo: currentCard.id)
             .orderBy('timestamp', descending: true)
             .get();
 
-        // Process direct card transactions
-        for (var doc in cardTransactions.docs) {
+        for (var doc in cardQuery.docs) {
           final data = doc.data() as Map<String, dynamic>;
-          String type = data['type'] ?? 'Transaction';
-          IconData icon = Icons.credit_card;
-          bool isIncoming = false;
-
-          switch (type.toLowerCase()) {
-            case 'income':
-            case 'deposit':
-              icon = Icons.attach_money;
-              isIncoming = true;
-              break;
-            case 'expense':
-            case 'withdrawal':
-              icon = Icons.money_off;
-              isIncoming = false;
-              break;
-            case 'card_creation':
-              icon = Icons.credit_card;
-              isIncoming = true;
-              type = 'Card Created';
-              break;
-          }
-
-          allTransactions.add(Transaction(
-            id: doc.id,
-            type: type,
-            description: data['description'] ?? type,
-            amount: (data['amount'] ?? 0.0).toDouble(),
-            date: (data['timestamp'] as Timestamp).toDate(),
-            isIncoming: isIncoming,
-            icon: icon,
-          ));
+          bool isIncoming = data['type'] == 'income';
+          allTransactions.add(_createTransactionFromData(doc.id, data, isIncoming));
         }
-        print('Found ${cardTransactions.docs.length} direct card transactions');
+        print('Found ${cardQuery.docs.length} direct card transactions');
       } catch (e) {
         print('Error loading card transactions: $e');
       }
 
-      // Query 4: Income transactions from the incomes collection
-      try {
-        final QuerySnapshot incomesSnapshot = await FirebaseFirestore.instance
-            .collection('incomes')
-            .where('userId', isEqualTo: userId)
-            .where('toCardId', isEqualTo: currentCard.id)
-            .orderBy('lastGenerated', descending: true)
-            .get();
-
-        // Process income transactions from incomes collection
-        for (var doc in incomesSnapshot.docs) {
-          final data = doc.data() as Map<String, dynamic>;
-          allTransactions.add(Transaction(
-            id: doc.id,
-            type: 'Income',
-            description: data['name'] ?? 'Income received',
-            amount: (data['amount'] ?? 0.0).toDouble(),
-            date: (data['lastGenerated'] as Timestamp).toDate(),
-            isIncoming: true,
-            icon: Icons.attach_money,
-          ));
-        }
-        print('Found ${incomesSnapshot.docs.length} income transactions');
-      } catch (e) {
-        print('Error loading income transactions: $e');
-      }
-
-      // Add card creation transaction if no transactions exist
-      if (allTransactions.isEmpty) {
-        allTransactions.add(Transaction(
-          id: 'initial_${currentCard.id}',
-          type: 'Card Created',
-          description: 'Initial card setup',
-          amount: currentCard.balance,
-          date: DateTime.now(),
-          isIncoming: true,
-          icon: Icons.credit_card,
-        ));
+      // Remove duplicates (in case a transaction appears in multiple queries)
+      Map<String, Transaction> uniqueTransactions = {};
+      for (var transaction in allTransactions) {
+        uniqueTransactions[transaction.id] = transaction;
       }
 
       // Sort all transactions by date (newest first)
-      allTransactions.sort((a, b) => b.date.compareTo(a.date));
+      List<Transaction> finalTransactions = uniqueTransactions.values.toList();
+      finalTransactions.sort((a, b) => b.date.compareTo(a.date));
 
-      print('Total transactions loaded: ${allTransactions.length}');
+      print('Total unique transactions loaded: ${finalTransactions.length}');
 
       setState(() {
-        transactions = allTransactions;
+        transactions = finalTransactions;
         isLoading = false;
       });
 
@@ -225,7 +114,6 @@ class _CardDetailsPageState extends State<CardDetailsPage> {
         isLoading = false;
       });
 
-      // Show error message to user
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Error loading transactions: $e')),
@@ -234,375 +122,145 @@ class _CardDetailsPageState extends State<CardDetailsPage> {
     }
   }
 
-  String _formatTransactionType(String type) {
-    switch (type) {
+// Helper method to create Transaction objects from Firestore data
+  Transaction _createTransactionFromData(String docId, Map<String, dynamic> data, bool isIncoming) {
+    String type = data['type'] ?? 'transaction';
+    String name = data['name'] ?? '';
+    String subscriptionId = data['subscriptionId'] ?? '';
+    String incomeId = data['incomeId'] ?? '';
+
+    IconData icon = _getIconForTransactionType(type, isIncoming);
+    String description = _getTransactionDescription(type, data, name);
+
+    return Transaction(
+      id: docId,
+      type: _formatTransactionType(type, subscriptionId, incomeId, name),
+      description: description,
+      amount: (data['amount'] ?? 0.0).toDouble(),
+      date: (data['timestamp'] as Timestamp).toDate(),
+      isIncoming: isIncoming,
+      icon: icon,
+    );
+  }
+
+// Helper method to get appropriate icon for transaction type
+  IconData _getIconForTransactionType(String type, bool isIncoming) {
+    switch (type.toLowerCase()) {
+      case 'transfer':
+        return isIncoming ? Icons.arrow_downward : Icons.arrow_upward;
+      case 'goal_deposit':
+        return Icons.savings;
+      case 'goal_withdrawal':
+        return Icons.savings_outlined;
+      case 'subscription':
+        return Icons.subscriptions;
+      case 'income':
+        return Icons.attach_money;
+      case 'expense':
+        return Icons.money_off;
+      default:
+        return Icons.credit_card;
+    }
+  }
+
+// Helper method to get transaction description
+  String _getTransactionDescription(String type, Map<String, dynamic> data, String name) {
+    switch (type.toLowerCase()) {
+      case 'transfer':
+        return 'Card transfer';
+      case 'goal_deposit':
+        String desc = data['description'] ?? '';
+        if (desc.contains('Goal deposit:')) {
+          return desc;
+        }
+        return 'Goal deposit';
+      case 'goal_withdrawal':
+        return 'Goal withdrawal';
+      case 'subscription':
+        return name.isNotEmpty ? name : 'Subscription payment';
+      case 'income':
+        return name.isNotEmpty ? name : 'Income received';
+      case 'expense':
+        return name.isNotEmpty ? name : 'Expense';
+      default:
+        return data['description'] ?? 'Transaction';
+    }
+  }
+
+  String _formatTransactionType(String type, String subscriptionId, String incomeId, String name) {
+    // If it has a subscriptionId, it's a subscription payment
+    if (subscriptionId.isNotEmpty) {
+      return name.isNotEmpty ? name : 'Subscription';
+    }
+
+    // If it has an incomeId, it's an income transaction
+    if (incomeId.isNotEmpty) {
+      return 'Income';
+    }
+
+    switch (type.toLowerCase()) {
       case 'goal_deposit':
         return 'Goal Deposit';
+      case 'goal_withdrawal':
+        return 'Goal Withdrawal';
       case 'transfer':
         return 'Transfer';
+      case 'subscription':
+        return name.isNotEmpty ? name : 'Subscription';
+      case 'income':
+        return 'Income';
+      case 'expense':
+        return 'Expense';
       default:
-        return type;
+        return type.split('_').map((word) =>
+        word[0].toUpperCase() + word.substring(1)).join(' ');
     }
   }
 
-  // Transfer money between cards
-  Future<void> _showTransferDialog() async {
-    final TextEditingController amountController = TextEditingController();
-    final TextEditingController descriptionController = TextEditingController(text: 'Transfer');
-    Map<String, dynamic>? toCard;
-
-    showDialog(
-      context: context,
-      builder: (BuildContext context) {
-        return StatefulBuilder(
-          builder: (context, setState) {
-            return AlertDialog(
-              backgroundColor: Colors.grey[900],
-              title: Text('Transfer Money', style: TextStyle(color: Colors.white)),
-              content: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    // From Card (current card - read only)
-                    Container(
-                      padding: EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: Colors.grey[800],
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Row(
-                        children: [
-                          Icon(Icons.arrow_upward, color: Colors.red),
-                          SizedBox(width: 8),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text('From: ${currentCard.name}',
-                                    style: TextStyle(color: Colors.white)),
-                                Text('Balance: RM${currentCard.balance.toStringAsFixed(2)}',
-                                    style: TextStyle(color: Colors.white70, fontSize: 12)),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    SizedBox(height: 16),
-                    // To Card (selectable)
-                    GestureDetector(
-                      onTap: () async {
-                        final selectedCard = await showDialog<Map<String, dynamic>>(
-                          context: context,
-                          builder: (context) => SelectCardPopup(
-                            onCardSelected: (card) {
-                              Navigator.pop(context, card);
-                            },
-                          ),
-                        );
-                        if (selectedCard != null) {
-                          setState(() {
-                            toCard = selectedCard;
-                          });
-                        }
-                      },
-                      child: Container(
-                        padding: EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: Colors.grey[800],
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: Colors.teal.withOpacity(0.5)),
-                        ),
-                        child: Row(
-                          children: [
-                            Icon(Icons.arrow_downward, color: Colors.green),
-                            SizedBox(width: 8),
-                            Expanded(
-                              child: toCard != null
-                                  ? Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text('To: ${toCard!['name']}',
-                                      style: TextStyle(color: Colors.white)),
-                                  Text('Balance: RM${(toCard!['balance'] ?? 0.0).toStringAsFixed(2)}',
-                                      style: TextStyle(color: Colors.white70, fontSize: 12)),
-                                ],
-                              )
-                                  : Text('Select destination card',
-                                  style: TextStyle(color: Colors.white70)),
-                            ),
-                            Icon(Icons.chevron_right, color: Colors.white70),
-                          ],
-                        ),
-                      ),
-                    ),
-                    SizedBox(height: 16),
-                    // Amount input
-                    TextField(
-                      controller: amountController,
-                      keyboardType: TextInputType.numberWithOptions(decimal: true),
-                      style: TextStyle(color: Colors.white),
-                      decoration: InputDecoration(
-                        labelText: 'Amount',
-                        labelStyle: TextStyle(color: Colors.white70),
-                        prefixText: 'RM ',
-                        prefixStyle: TextStyle(color: Colors.white70),
-                        border: OutlineInputBorder(),
-                        enabledBorder: OutlineInputBorder(
-                          borderSide: BorderSide(color: Colors.white70),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderSide: BorderSide(color: Colors.teal),
-                        ),
-                      ),
-                    ),
-                    SizedBox(height: 16),
-                    // Description input
-                    TextField(
-                      controller: descriptionController,
-                      style: TextStyle(color: Colors.white),
-                      decoration: InputDecoration(
-                        labelText: 'Description (Optional)',
-                        labelStyle: TextStyle(color: Colors.white70),
-                        border: OutlineInputBorder(),
-                        enabledBorder: OutlineInputBorder(
-                          borderSide: BorderSide(color: Colors.white70),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderSide: BorderSide(color: Colors.teal),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: Text('Cancel', style: TextStyle(color: Colors.white70)),
-                ),
-                ElevatedButton(
-                  onPressed: () async {
-                    final amount = double.tryParse(amountController.text) ?? 0;
-                    if (amount <= 0) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text('Please enter a valid amount')),
-                      );
-                      return;
-                    }
-                    if (toCard == null) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text('Please select a destination card')),
-                      );
-                      return;
-                    }
-
-                    Navigator.pop(context);
-                    await _executeTransfer(amount, toCard!, descriptionController.text);
-                  },
-                  style: ElevatedButton.styleFrom(backgroundColor: Colors.teal),
-                  child: Text('Transfer', style: TextStyle(color: Colors.white)),
-                ),
-              ],
-            );
-          },
-        );
-      },
+  // Navigate to transfer page
+  Future<void> _navigateToTransfer() async {
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => CardTransferPage(fromCard: currentCard),
+      ),
     );
-  }
 
-  Future<void> _executeTransfer(double amount, Map<String, dynamic> toCard, String description) async {
-    if (amount > currentCard.balance) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Insufficient balance. Available: RM${currentCard.balance.toStringAsFixed(2)}'),
-          backgroundColor: Colors.red,
-        ),
-      );
-      return;
-    }
-
-    final userId = FirebaseAuth.instance.currentUser!.uid;
-
-    try {
-      await FirebaseFirestore.instance.runTransaction((txn) async {
-        // References for both cards
-        final fromCardRef = FirebaseFirestore.instance
-            .collection('users')
-            .doc(userId)
-            .collection('cards')
-            .doc(currentCard.id);
-
-        final toCardRef = FirebaseFirestore.instance
-            .collection('users')
-            .doc(userId)
-            .collection('cards')
-            .doc(toCard['id']);
-
-        // Read current balances
-        final fromCardDoc = await txn.get(fromCardRef);
-        final toCardDoc = await txn.get(toCardRef);
-
-        if (!fromCardDoc.exists || !toCardDoc.exists) {
-          throw Exception('One or both cards not found');
-        }
-
-        final fromBalance = (fromCardDoc.data()!['balance'] ?? 0.0).toDouble();
-        final toBalance = (toCardDoc.data()!['balance'] ?? 0.0).toDouble();
-
-        // Update card balances
-        txn.update(fromCardRef, {'balance': fromBalance - amount});
-        txn.update(toCardRef, {'balance': toBalance + amount});
-
-        // Create transaction record
-        final transactionRef = FirebaseFirestore.instance.collection('transactions').doc();
-        txn.set(transactionRef, {
-          'userId': userId,
-          'amount': amount,
-          'timestamp': Timestamp.now(),
-          'fromCardId': currentCard.id,
-          'toCardId': toCard['id'],
-          'type': 'transfer',
-          'description': description.isEmpty ? 'Transfer' : description,
-        });
-      });
-
-      // Update local card balance
-      setState(() {
-        currentCard = CardModel(
-          id: currentCard.id,
-          name: currentCard.name,
-          bankName: currentCard.bankName,
-          bankLogo: currentCard.bankLogo,
-          type: currentCard.type,
-          last4: currentCard.last4,
-          balance: currentCard.balance - amount,
-        );
-      });
-
+    // If transfer was successful, reload transactions and update balance
+    if (result == true) {
       _loadTransactions();
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Transfer successful! RM${amount.toStringAsFixed(2)} sent to ${toCard['name']}'),
-          backgroundColor: Colors.green,
-        ),
-      );
-
-    } catch (e) {
-      print('Transfer error: $e');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Transfer failed: ${e.toString()}'),
-          backgroundColor: Colors.red,
-        ),
-      );
+      // Refresh card balance from Firestore
+      _refreshCardBalance();
     }
   }
 
-  // Add money to card (similar to income recording)
-  Future<void> _showAddMoneyDialog() async {
-    showDialog(
-      context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          backgroundColor: Colors.grey[900],
-          title: Text('Choose Action', style: TextStyle(color: Colors.white)),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // Add Money Option
-              ListTile(
-                leading: Container(
-                  padding: EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: Colors.green.withOpacity(0.2),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Icon(Icons.add_circle, color: Colors.green),
-                ),
-                title: Text('Add Money', style: TextStyle(color: Colors.white)),
-                subtitle: Text('Add income to this card', style: TextStyle(color: Colors.grey[400])),
-                onTap: () {
-                  Navigator.pop(context);
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => CardTransactionPage(
-                        card: currentCard,
-                        transactionType: 'income',
-                        onTransactionSaved: (newBalance) {
-                          setState(() {
-                            currentCard = CardModel(
-                              id: currentCard.id,
-                              name: currentCard.name,
-                              bankName: currentCard.bankName,
-                              bankLogo: currentCard.bankLogo,
-                              type: currentCard.type,
-                              last4: currentCard.last4,
-                              balance: newBalance,
-                            );
-                          });
-                          _loadTransactions();
-                        },
-                      ),
-                    ),
-                  );
-                },
-              ),
+  Future<void> _refreshCardBalance() async {
+    try {
+      final userId = FirebaseAuth.instance.currentUser!.uid;
+      final cardDoc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(userId)
+          .collection('cards')
+          .doc(currentCard.id)
+          .get();
 
-              SizedBox(height: 8),
-
-              // Record Expense Option
-              ListTile(
-                leading: Container(
-                  padding: EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: Colors.red.withOpacity(0.2),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Icon(Icons.remove_circle, color: Colors.red),
-                ),
-                title: Text('Record Expense', style: TextStyle(color: Colors.white)),
-                subtitle: Text('Record spending from this card', style: TextStyle(color: Colors.grey[400])),
-                onTap: () {
-                  Navigator.pop(context);
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => CardTransactionPage(
-                        card: currentCard,
-                        transactionType: 'expense',
-                        onTransactionSaved: (newBalance) {
-                          setState(() {
-                            currentCard = CardModel(
-                              id: currentCard.id,
-                              name: currentCard.name,
-                              bankName: currentCard.bankName,
-                              bankLogo: currentCard.bankLogo,
-                              type: currentCard.type,
-                              last4: currentCard.last4,
-                              balance: newBalance,
-                            );
-                          });
-                          _loadTransactions();
-                        },
-                      ),
-                    ),
-                  );
-                },
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: Text('Cancel', style: TextStyle(color: Colors.white70)),
-            ),
-          ],
-        );
-      },
-    );
+      if (cardDoc.exists) {
+        final data = cardDoc.data()!;
+        setState(() {
+          currentCard = CardModel(
+            id: currentCard.id,
+            name: currentCard.name,
+            bankName: currentCard.bankName,
+            bankLogo: currentCard.bankLogo,
+            type: currentCard.type,
+            last4: currentCard.last4,
+            balance: (data['balance'] ?? 0.0).toDouble(),
+          );
+        });
+      }
+    } catch (e) {
+      print('Error refreshing card balance: $e');
+    }
   }
 
   String _getBankLogoPath(String bankName) {
@@ -826,53 +484,29 @@ class _CardDetailsPageState extends State<CardDetailsPage> {
             ),
           ),
 
-          // Action Buttons
+          // Transfer Button (Single button now)
           Container(
             padding: EdgeInsets.all(16),
-            child: Row(
-              children: [
-                Expanded(
-                  child: ElevatedButton(
-                    onPressed: _showTransferDialog,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.teal[600],
-                      padding: EdgeInsets.symmetric(vertical: 16),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                    ),
-                    child: Text(
-                      'Transfer',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
+            child: SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: _navigateToTransfer,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.teal[600],
+                  padding: EdgeInsets.symmetric(vertical: 16),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
                   ),
                 ),
-                SizedBox(width: 12),
-                Expanded(
-                  child: ElevatedButton(
-                    onPressed: _showAddMoneyDialog,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.teal[600],
-                      padding: EdgeInsets.symmetric(vertical: 16),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                    ),
-                    child: Text(
-                      'Transaction', // Changed from 'Add Money'
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
+                child: Text(
+                  'Transfer',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
-              ],
+              ),
             ),
           ),
         ],

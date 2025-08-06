@@ -135,17 +135,80 @@ class _BudgetPageState extends State<BudgetPage> {
     for (var doc in docs) {
       final data = doc.data() as Map<String, dynamic>;
       if (data.containsKey('category') && data['amount'] != null) {
-        final categoryRef = data['category'] as DocumentReference;
-        final categorySnap = await categoryRef.get();
-        if (categorySnap.exists && categorySnap['type'] == 'expense') {
-          final amount = (data['amount'] as num).toDouble();
-          total += amount.abs();
+        try {
+          DocumentReference? categoryRef;
+
+          // Handle both DocumentReference and String types for category
+          if (data['category'] is DocumentReference) {
+            categoryRef = data['category'] as DocumentReference;
+          } else if (data['category'] is String) {
+            // If category is stored as string ID, create DocumentReference
+            categoryRef = _firestore.collection('categories').doc(data['category'] as String);
+          } else {
+            // Skip this transaction if category format is unexpected
+            print('Unexpected category type: ${data['category'].runtimeType}');
+            continue;
+          }
+
+          final categorySnap = await categoryRef.get();
+          if (categorySnap.exists && categorySnap['type'] == 'expense') {
+            final amount = (data['amount'] as num).toDouble();
+            total += amount.abs();
+          }
+        } catch (e) {
+          print('Error processing transaction ${doc.id}: $e');
+          // Continue processing other transactions even if one fails
+          continue;
         }
       }
     }
     return total;
   }
 
+  Future<double> _calculateCategorySpending(DocumentReference categoryRef, DateTime selectedDate) async {
+    final userId = _auth.currentUser?.uid;
+    final billingPeriod = await BillingDateHelper.getBillingPeriodForDate(selectedDate);
+    final startOfPeriod = billingPeriod['startDate']!;
+    final endOfPeriod = billingPeriod['endDate']!;
+
+    // Query for transactions with DocumentReference category
+    final refSnapshot = await _firestore
+        .collection('transactions')
+        .where('userId', isEqualTo: userId)
+        .where('category', isEqualTo: categoryRef)
+        .where('timestamp', isGreaterThanOrEqualTo: Timestamp.fromDate(startOfPeriod))
+        .where('timestamp', isLessThanOrEqualTo: Timestamp.fromDate(endOfPeriod))
+        .get();
+
+    // Query for transactions with String category ID
+    final stringSnapshot = await _firestore
+        .collection('transactions')
+        .where('userId', isEqualTo: userId)
+        .where('category', isEqualTo: categoryRef.id)
+        .where('timestamp', isGreaterThanOrEqualTo: Timestamp.fromDate(startOfPeriod))
+        .where('timestamp', isLessThanOrEqualTo: Timestamp.fromDate(endOfPeriod))
+        .get();
+
+    double total = 0.0;
+
+    // Process DocumentReference transactions
+    for (var doc in refSnapshot.docs) {
+      final data = doc.data();
+      if (data['amount'] != null) {
+        total += (data['amount'] as num).toDouble().abs();
+      }
+    }
+
+    // Process String ID transactions
+    for (var doc in stringSnapshot.docs) {
+      final data = doc.data();
+      if (data['amount'] != null) {
+        total += (data['amount'] as num).toDouble().abs();
+      }
+    }
+
+    return total;
+  }
   Future<List<Map<String, dynamic>>> _fetchCategoryBudgets() async {
     final userId = _auth.currentUser?.uid;
     if (userId == null) return [];
@@ -181,30 +244,6 @@ class _BudgetPageState extends State<BudgetPage> {
       }
     }
     return categoryBudgets;
-  }
-
-  Future<double> _calculateCategorySpending(DocumentReference categoryRef, DateTime selectedDate) async {
-    final userId = _auth.currentUser?.uid;
-    final billingPeriod = await BillingDateHelper.getBillingPeriodForDate(selectedDate);
-    final startOfPeriod = billingPeriod['startDate']!;
-    final endOfPeriod = billingPeriod['endDate']!;
-
-    final snapshot = await _firestore
-        .collection('transactions')
-        .where('userId', isEqualTo: userId)
-        .where('category', isEqualTo: categoryRef)
-        .where('timestamp', isGreaterThanOrEqualTo: Timestamp.fromDate(startOfPeriod))
-        .where('timestamp', isLessThanOrEqualTo: Timestamp.fromDate(endOfPeriod))
-        .get();
-
-    double total = 0.0;
-    for (var doc in snapshot.docs) {
-      final data = doc.data();
-      if (data['amount'] != null) {
-        total += (data['amount'] as num).toDouble().abs();
-      }
-    }
-    return total;
   }
 
   Future<void> _deleteCategoryBudget(String docId) async {

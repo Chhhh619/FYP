@@ -9,6 +9,7 @@ import 'package:fyp/ch/persistent_add_button.dart';
 import 'package:intl/intl.dart';
 import 'package:fyp/wc/gamification_page.dart';
 import 'package:fyp/ch/billing_date_helper.dart';
+import 'package:fyp/ch/records_detail.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -49,6 +50,125 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
         _showTipPopup();
       }
     });
+  }
+
+  Future<List<Map<String, dynamic>>> _processTransactionsWithCategories(
+      List<Map<String, dynamic>> transactions) async {
+
+    List<Map<String, dynamic>> processedTransactions = [];
+
+    for (var tx in transactions) {
+      Map<String, dynamic> processedTx = {...tx};
+
+      if (tx.containsKey('cardId') && tx['cardId'] != null) {
+        // Handle manual card transactions
+        final String type = tx['type'] ?? 'transaction';
+        processedTx.addAll({
+          'categoryIcon': _getIconForTransactionType(type),
+          'categoryName': _getNameForTransactionType(type),
+          'categoryType': type == 'income' ? 'income' : 'expense',
+        });
+      }
+      else if (tx.containsKey('fromCardId') || tx.containsKey('toCardId')) {
+        // Handle card transfers
+        final String type = tx['type'] ?? 'transfer';
+        processedTx.addAll({
+          'categoryIcon': _getIconForTransactionType(type),
+          'categoryName': _getNameForTransactionType(type),
+          'categoryType': 'expense', // Transfers are considered neutral, but we'll show as expense for the sender
+        });
+      }
+      // Check if transaction has subscriptionId (subscription transactions)
+      else if (tx.containsKey('subscriptionId') && tx['subscriptionId'] != null) {
+        processedTx.addAll({
+          'categoryIcon': '💳',
+          'categoryName': tx['name'] ?? 'Subscription',
+          'categoryType': 'expense',
+        });
+      }
+      else if (tx.containsKey('incomeId') && tx['incomeId'] != null) {
+        processedTx.addAll({
+          'categoryIcon': '💰',
+          'categoryName': 'Income',
+          'categoryType': 'income',
+        });
+      }
+      // Handle regular category-based transactions
+      else if (tx.containsKey('category') && tx['category'] != null) {
+        final categoryRef = tx['category'] as DocumentReference;
+        final categoryId = categoryRef.id;
+        Map<String, dynamic> categoryData = _categoryCache[categoryId] ?? {};
+
+        if (categoryData.isEmpty) {
+          final categorySnapshot = await categoryRef.get();
+          categoryData = categorySnapshot.exists
+              ? (categorySnapshot.data() as Map<String, dynamic>? ??
+              {'icon': '❓', 'name': 'Unknown Category', 'type': 'unknown'})
+              : {'icon': '❓', 'name': 'Unknown Category', 'type': 'unknown'};
+          _categoryCache[categoryId] = categoryData;
+        }
+
+        processedTx.addAll({
+          'categoryIcon': categoryData['icon'] as String? ?? '❓',
+          'categoryName': categoryData['name'] as String? ?? 'Unknown Category',
+          'categoryType': categoryData['type'] as String? ?? 'unknown',
+        });
+      }
+      // Handle transactions without clear category
+      else {
+        processedTx.addAll({
+          'categoryIcon': '❓',
+          'categoryName': 'Unknown Transaction',
+          'categoryType': 'unknown',
+        });
+      }
+
+      processedTransactions.add(processedTx);
+    }
+
+    return processedTransactions;
+  }
+
+  String _getIconForTransactionType(String type) {
+    switch (type.toLowerCase()) {
+      case 'transfer':
+        return '🔄';
+      case 'goal_deposit':
+        return '💰';
+      case 'goal_withdrawal':
+        return '🏦';
+      case 'subscription':
+        return '💳';
+      case 'income':
+        return '💵';
+      case 'expense':
+        return '💸';
+      case 'card_creation':
+        return '🆕';
+      default:
+        return '💳';
+    }
+  }
+
+  String _getNameForTransactionType(String type) {
+    switch (type.toLowerCase()) {
+      case 'transfer':
+        return 'Card Transfer';
+      case 'goal_deposit':
+        return 'Goal Deposit';
+      case 'goal_withdrawal':
+        return 'Goal Withdrawal';
+      case 'subscription':
+        return 'Subscription';
+      case 'income':
+        return 'Income';
+      case 'expense':
+        return 'Expense';
+      case 'card_creation':
+        return 'Card Setup';
+      default:
+        return 'Transaction';
+    }
   }
 
   Future<void> _checkAndGenerateSubscriptions() async {
@@ -96,20 +216,59 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
 
           if (existingTxs.docs.isEmpty) {
             print('No existing transaction found for ${data['name']} on $startOfDay, creating new one');
-            await _firestore.collection('transactions').add({
-              'userId': userId,
-              'amount': data['amount'] ?? 0.0,
-              'timestamp': Timestamp.fromDate(startOfDay),
-              'category': _firestore.doc('/categories/qOIeFiz2HjETIU1dyerW'),
-              'icon': data['icon'] ?? '💰',
-              'name': data['name'] ?? 'Subscription',
-              'subscriptionId': doc.id,
-              'categoryType': 'expense',
-            });
 
+            final fromCardId = data['fromCardId'];
+
+            if (fromCardId != null && fromCardId.isNotEmpty) {
+              // Deduct from card + create transaction in a single Firestore transaction
+              await _firestore.runTransaction((transaction) async {
+                final cardRef = _firestore
+                    .collection('users')
+                    .doc(userId)
+                    .collection('cards')
+                    .doc(fromCardId);
+
+                final cardSnap = await transaction.get(cardRef);
+                if (cardSnap.exists) {
+                  final currentBalance = (cardSnap['balance'] ?? 0.0).toDouble();
+                  final newBalance = currentBalance - (data['amount'] ?? 0.0);
+                  transaction.update(cardRef, {'balance': newBalance});
+                }
+
+                final txRef = _firestore.collection('transactions').doc();
+                transaction.set(txRef, {
+                  'userId': userId,
+                  'amount': data['amount'] ?? 0.0,
+                  'timestamp': Timestamp.fromDate(startOfDay),
+                  'category': _firestore.doc('/categories/qOIeFiz2HjETIU1dyerW'),
+                  'icon': data['icon'] ?? '💰',
+                  'name': data['name'] ?? 'Subscription',
+                  'subscriptionId': doc.id,
+                  'categoryType': 'expense',
+                  'type': 'subscription',
+                  'fromCardId': fromCardId,
+                });
+              });
+            } else {
+              // No linked card → just create transaction
+              await _firestore.collection('transactions').add({
+                'userId': userId,
+                'amount': data['amount'] ?? 0.0,
+                'timestamp': Timestamp.fromDate(startOfDay),
+                'category': _firestore.doc('/categories/qOIeFiz2HjETIU1dyerW'),
+                'icon': data['icon'] ?? '💰',
+                'name': data['name'] ?? 'Subscription',
+                'subscriptionId': doc.id,
+                'categoryType': 'expense',
+                'type': 'subscription',
+              });
+            }
+
+            // Update lastGenerated after transaction creation
             await _firestore.collection('subscriptions').doc(doc.id).update({
               'lastGenerated': Timestamp.fromDate(startOfDay),
             });
+
             print('Transaction created and lastGenerated updated for ${data['name']} on $startOfDay');
           } else {
             print('Transaction already exists for ${data['name']} on $startOfDay, skipping');
@@ -570,7 +729,11 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
     }
 
     return StreamBuilder<QuerySnapshot>(
-      stream: _firestore.collection('transactions').where('userId', isEqualTo: userId).orderBy('timestamp', descending: true).snapshots(),
+      stream: _firestore.collection('transactions')
+          .where('userId', isEqualTo: userId)
+          .where('type', whereNotIn: ['card_creation','transfer', 'goal_deposit', 'goal_withdrawal'])
+          .orderBy('timestamp', descending: true)
+          .snapshots(),
       builder: (context, snapshot) {
         if (!snapshot.hasData) {
           return _buildLoadingSkeleton();
@@ -582,13 +745,16 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
         }
 
         final transactions = snapshot.data!.docs.map((doc) {
+          final data = doc.data() as Map<String, dynamic>;
           return {
             'id': doc.id,
-            'category': doc['category'] as DocumentReference,
-            'amount': (doc['amount'] is int) ? (doc['amount'] as int).toDouble() : (doc['amount'] as double? ?? 0.0),
-            'timestamp': doc['timestamp'] as Timestamp?,
+            ...data, // Include all fields from the document
+            'amount': (data['amount'] is int)
+                ? (data['amount'] as int).toDouble()
+                : (data['amount'] as double? ?? 0.0),
+            'timestamp': data['timestamp'] as Timestamp?,
           };
-        }).whereType<Map<String, dynamic>>().toList();
+        }).where((tx) => tx['timestamp'] != null).toList();
 
         if (viewMode == 'year') {
           return FutureBuilder<Map<String, DateTime>>(
@@ -605,40 +771,22 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
               final filteredTransactions = transactions.where((tx) {
                 final txDate = tx['timestamp']?.toDate();
                 if (txDate == null) return false;
-                return txDate.isAfter(startDate.subtract(Duration(seconds: 1))) && txDate.isBefore(endDate.add(Duration(seconds: 1)));
+                return txDate.isAfter(startDate.subtract(Duration(seconds: 1))) &&
+                    txDate.isBefore(endDate.add(Duration(seconds: 1)));
               }).toList();
 
               return FutureBuilder<List<Map<String, dynamic>>>(
-                future: Future.wait(
-                  filteredTransactions.map((tx) async {
-                    final categoryRef = tx['category'] as DocumentReference;
-                    final categoryId = categoryRef.id;
-                    Map<String, dynamic> categoryData = _categoryCache[categoryId] ?? {};
-
-                    if (categoryData.isEmpty) {
-                      final categorySnapshot = await categoryRef.get();
-                      categoryData = categorySnapshot.exists
-                          ? (categorySnapshot.data() as Map<String, dynamic>? ?? {'icon': '❓', 'name': 'Unknown Category', 'type': 'unknown'})
-                          : {'icon': '❓', 'name': 'Unknown Category', 'type': 'unknown'};
-                      _categoryCache[categoryId] = categoryData;
-                    }
-
-                    return {
-                      ...tx,
-                      'categoryIcon': categoryData['icon'] as String? ?? '❓',
-                      'categoryName': categoryData['name'] as String? ?? 'Unknown Category',
-                      'categoryType': categoryData['type'] as String? ?? 'unknown',
-                    };
-                  }),
-                ),
+                future: _processTransactionsWithCategories(filteredTransactions),
                 builder: (context, categorySnapshot) {
                   if (!categorySnapshot.hasData) {
                     return _buildLoadingSkeleton();
                   }
 
                   final allTransactionsWithCategories = categorySnapshot.data!;
-                  final expenseTransactions = allTransactionsWithCategories.where((tx) => tx['categoryType'] == 'expense').toList();
-                  final incomeTransactions = allTransactionsWithCategories.where((tx) => tx['categoryType'] == 'income').toList();
+                  final expenseTransactions = allTransactionsWithCategories
+                      .where((tx) => tx['categoryType'] == 'expense').toList();
+                  final incomeTransactions = allTransactionsWithCategories
+                      .where((tx) => tx['categoryType'] == 'income').toList();
 
                   final displayedTransactions = allTransactionsWithCategories.where((tx) {
                     if (showExpenses == null) return true;
@@ -665,7 +813,7 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
                     emptyStateWidget = Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       crossAxisAlignment: CrossAxisAlignment.center,
-                      mainAxisSize: MainAxisSize.min, // Add this line
+                      mainAxisSize: MainAxisSize.min,
                       children: [
                         Icon(Icons.receipt_long, size: 80, color: Colors.grey[600]),
                         SizedBox(height: 24),
@@ -687,7 +835,7 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
                     emptyStateWidget = Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       crossAxisAlignment: CrossAxisAlignment.center,
-                      mainAxisSize: MainAxisSize.min, // Add this line
+                      mainAxisSize: MainAxisSize.min,
                       children: [
                         Icon(Icons.money_off, size: 80, color: Colors.grey[600]),
                         SizedBox(height: 24),
@@ -709,7 +857,7 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
                     emptyStateWidget = Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       crossAxisAlignment: CrossAxisAlignment.center,
-                      mainAxisSize: MainAxisSize.min, // Add this line
+                      mainAxisSize: MainAxisSize.min,
                       children: [
                         Icon(Icons.trending_up, size: 80, color: Colors.grey[600]),
                         SizedBox(height: 24),
@@ -731,7 +879,7 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
                     emptyStateWidget = Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       crossAxisAlignment: CrossAxisAlignment.center,
-                      mainAxisSize: MainAxisSize.min, // Add this line
+                      mainAxisSize: MainAxisSize.min,
                       children: [
                         Icon(Icons.search_off, size: 80, color: Colors.grey[600]),
                         SizedBox(height: 24),
@@ -749,6 +897,7 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
                       ],
                     );
                   }
+
                   if (displayedTransactions.isEmpty) {
                     return Scaffold(
                       backgroundColor: Color.fromRGBO(28, 28, 28, 1),
@@ -1035,40 +1184,22 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
               final filteredTransactions = transactions.where((tx) {
                 final txDate = tx['timestamp']?.toDate();
                 if (txDate == null) return false;
-                return txDate.isAfter(startDate.subtract(Duration(seconds: 1))) && txDate.isBefore(endDate.add(Duration(seconds: 1)));
+                return txDate.isAfter(startDate.subtract(Duration(seconds: 1))) &&
+                    txDate.isBefore(endDate.add(Duration(seconds: 1)));
               }).toList();
 
               return FutureBuilder<List<Map<String, dynamic>>>(
-                future: Future.wait(
-                  filteredTransactions.map((tx) async {
-                    final categoryRef = tx['category'] as DocumentReference;
-                    final categoryId = categoryRef.id;
-                    Map<String, dynamic> categoryData = _categoryCache[categoryId] ?? {};
-
-                    if (categoryData.isEmpty) {
-                      final categorySnapshot = await categoryRef.get();
-                      categoryData = categorySnapshot.exists
-                          ? (categorySnapshot.data() as Map<String, dynamic>? ?? {'icon': '❓', 'name': 'Unknown Category', 'type': 'unknown'})
-                          : {'icon': '❓', 'name': 'Unknown Category', 'type': 'unknown'};
-                      _categoryCache[categoryId] = categoryData;
-                    }
-
-                    return {
-                      ...tx,
-                      'categoryIcon': categoryData['icon'] as String? ?? '❓',
-                      'categoryName': categoryData['name'] as String? ?? 'Unknown Category',
-                      'categoryType': categoryData['type'] as String? ?? 'unknown',
-                    };
-                  }),
-                ),
+                future: _processTransactionsWithCategories(filteredTransactions),
                 builder: (context, categorySnapshot) {
                   if (!categorySnapshot.hasData) {
                     return _buildLoadingSkeleton();
                   }
 
                   final allTransactionsWithCategories = categorySnapshot.data!;
-                  final expenseTransactions = allTransactionsWithCategories.where((tx) => tx['categoryType'] == 'expense').toList();
-                  final incomeTransactions = allTransactionsWithCategories.where((tx) => tx['categoryType'] == 'income').toList();
+                  final expenseTransactions = allTransactionsWithCategories
+                      .where((tx) => tx['categoryType'] == 'expense').toList();
+                  final incomeTransactions = allTransactionsWithCategories
+                      .where((tx) => tx['categoryType'] == 'income').toList();
 
                   final displayedTransactions = allTransactionsWithCategories.where((tx) {
                     if (showExpenses == null) return true;
@@ -1351,7 +1482,7 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
                           Expanded(
                             child: ListView.builder(
                               controller: _scrollController,
-                              physics: const BouncingScrollPhysics(), // Add this line\
+                              physics: const BouncingScrollPhysics(),
                               itemCount: _groupTransactions(displayedTransactions).length,
                               itemBuilder: (context, index) {
                                 final group = _groupTransactions(displayedTransactions)[index];
@@ -1447,9 +1578,24 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
     });
   }
 
+// In your homepage.dart, update the _buildTransactionItem method:
+
   Widget _buildTransactionItem(Map<String, dynamic> tx, String categoryIcon, String categoryName, String categoryType) {
     final txDate = tx['timestamp']?.toDate();
+    final amount = (tx['amount'] as double).abs(); // Always show positive amount for display
+
     return GestureDetector(
+      onTap: () {
+        // Navigate to RecordsDetailPage when transaction is tapped
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => RecordsDetailPage(
+              transactionId: tx['id'] as String,
+            ),
+          ),
+        );
+      },
       onLongPress: () {
         showDialog(
           context: context,
@@ -1476,9 +1622,17 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
           leading: Text(categoryIcon, style: TextStyle(fontSize: 24)),
           title: Text(categoryName, style: TextStyle(color: Colors.white)),
           subtitle: Text(txDate != null ? DateFormat('HH:mm').format(txDate) : 'N/A', style: TextStyle(color: Colors.white)),
-          trailing: Text(
-            'RM${(tx['amount'] as double).toStringAsFixed(1)}',
-            style: TextStyle(fontSize: 16, color: categoryType == 'expense' ? Colors.red : Colors.green),
+          trailing: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                'RM${amount.toStringAsFixed(1)}', // Use absolute amount for display
+                style: TextStyle(
+                    fontSize: 16,
+                    color: categoryType == 'expense' ? Colors.red : Colors.green
+                ),
+              ),
+            ],
           ),
         ),
       ),
