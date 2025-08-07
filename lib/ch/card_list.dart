@@ -7,7 +7,7 @@ import '../models/card_model.dart';
 import '../wc/financial_tips.dart';
 import '../wc/gamification_page.dart';
 import '../ch/settings.dart';
-import 'card_options.dart';
+import 'card_edit.dart';
 
 class CardListPage extends StatefulWidget {
   @override
@@ -15,33 +15,13 @@ class CardListPage extends StatefulWidget {
 }
 
 class _CardListPageState extends State<CardListPage> {
-  int _selectedIndex = 0;
 
-  void _onBottomNavTapped(int index) {
-    setState(() => _selectedIndex = index);
-
-    switch (index) {
-      case 0:
-        break; // Already on this page
-      case 1:
-        Navigator.push(
-            context, MaterialPageRoute(builder: (_) => const FinancialTipsScreen()));
-        break;
-      case 2:
-        Navigator.push(
-            context, MaterialPageRoute(builder: (_) => const GamificationPage()));
-        break;
-      case 3:
-        Navigator.push(
-            context, MaterialPageRoute(builder: (_) => const SettingsPage()));
-        break;
-    }
-  }
+  double availableScreenWidth = 0;
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.grey[900],
+      backgroundColor: Color.fromRGBO(33, 35, 34, 1),
       body: SafeArea(
         child: Column(
           children: [
@@ -77,7 +57,7 @@ class _CardListPageState extends State<CardListPage> {
                       await Navigator.push(
                         context,
                         MaterialPageRoute(
-                          builder: (_) => CardOptionsPage(cardType: 'Debit'),
+                          builder: (_) => const CardTypeSelectionPage(),
                         ),
                       );
                     },
@@ -269,16 +249,16 @@ class _CardListPageState extends State<CardListPage> {
             width: double.infinity,
             padding: const EdgeInsets.all(40),
             decoration: BoxDecoration(
-              color: Colors.grey[850],
+              color: Color.fromRGBO(33, 35, 34, 1),
               borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: Colors.grey[700]!, width: 1),
+              border: Border.all(color: Color.fromRGBO(33, 35, 34, 1), width: 1),
             ),
             child: Column(
               children: [
                 Container(
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
-                    color: Colors.grey[800],
+                    color: Color.fromRGBO(33, 35, 34, 1),
                     borderRadius: BorderRadius.circular(50),
                   ),
                   child: const Icon(Icons.credit_card_off,
@@ -311,9 +291,9 @@ class _CardListPageState extends State<CardListPage> {
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
-        color: Colors.grey[800],
+        color: Color.fromRGBO(33, 35, 34, 1),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.grey[700]!, width: 1),
+        border: Border.all(color: Color.fromRGBO(33, 35, 34, 1), width: 1),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withOpacity(0.2),
@@ -327,7 +307,7 @@ class _CardListPageState extends State<CardListPage> {
           context,
           MaterialPageRoute(builder: (_) => CardDetailsPage(card: card)),
         ),
-        onLongPress: () => _showDeleteDialog(card),
+        onLongPress: () => _showCardOptionsDialog(card),
         borderRadius: BorderRadius.circular(16),
         child: Padding(
           padding: const EdgeInsets.all(20),
@@ -398,7 +378,7 @@ class _CardListPageState extends State<CardListPage> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        backgroundColor: Colors.grey[850],
+        backgroundColor: Color.fromRGBO(33, 35, 34, 1),
         title: const Text(
           'Delete Card',
           style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
@@ -441,6 +421,129 @@ class _CardListPageState extends State<CardListPage> {
             child: const Text('Delete', style: TextStyle(color: Colors.red)),
           ),
         ],
+      ),
+    );
+  }
+
+  void _showCardOptionsDialog(CardModel card) {
+    showDialog(
+      context: context,
+      builder: (context) => Dialog(
+        backgroundColor: const Color.fromRGBO(33, 35, 34, 1),
+        insetPadding: const EdgeInsets.all(24), // Controls how close it is to screen edge
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        child: Container(
+          width: MediaQuery.of(context).size.width * 0.8, // Truly controls width
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Card Options',
+                style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 20),
+              // Card info
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color.fromRGBO(50, 50, 50, 1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 40,
+                      height: 40,
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(8),
+                        color: Colors.white.withOpacity(0.1),
+                      ),
+                      child: Image.asset(
+                        _getBankLogoPath(card.bankName),
+                        fit: BoxFit.contain,
+                        errorBuilder: (_, __, ___) => const Icon(
+                          Icons.account_balance,
+                          color: Colors.white70,
+                          size: 24,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            card.name,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          Text(
+                            '${card.type} •••• ${card.last4}',
+                            style: TextStyle(
+                              color: Colors.grey[400],
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+              ListTile(
+                leading: const Icon(Icons.edit, color: Colors.teal),
+                title: const Text('Edit Card', style: TextStyle(color: Colors.white)),
+                onTap: () async {
+                  Navigator.pop(context);
+                  final result = await Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => CardEditPage(card: card)),
+                  );
+
+                  if (result == 'deleted') {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        backgroundColor: Colors.teal[600],
+                        content: const Text('Card deleted successfully'),
+                      ),
+                    );
+                  } else if (result == true) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        backgroundColor: Colors.teal[600],
+                        content: const Text('Card updated successfully'),
+                      ),
+                    );
+                  }
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.delete, color: Colors.red),
+                title: const Text('Delete Card', style: TextStyle(color: Colors.white)),
+                onTap: () {
+                  Navigator.pop(context);
+                  _showDeleteDialog(card);
+                },
+              ),
+              const SizedBox(height: 8),
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('Cancel', style: TextStyle(color: Colors.teal)),
+                ),
+              )
+            ],
+          ),
+        ),
       ),
     );
   }

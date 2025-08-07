@@ -811,11 +811,11 @@ class _RecordTransactionPageState extends State<RecordTransactionPage> {
         .toList();
 
     return Scaffold(
-      backgroundColor: const Color.fromRGBO(28, 28, 28, 0),
+      backgroundColor: const Color.fromRGBO(28, 28, 28, 1),
       appBar: PreferredSize(
         preferredSize: const Size.fromHeight(70.0),
         child: Container(
-          color: const Color.fromRGBO(28, 28, 28, 0),
+          color: const Color.fromRGBO(28, 28, 28, 1),
           padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
           child: Stack(
             children: [

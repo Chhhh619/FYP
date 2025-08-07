@@ -38,9 +38,6 @@ class _GoalDetailsPageState extends State<GoalDetailsPage> {
   final userId = FirebaseAuth.instance.currentUser!.uid;
 
   @override
-  @override
-  @override
-  @override
   void initState() {
     super.initState();
 
@@ -51,18 +48,18 @@ class _GoalDetailsPageState extends State<GoalDetailsPage> {
     final intervalData = intervalsDeposited['${widget.intervalIndex}'];
     if (intervalData != null) {
       if (intervalData is Map<String, dynamic>) {
-        // New format: {amount: 400.0, cardId: "4LEt0WSpu8sneAdpFpzY"}
+        // New format: {amount: 400.0, cardId: "4LEt0WSpu8sneAdpFpzY", toCardId: "xyz123"}
         _amountController = TextEditingController(
           text: (intervalData['amount'] as num).toStringAsFixed(0),
         );
-        // Prefill From Card if cardId exists
+
+        // Fetch both From and To cards if they exist
         if (intervalData['cardId'] != null) {
           _fetchCardDetails(intervalData['cardId'] as String, 'from');
         }
-        // Prefill To Card if toCardId exists (add if needed)
-        // if (intervalData['toCardId'] != null) {
-        //   _fetchCardDetails(intervalData['toCardId'] as String, 'to');
-        // }
+        if (intervalData['toCardId'] != null) {
+          _fetchCardDetails(intervalData['toCardId'] as String, 'to');
+        }
       } else if (intervalData is num) {
         // Legacy format: 400.0
         _amountController = TextEditingController(
@@ -80,16 +77,16 @@ class _GoalDetailsPageState extends State<GoalDetailsPage> {
       );
     }
 
-    // Prefill From Card if selectedFromCardId is provided and _fromCard is null
+    // Only prefill cards if they weren't already fetched from interval data
     if (widget.selectedFromCardId != null && _fromCard == null) {
       _fetchCardDetails(widget.selectedFromCardId!, 'from');
     }
-    // Prefill To Card if selectedToCardId is provided and _toCard is null (add if needed)
     if (widget.selectedToCardId != null && _toCard == null) {
       _fetchCardDetails(widget.selectedToCardId!, 'to');
     }
   }
-// Make _fetchCardDetails async and handle the fetch
+
+  // Make _fetchCardDetails async and handle the fetch
   Future<void> _fetchCardDetails(String cardId, String role) async {
     try {
       final userId = FirebaseAuth.instance.currentUser!.uid;
@@ -103,9 +100,9 @@ class _GoalDetailsPageState extends State<GoalDetailsPage> {
       if (cardSnap.exists) {
         setState(() {
           if (role == 'from') {
-            _fromCard = cardSnap.data() as Map<String, dynamic>;
+            _fromCard = {...cardSnap.data() as Map<String, dynamic>, 'id': cardId};
           } else {
-            _toCard = cardSnap.data() as Map<String, dynamic>;
+            _toCard = {...cardSnap.data() as Map<String, dynamic>, 'id': cardId};
           }
         });
       }
@@ -153,7 +150,9 @@ class _GoalDetailsPageState extends State<GoalDetailsPage> {
     final intervalsDeposited =
     Map<String, dynamic>.from(goalData['intervalsDeposited'] ?? {});
     final intervalData = intervalsDeposited['${widget.intervalIndex}'] ?? {};
-    final oldAmount = (intervalData['amount'] ?? 0).toDouble();
+    final oldAmount = (intervalData is Map<String, dynamic>)
+        ? (intervalData['amount'] ?? 0).toDouble()
+        : (intervalData is num) ? intervalData.toDouble() : 0.0;
 
     final diff = enteredAmount - oldAmount;
     final updatedDeposited =
@@ -207,12 +206,19 @@ class _GoalDetailsPageState extends State<GoalDetailsPage> {
         }
       }
 
-      // Update intervalData with amount and cardId
-      final updatedIntervalData = {
+      // Update intervalData with amount and both cardIds
+      final updatedIntervalData = <String, dynamic>{
         'amount': enteredAmount,
-        'cardId': _fromCard?['id'], // Store the fromCardId
-        // 'toCardId': _toCard?['id'], // Uncomment if you want to store toCardId
       };
+
+      // Only add cardIds if cards are selected
+      if (_fromCard != null) {
+        updatedIntervalData['cardId'] = _fromCard!['id'];
+      }
+      if (_toCard != null) {
+        updatedIntervalData['toCardId'] = _toCard!['id'];
+      }
+
       intervalsDeposited['${widget.intervalIndex}'] = updatedIntervalData;
 
       final updates = {
@@ -229,33 +235,36 @@ class _GoalDetailsPageState extends State<GoalDetailsPage> {
     });
 
     // 🔹 Log transaction
-    final transactionsRef =
-    FirebaseFirestore.instance.collection('transactions').doc();
+    if (diff != 0) {
+      final transactionsRef =
+      FirebaseFirestore.instance.collection('transactions').doc();
 
-    if (diff > 0 && _fromCard != null) {
-      await transactionsRef.set({
-        'userId': userId,
-        'fromCardId': _fromCard!['id'],
-        'toCardId': _toCard?['id'],
-        'type': 'goal_deposit',
-        'description': 'Deposit to goal ${widget.goal['name']}',
-        'amount': diff,
-        'timestamp': FieldValue.serverTimestamp(),
-      });
-    } else if (diff < 0 && _fromCard != null) {
-      await transactionsRef.set({
-        'userId': userId,
-        'fromCardId': _toCard?['id'],
-        'toCardId': _fromCard!['id'],
-        'type': 'goal_withdrawal',
-        'description': 'Refund from goal ${widget.goal['name']}',
-        'amount': diff.abs(),
-        'timestamp': FieldValue.serverTimestamp(),
-      });
+      if (diff > 0 && _fromCard != null) {
+        await transactionsRef.set({
+          'userId': userId,
+          'fromCardId': _fromCard!['id'],
+          'toCardId': _toCard?['id'],
+          'type': 'goal_deposit',
+          'description': 'Deposit to goal ${widget.goal['name']}',
+          'amount': diff,
+          'timestamp': FieldValue.serverTimestamp(),
+        });
+      } else if (diff < 0 && _fromCard != null) {
+        await transactionsRef.set({
+          'userId': userId,
+          'fromCardId': _toCard?['id'],
+          'toCardId': _fromCard!['id'],
+          'type': 'goal_withdrawal',
+          'description': 'Refund from goal ${widget.goal['name']}',
+          'amount': diff.abs(),
+          'timestamp': FieldValue.serverTimestamp(),
+        });
+      }
     }
 
     Navigator.pop(context, true);
   }
+
   Widget _buildTile({
     required IconData icon,
     required String title,
@@ -398,39 +407,6 @@ class _GoalDetailsPageState extends State<GoalDetailsPage> {
                       ),
                       Text(
                         'RM${(_fromCard!['balance'] ?? 0.0).toStringAsFixed(2)}',
-                        style: const TextStyle(color: Colors.white70, fontSize: 12),
-                      ),
-                    ],
-                  ),
-                ] else ...[
-                  const Text(
-                    'Select Card',
-                    style: TextStyle(color: Colors.white54),
-                  ),
-                  const SizedBox(width: 4),
-                  const Icon(Icons.chevron_right, color: Colors.white54),
-                ],
-              ],
-            ),
-          ),
-          _buildTile(
-            icon: Icons.arrow_circle_down,
-            title: 'To Card',
-            onTap: () => _selectCard('to'),
-            trailing: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                if (_toCard != null) ...[
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        _toCard!['name'] ?? 'Unknown',
-                        style: const TextStyle(color: Colors.white),
-                      ),
-                      Text(
-                        'RM${(_toCard!['balance'] ?? 0.0).toStringAsFixed(2)}',
                         style: const TextStyle(color: Colors.white70, fontSize: 12),
                       ),
                     ],

@@ -412,10 +412,10 @@ class _IncomeDetailsPageState extends State<IncomeDetailsPage> {
             margin: const EdgeInsets.only(bottom: 24),
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: _isEnabled ? Colors.green[900] : Colors.grey[900],
+              color: _isEnabled ? Colors.teal[900] : Colors.grey[900],
               borderRadius: BorderRadius.circular(16),
               border: Border.all(
-                color: _isEnabled ? Colors.green : Colors.grey[700]!,
+                color: _isEnabled ? Colors.teal : Colors.grey[700]!,
                 width: 2,
               ),
             ),
@@ -423,7 +423,7 @@ class _IncomeDetailsPageState extends State<IncomeDetailsPage> {
               children: [
                 Icon(
                   _isEnabled ? Icons.autorenew : Icons.pause_circle_outline,
-                  color: _isEnabled ? Colors.green : Colors.grey,
+                  color: _isEnabled ? Colors.teal : Colors.grey,
                   size: 28,
                 ),
                 const SizedBox(width: 16),
@@ -454,7 +454,7 @@ class _IncomeDetailsPageState extends State<IncomeDetailsPage> {
                 Switch(
                   value: _isEnabled,
                   onChanged: (value) => setState(() => _isEnabled = value),
-                  activeColor: Colors.green,
+                  activeColor: Colors.teal,
                 ),
               ],
             ),

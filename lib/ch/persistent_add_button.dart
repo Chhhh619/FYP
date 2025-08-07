@@ -168,8 +168,7 @@ class _PersistentAddButtonState extends State<PersistentAddButton> {
       _lastScrollPosition = currentScrollPosition;
     } catch (e) {
       print('Error in scroll listener: $e');
-      // If we get an error, the controller might be detached
-      // Remove this listener to prevent further errors
+
       try {
         controller.removeListener(_scrollListener);
         print('Removed problematic listener');

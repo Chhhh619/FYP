@@ -324,7 +324,7 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
       onTap: () => _showSubscriptionOptions(doc),
       onLongPress: () => _showDeleteConfirmation(doc.id, name),
       child: Card(
-        color: isPending ? Colors.orange[900]?.withOpacity(0.3) : Colors.grey[800],
+        color: isPending ? Colors.orange[900]?.withOpacity(0.3) : Color.fromRGBO(33, 35, 34, 1),
         margin: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 16.0),
         child: ListTile(
           contentPadding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 16.0),
