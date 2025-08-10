@@ -49,9 +49,9 @@ class CardOptionsPage extends StatelessWidget {
             child: Container(
               padding: const EdgeInsets.symmetric(vertical: 18, horizontal: 16),
               decoration: BoxDecoration(
-                color: Colors.grey[900],
+                color: Color.fromRGBO(33, 35, 34, 1),
                 borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: Colors.grey[700]!),
+                border: Border.all(color: Color.fromRGBO(33, 35, 34, 1)),
               ),
               child: Row(
                 children: [

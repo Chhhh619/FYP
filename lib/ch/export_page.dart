@@ -3,7 +3,10 @@ import 'package:intl/intl.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:pdf/widgets.dart' as pw;
+import 'package:pdf/pdf.dart';
 import 'package:printing/printing.dart';
+import 'dart:math' as math;
+import 'package:fyp/ch/category_data_pdf.dart';
 
 class ExportReportPage extends StatefulWidget {
   const ExportReportPage({super.key});
@@ -19,6 +22,25 @@ class _ExportReportPageState extends State<ExportReportPage> {
 
   final DateFormat _dateFormat = DateFormat('dd MMM yyyy');
   bool _isLoading = false;
+
+  // Predefined colors for pie chart
+  static const List<PdfColor> pieColors = [
+    PdfColors.blue,
+    PdfColors.red,
+    PdfColors.green,
+    PdfColors.orange,
+    PdfColors.purple,
+    PdfColors.teal,
+    PdfColors.pink,
+    PdfColors.amber,
+    PdfColors.cyan,
+    PdfColors.indigo,
+    PdfColors.lime,
+    PdfColors.deepOrange,
+    PdfColors.lightBlue,
+    PdfColors.lightGreen,
+    PdfColors.deepPurple,
+  ];
 
   Future<void> _pickStartDate() async {
     final picked = await showDatePicker(
@@ -90,14 +112,20 @@ class _ExportReportPageState extends State<ExportReportPage> {
             }),
           ),
           ListTile(
-            title: const Text("Incomes Only", style: TextStyle(color: Colors.white)),
+            title: const Text(
+              "Incomes Only",
+              style: TextStyle(color: Colors.white),
+            ),
             onTap: () => setState(() {
               _selectedType = 'income';
               Navigator.pop(context);
             }),
           ),
           ListTile(
-            title: const Text("Expenses Only", style: TextStyle(color: Colors.white)),
+            title: const Text(
+              "Expenses Only",
+              style: TextStyle(color: Colors.white),
+            ),
             onTap: () => setState(() {
               _selectedType = 'expense';
               Navigator.pop(context);
@@ -125,13 +153,204 @@ class _ExportReportPageState extends State<ExportReportPage> {
       debugPrint("❌ Error exporting PDF: $e");
       debugPrint(stack.toString());
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Error exporting PDF: $e")),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text("Error exporting PDF: $e")));
       }
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
+  }
+
+  // Generate pie chart widget using basic shapes
+  pw.Widget _buildPieChart(
+    List<CategoryData> categoryData,
+    double totalAmount,
+  ) {
+    const double chartSize = 200;
+    const double radius = 80;
+
+    return pw.Row(
+      crossAxisAlignment: pw.CrossAxisAlignment.start,
+      children: [
+        // Pie Chart using Container with decorations
+        pw.Container(
+          width: chartSize,
+          height: chartSize,
+          child: pw.Stack(
+            children: [
+              // Background circle
+              pw.Positioned.fill(
+                child: pw.Container(
+                  decoration: pw.BoxDecoration(
+                    shape: pw.BoxShape.circle,
+                    border: pw.Border.all(color: PdfColors.black, width: 1),
+                  ),
+                ),
+              ),
+              // Simple representation - we'll use a table instead
+              pw.Center(
+                child: pw.Text(
+                  'Chart',
+                  style: pw.TextStyle(
+                    fontSize: 12,
+                    fontWeight: pw.FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+
+        pw.SizedBox(width: 30),
+
+        // Legend
+        pw.Expanded(
+          child: pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: [
+              pw.Text(
+                'Category Breakdown',
+                style: pw.TextStyle(
+                  fontSize: 14,
+                  fontWeight: pw.FontWeight.bold,
+                ),
+              ),
+              pw.SizedBox(height: 10),
+              ...categoryData
+                  .map(
+                    (data) => pw.Container(
+                      margin: const pw.EdgeInsets.only(bottom: 5),
+                      child: pw.Row(
+                        children: [
+                          // Color indicator
+                          pw.Container(
+                            width: 12,
+                            height: 12,
+                            decoration: pw.BoxDecoration(
+                              color: data.color,
+                              border: pw.Border.all(
+                                color: PdfColors.black,
+                                width: 0.5,
+                              ),
+                            ),
+                          ),
+                          pw.SizedBox(width: 8),
+                          pw.Expanded(
+                            child: pw.Text(
+                              '${data.name} (${data.percentage.toStringAsFixed(1)}%)',
+                              style: const pw.TextStyle(fontSize: 10),
+                            ),
+                          ),
+                          pw.Text(
+                            'RM ${data.amount.toStringAsFixed(2)}',
+                            style: const pw.TextStyle(fontSize: 10),
+                          ),
+                        ],
+                      ),
+                    ),
+                  )
+                  .toList(),
+              pw.SizedBox(height: 10),
+              pw.Divider(),
+              pw.Row(
+                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                children: [
+                  pw.Text(
+                    'Total:',
+                    style: pw.TextStyle(
+                      fontSize: 12,
+                      fontWeight: pw.FontWeight.bold,
+                    ),
+                  ),
+                  pw.Text(
+                    'RM ${totalAmount.toStringAsFixed(2)}',
+                    style: pw.TextStyle(
+                      fontSize: 12,
+                      fontWeight: pw.FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  // Build a simple bar chart as an alternative
+  pw.Widget _buildBarChart(
+    List<CategoryData> categoryData,
+    double totalAmount,
+  ) {
+    return pw.Column(
+      crossAxisAlignment: pw.CrossAxisAlignment.start,
+      children: [
+        pw.Text(
+          'Category Breakdown',
+          style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold),
+        ),
+        pw.SizedBox(height: 15),
+
+        // Bar chart representation
+        ...categoryData.take(10).map((data) {
+          final barWidth =
+              (data.percentage / 100) * 300; // Max width of 300 points
+
+          return pw.Container(
+            margin: const pw.EdgeInsets.only(bottom: 8),
+            child: pw.Column(
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
+              children: [
+                pw.Row(
+                  mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                  children: [
+                    pw.Expanded(
+                      child: pw.Text(
+                        data.name,
+                        style: const pw.TextStyle(fontSize: 10),
+                      ),
+                    ),
+                    pw.Text(
+                      '${data.percentage.toStringAsFixed(1)}% (RM ${data.amount.toStringAsFixed(2)})',
+                      style: const pw.TextStyle(fontSize: 10),
+                    ),
+                  ],
+                ),
+                pw.SizedBox(height: 2),
+                pw.Container(
+                  height: 15,
+                  width: math.max(barWidth, 10), // Minimum width for visibility
+                  decoration: pw.BoxDecoration(
+                    color: data.color,
+                    borderRadius: const pw.BorderRadius.all(
+                      pw.Radius.circular(2),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          );
+        }).toList(),
+
+        pw.SizedBox(height: 15),
+        pw.Divider(),
+        pw.Row(
+          mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+          children: [
+            pw.Text(
+              'Total Amount:',
+              style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold),
+            ),
+            pw.Text(
+              'RM ${totalAmount.toStringAsFixed(2)}',
+              style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold),
+            ),
+          ],
+        ),
+      ],
+    );
   }
 
   Future<pw.Document> _generatePDF() async {
@@ -166,11 +385,13 @@ class _ExportReportPageState extends State<ExportReportPage> {
 
     final transactions = snapshot.docs
         .map((doc) => doc.data() as Map<String, dynamic>)
-        .where((t) =>
-    t.containsKey('timestamp') &&
-        t['timestamp'] is Timestamp &&
-        t.containsKey('amount') &&
-        t['amount'] is num)
+        .where(
+          (t) =>
+              t.containsKey('timestamp') &&
+              t['timestamp'] is Timestamp &&
+              t.containsKey('amount') &&
+              t['amount'] is num,
+        )
         .toList();
 
     // 🔹 Collect category IDs
@@ -197,6 +418,75 @@ class _ExportReportPageState extends State<ExportReportPage> {
       }
     }
 
+    // 🔹 Calculate category totals for charts
+    final Map<String, double> categoryTotals = {};
+    final Map<String, String> categoryTypes = {};
+
+    for (var t in transactions) {
+      String? categoryId;
+      if (t['category'] is DocumentReference) {
+        categoryId = (t['category'] as DocumentReference).id;
+      } else if (t['category'] is String) {
+        categoryId = t['category'];
+      }
+
+      final categoryName = categoryId != null
+          ? (categoryNames[categoryId] ?? 'Unknown')
+          : 'Unknown';
+      final amount = (t['amount'] as num)
+          .abs()
+          .toDouble(); // Use absolute value for totals
+      final type = t['type']?.toString() ?? 'expense';
+
+      // For charts, we want to show the breakdown by category
+      // If showing both types, we can separate income/expense in category names
+      String displayName = categoryName;
+      if (_selectedType == 'both') {
+        displayName = '$categoryName (${type.capitalize()})';
+      }
+
+      categoryTotals[displayName] = (categoryTotals[displayName] ?? 0) + amount;
+      categoryTypes[displayName] = type;
+    }
+
+    // 🔹 Create chart data
+    final totalAmount = categoryTotals.values.fold(
+      0.0,
+      (sum, amount) => sum + amount,
+    );
+    final List<CategoryData> chartData = [];
+
+    int colorIndex = 0;
+    final sortedEntries = categoryTotals.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value)); // Sort by amount descending
+
+    for (var entry in sortedEntries) {
+      if (entry.value > 0) {
+        final percentage = totalAmount > 0
+            ? (entry.value / totalAmount) * 100
+            : 0;
+        chartData.add(
+          CategoryData(
+            name: entry.key,
+            amount: entry.value,
+            percentage: percentage.toDouble(),
+            color: pieColors[colorIndex % pieColors.length],
+            type: categoryTypes[entry.key] ?? 'expense',
+          ),
+        );
+        colorIndex++;
+      }
+    }
+
+    // 🔹 Calculate income and expense totals
+    final incomeTotal = transactions
+        .where((t) => t['type'] == 'income')
+        .fold(0.0, (sum, t) => sum + (t['amount'] as num).abs());
+
+    final expenseTotal = transactions
+        .where((t) => t['type'] == 'expense')
+        .fold(0.0, (sum, t) => sum + (t['amount'] as num).abs());
+
     // 🔹 Build PDF
     final pdf = pw.Document();
     final dateFormat = DateFormat('dd MMM yyyy');
@@ -204,15 +494,151 @@ class _ExportReportPageState extends State<ExportReportPage> {
     pdf.addPage(
       pw.MultiPage(
         build: (context) => [
+          // Header
           pw.Header(
             level: 0,
-            child: pw.Text(
-              "Transactions Report - $username\n${_dateFormat.format(_startDate!)} - ${_dateFormat.format(_endDate!)}",
-              textAlign: pw.TextAlign.center,
+            child: pw.Column(
+              children: [
+                pw.Text(
+                  "Transactions Report - $username",
+                  style: pw.TextStyle(
+                    fontSize: 20,
+                    fontWeight: pw.FontWeight.bold,
+                  ),
+                  textAlign: pw.TextAlign.center,
+                ),
+                pw.SizedBox(height: 10),
+                pw.Text(
+                  "${_dateFormat.format(_startDate!)} - ${_dateFormat.format(_endDate!)}",
+                  style: const pw.TextStyle(fontSize: 14),
+                  textAlign: pw.TextAlign.center,
+                ),
+                pw.SizedBox(height: 5),
+                pw.Text(
+                  _selectedType == 'both'
+                      ? 'Income & Expenses'
+                      : _selectedType == 'income'
+                      ? 'Income Only'
+                      : 'Expenses Only',
+                  style: pw.TextStyle(
+                    fontSize: 12,
+                    fontWeight: pw.FontWeight.bold,
+                  ),
+                  textAlign: pw.TextAlign.center,
+                ),
+              ],
             ),
           ),
+
+          pw.SizedBox(height: 20),
+
+          // Summary Statistics
+          pw.Container(
+            padding: const pw.EdgeInsets.all(15),
+            decoration: pw.BoxDecoration(
+              border: pw.Border.all(color: PdfColors.grey300),
+              borderRadius: const pw.BorderRadius.all(pw.Radius.circular(8)),
+            ),
+            child: pw.Row(
+              mainAxisAlignment: pw.MainAxisAlignment.spaceAround,
+              children: [
+                pw.Column(
+                  children: [
+                    pw.Text(
+                      'Total Transactions',
+                      style: pw.TextStyle(
+                        fontSize: 12,
+                        fontWeight: pw.FontWeight.bold,
+                      ),
+                    ),
+                    pw.Text(
+                      '${transactions.length}',
+                      style: const pw.TextStyle(fontSize: 16),
+                    ),
+                  ],
+                ),
+                pw.Column(
+                  children: [
+                    pw.Text(
+                      'Total Amount',
+                      style: pw.TextStyle(
+                        fontSize: 12,
+                        fontWeight: pw.FontWeight.bold,
+                      ),
+                    ),
+                    pw.Text(
+                      'RM ${totalAmount.toStringAsFixed(2)}',
+                      style: const pw.TextStyle(fontSize: 16),
+                    ),
+                  ],
+                ),
+                if (_selectedType == 'both') ...[
+                  pw.Column(
+                    children: [
+                      pw.Text(
+                        'Income',
+                        style: pw.TextStyle(
+                          fontSize: 12,
+                          fontWeight: pw.FontWeight.bold,
+                        ),
+                      ),
+                      pw.Text(
+                        'RM ${incomeTotal.toStringAsFixed(2)}',
+                        style: const pw.TextStyle(
+                          fontSize: 16,
+                          color: PdfColors.green,
+                        ),
+                      ),
+                    ],
+                  ),
+                  pw.Column(
+                    children: [
+                      pw.Text(
+                        'Expenses',
+                        style: pw.TextStyle(
+                          fontSize: 12,
+                          fontWeight: pw.FontWeight.bold,
+                        ),
+                      ),
+                      pw.Text(
+                        'RM ${expenseTotal.toStringAsFixed(2)}',
+                        style: const pw.TextStyle(
+                          fontSize: 16,
+                          color: PdfColors.red,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ],
+            ),
+          ),
+
+          pw.SizedBox(height: 30),
+
+          // Bar Chart (only show if we have data)
+          if (chartData.isNotEmpty) ...[
+            pw.Text(
+              'Category Analysis',
+              style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold),
+            ),
+            pw.SizedBox(height: 15),
+            _buildBarChart(chartData, totalAmount),
+            pw.SizedBox(height: 30),
+          ],
+
+          // Transactions Table
+          pw.Text(
+            'Transaction Details',
+            style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold),
+          ),
+          pw.SizedBox(height: 15),
+
           pw.Table.fromTextArray(
-            headers: ["Date", "Type", "Category", "Amount", "Description"],
+            headers: ["Date", "Type", "Category", "Amount"],
+            headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold),
+            headerDecoration: const pw.BoxDecoration(color: PdfColors.grey200),
+            cellAlignment: pw.Alignment.centerLeft,
             data: transactions.map((t) {
               String? categoryId;
               if (t['category'] is DocumentReference) {
@@ -221,14 +647,16 @@ class _ExportReportPageState extends State<ExportReportPage> {
                 categoryId = t['category'];
               }
 
-              final categoryName = categoryId != null ? (categoryNames[categoryId] ?? '') : '';
+              final categoryName = categoryId != null
+                  ? (categoryNames[categoryId] ?? 'Unknown')
+                  : 'Unknown';
+              final type = t['type']?.toString() ?? 'expense';
 
               return [
                 dateFormat.format((t['timestamp'] as Timestamp).toDate()),
-                t['type']?.toString() ?? '',
+                type.capitalize(),
                 categoryName,
-                "RM ${(t['amount'] as num).toStringAsFixed(2)}",
-                t['description']?.toString() ?? '',
+                "${type == 'income' ? '+' : '-'}RM ${(t['amount'] as num).abs().toStringAsFixed(2)}",
               ];
             }).toList(),
           ),
@@ -276,7 +704,7 @@ class _ExportReportPageState extends State<ExportReportPage> {
               ),
               const SizedBox(width: 16),
               // Filler space for symmetry (same width as back button)
-              SizedBox(width: 40),
+              const SizedBox(width: 40),
             ],
           ),
         ),
@@ -286,14 +714,24 @@ class _ExportReportPageState extends State<ExportReportPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text("Date range", style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+            const Text(
+              "Date range",
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
             const SizedBox(height: 16),
 
             // Start Date
             GestureDetector(
               onTap: _pickStartDate,
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 20,
+                ),
                 decoration: BoxDecoration(
                   color: const Color(0xFF2E2E2E),
                   borderRadius: BorderRadius.circular(12),
@@ -302,7 +740,9 @@ class _ExportReportPageState extends State<ExportReportPage> {
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     Text(
-                      _startDate != null ? _dateFormat.format(_startDate!) : "Start Date",
+                      _startDate != null
+                          ? _dateFormat.format(_startDate!)
+                          : "Start Date",
                       style: const TextStyle(color: Colors.white),
                     ),
                     const Icon(Icons.calendar_today, color: Colors.white70),
@@ -317,7 +757,10 @@ class _ExportReportPageState extends State<ExportReportPage> {
             GestureDetector(
               onTap: _pickEndDate,
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 20,
+                ),
                 decoration: BoxDecoration(
                   color: const Color(0xFF2E2E2E),
                   borderRadius: BorderRadius.circular(12),
@@ -326,7 +769,9 @@ class _ExportReportPageState extends State<ExportReportPage> {
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     Text(
-                      _endDate != null ? _dateFormat.format(_endDate!) : "End Date",
+                      _endDate != null
+                          ? _dateFormat.format(_endDate!)
+                          : "End Date",
                       style: const TextStyle(color: Colors.white),
                     ),
                     const Icon(Icons.calendar_today, color: Colors.white70),
@@ -337,14 +782,24 @@ class _ExportReportPageState extends State<ExportReportPage> {
 
             const SizedBox(height: 32),
 
-            const Text("Filters", style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+            const Text(
+              "Filters",
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
             const SizedBox(height: 16),
 
             // Income & Expenses Selector
             GestureDetector(
               onTap: _showTypeSelector,
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 20,
+                ),
                 decoration: BoxDecoration(
                   color: const Color(0xFF2E2E2E),
                   borderRadius: BorderRadius.circular(12),
@@ -352,7 +807,10 @@ class _ExportReportPageState extends State<ExportReportPage> {
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    const Text("Income and expenses", style: TextStyle(color: Colors.white)),
+                    const Text(
+                      "Income and expenses",
+                      style: TextStyle(color: Colors.white),
+                    ),
                     Text(
                       _selectedType == 'both'
                           ? "All"
@@ -374,19 +832,34 @@ class _ExportReportPageState extends State<ExportReportPage> {
                 backgroundColor: const Color(0xFF1E4D4D),
                 foregroundColor: Colors.white,
                 minimumSize: const Size(double.infinity, 50),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
               ),
               child: _isLoading
                   ? const SizedBox(
-                width: 20,
-                height: 20,
-                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-              )
-                  : const Text("Confirm Export", style: TextStyle(fontSize: 16)),
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : const Text(
+                      "Confirm Export",
+                      style: TextStyle(fontSize: 16),
+                    ),
             ),
           ],
         ),
       ),
     );
+  }
+}
+
+extension StringCapitalization on String {
+  String capitalize() {
+    if (isEmpty) return this;
+    return '${this[0].toUpperCase()}${substring(1)}';
   }
 }

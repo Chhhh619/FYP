@@ -42,9 +42,9 @@ class _CustomCategoryPageState extends State<CustomCategoryPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color.fromRGBO(28, 28, 28, 0),
+      backgroundColor: const Color.fromRGBO(28, 28, 28, 1),
       appBar: AppBar(
-        backgroundColor: const Color.fromRGBO(28, 28, 28, 0),
+        backgroundColor: const Color.fromRGBO(28, 28, 28, 1),
         leading: IconButton(
           icon: const Icon(Icons.close, color: Colors.white),
           onPressed: () => Navigator.pop(context),

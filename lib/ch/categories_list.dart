@@ -116,9 +116,9 @@ class _CategoriesListPageState extends State<CategoriesListPage>
       'Screen: $availableScreenWidth x $availableScreenHeight',
     );
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: Color.fromRGBO(28, 28, 28, 1),
       appBar: AppBar(
-        backgroundColor: Colors.black,
+        backgroundColor: Color.fromRGBO(28, 28, 28, 1),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back, color: Colors.white),
           onPressed: () => Navigator.pop(context),
@@ -153,7 +153,7 @@ class _CategoriesListPageState extends State<CategoriesListPage>
             Expanded(
               flex: 8, // 80% for the grid
               child: Container(
-                color: Colors.black,
+                color: Color.fromRGBO(28, 28, 28, 1),
                 child: FutureBuilder<List<Map<String, dynamic>>>(
                   future: _categoryFuture,
                   builder: (context, snapshot) {

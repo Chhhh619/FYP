@@ -112,11 +112,11 @@ class _BillingStartDatePageState extends State<BillingStartDatePage> {
         margin: const EdgeInsets.all(4),
         decoration: BoxDecoration(
           color: isSelected
-              ? const Color.fromRGBO(76, 175, 80, 1) // Green for selected
+              ? Colors.teal // Green for selected
               : const Color.fromRGBO(66, 66, 66, 1), // Dark gray for unselected
           borderRadius: BorderRadius.circular(8),
           border: isSelected
-              ? Border.all(color: const Color.fromRGBO(76, 175, 80, 1), width: 2)
+              ? Border.all(color: Colors.teal, width: 2)
               : null,
         ),
         child: Center(
@@ -171,7 +171,7 @@ class _BillingStartDatePageState extends State<BillingStartDatePage> {
                 children: [
                   const Icon(
                     Icons.calendar_today,
-                    color: Color.fromRGBO(76, 175, 80, 1),
+                    color: Colors.teal,
                     size: 24,
                   ),
                   const SizedBox(width: 12),

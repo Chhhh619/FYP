@@ -306,7 +306,7 @@ class _SettingsPageState extends State<SettingsPage> {
                   width: availableScreenWidth * 0.45,
                   padding: const EdgeInsets.all(12.0),
                   decoration: BoxDecoration(
-                    color: const Color.fromRGBO(50, 50, 50, 1),
+                    color: const Color.fromRGBO(33, 35, 34, 1),
                     borderRadius: BorderRadius.circular(8.0),
                   ),
                   child: Column(
@@ -326,7 +326,7 @@ class _SettingsPageState extends State<SettingsPage> {
                   width: availableScreenWidth * 0.45,
                   padding: const EdgeInsets.all(12.0),
                   decoration: BoxDecoration(
-                    color: const Color.fromRGBO(50, 50, 50, 1),
+                    color: const Color.fromRGBO(33, 35, 34, 1),
                     borderRadius: BorderRadius.circular(8.0),
                   ),
                   child: Column(
@@ -564,7 +564,7 @@ class _SettingsPageState extends State<SettingsPage> {
     return Container(
       margin: const EdgeInsets.symmetric(vertical: 4.0),
       decoration: BoxDecoration(
-        color: const Color.fromRGBO(50, 50, 50, 1),
+        color: const Color.fromRGBO(33, 35, 34, 1),
         borderRadius: BorderRadius.circular(8.0),
       ),
       child: ListTile(

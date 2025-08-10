@@ -13,17 +13,29 @@ class SelectCardPopup extends StatelessWidget {
     final userId = FirebaseAuth.instance.currentUser!.uid;
 
     return Dialog(
-      backgroundColor: Colors.grey[900],
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      backgroundColor: Colors.transparent,
       child: Container(
-        padding: const EdgeInsets.all(16),
-        constraints: const BoxConstraints(maxHeight: 400),
+        padding: const EdgeInsets.all(20),
+        constraints: const BoxConstraints(maxHeight: 500),
+        decoration: BoxDecoration(
+          color: const Color.fromRGBO(28, 28, 28, 1),
+          borderRadius: BorderRadius.circular(20),
+        ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Text('Select a Card',
-                style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 16),
+            // Header
+            const Text(
+              'Select a Card',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 20),
+
+            // Cards list
             Expanded(
               child: StreamBuilder<QuerySnapshot>(
                 stream: FirebaseFirestore.instance
@@ -33,20 +45,64 @@ class SelectCardPopup extends StatelessWidget {
                     .snapshots(),
                 builder: (context, snapshot) {
                   if (!snapshot.hasData) {
-                    return const Center(child: CircularProgressIndicator());
+                    return const Center(
+                      child: CircularProgressIndicator(color: Colors.tealAccent),
+                    );
                   }
 
                   final cards = snapshot.data!.docs;
 
                   if (cards.isEmpty) {
-                    return const Center(
-                      child: Text('No cards yet',
-                          style: TextStyle(color: Colors.white70)),
+                    return Center(
+                      child: Container(
+                        padding: const EdgeInsets.all(30),
+                        decoration: BoxDecoration(
+                          color: Colors.grey[850],
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(color: Colors.grey[700]!, width: 1),
+                        ),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(16),
+                              decoration: BoxDecoration(
+                                color: Colors.grey[800],
+                                borderRadius: BorderRadius.circular(50),
+                              ),
+                              child: const Icon(
+                                Icons.credit_card_off,
+                                color: Colors.grey,
+                                size: 40,
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+                            const Text(
+                              'No cards found',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 16,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            const Text(
+                              'Add a card below to get started',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                color: Colors.grey,
+                                fontSize: 14,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                     );
                   }
 
-                  return ListView.builder(
+                  return ListView.separated(
                     itemCount: cards.length,
+                    separatorBuilder: (_, __) => const SizedBox(height: 12),
                     itemBuilder: (context, index) {
                       final cardDoc = cards[index];
                       final card = cardDoc.data() as Map<String, dynamic>;
@@ -60,40 +116,129 @@ class SelectCardPopup extends StatelessWidget {
                       final bankLogo = card['logo'] ?? '';
                       final type = card['type'] ?? '';
 
-                      return ListTile(
+                      return GestureDetector(
                         onTap: () {
                           onCardSelected(card);
                         },
-                        leading: bankLogo != ''
-                            ? Image.network(bankLogo, width: 40, height: 40)
-                            : const Icon(Icons.credit_card, color: Colors.white),
-                        title: Text('$name ($type)',
-                            style: const TextStyle(color: Colors.white)),
-                        subtitle: Text('•••• $last4',
-                            style: const TextStyle(color: Colors.white70)),
-                        trailing: Text('RM ${balance.toStringAsFixed(2)}',
-                            style: const TextStyle(color: Colors.tealAccent)),
+                        child: Container(
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: const Color.fromRGBO(50, 50, 50, 1),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: Colors.grey[700]!, width: 1),
+                          ),
+                          child: Row(
+                            children: [
+                              // Card icon/logo
+                              Container(
+                                width: 48,
+                                height: 48,
+                                padding: const EdgeInsets.all(8),
+                                decoration: BoxDecoration(
+                                  color: Colors.grey[800],
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: bankLogo != ''
+                                    ? Image.network(
+                                  bankLogo,
+                                  fit: BoxFit.contain,
+                                  errorBuilder: (_, __, ___) => const Icon(
+                                    Icons.credit_card,
+                                    color: Colors.white70,
+                                    size: 24,
+                                  ),
+                                )
+                                    : const Icon(
+                                  Icons.credit_card,
+                                  color: Colors.white70,
+                                  size: 24,
+                                ),
+                              ),
+                              const SizedBox(width: 16),
+
+                              // Card details
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      '$name ($type)',
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      '•••• $last4',
+                                      style: const TextStyle(
+                                        color: Colors.white70,
+                                        fontSize: 14,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+
+                              // Balance
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.end,
+                                children: [
+                                  const Text(
+                                    'Balance',
+                                    style: TextStyle(
+                                      color: Colors.grey,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    'RM ${balance.toStringAsFixed(2)}',
+                                    style: const TextStyle(
+                                      color: Colors.tealAccent,
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
                       );
                     },
                   );
                 },
               ),
             ),
-            const SizedBox(height: 12),
-            ElevatedButton.icon(
+
+            const SizedBox(height: 16),
+
+            // Add new card button
+            Container(
+              width: double.infinity,
+              child: ElevatedButton.icon(
                 onPressed: () {
                   Navigator.pop(context); // Close popup
                   Navigator.of(context, rootNavigator: true).push(
                     MaterialPageRoute(builder: (_) => const CardTypeSelectionPage()),
                   );
                 },
-              icon: const Icon(Icons.add),
-              label: const Text('Add New Card'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.teal,
-                foregroundColor: Colors.black,
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12)),
+                icon: const Icon(Icons.add, size: 20),
+                label: const Text(
+                  'Add New Card',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.teal,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  elevation: 0,
+                ),
               ),
             ),
           ],

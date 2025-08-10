@@ -37,8 +37,6 @@ class _CardEditPageState extends State<CardEditPage> {
   final List<String> _cardTypes = [
     'Debit',
     'Credit',
-    'Savings',
-    'Current',
   ];
 
   @override
@@ -165,7 +163,7 @@ class _CardEditPageState extends State<CardEditPage> {
       context: context,
       builder: (BuildContext context) {
         return AlertDialog(
-          backgroundColor: Colors.grey[900],
+          backgroundColor: Color.fromRGBO(33, 35, 34, 1),
           title: Text('Delete Card', style: TextStyle(color: Colors.white)),
           content: Column(
             mainAxisSize: MainAxisSize.min,
@@ -429,7 +427,6 @@ class _CardEditPageState extends State<CardEditPage> {
 
                     SizedBox(height: 16),
 
-                    // Card Name
                     TextFormField(
                       controller: _nameController,
                       style: TextStyle(color: Colors.white),
@@ -448,7 +445,7 @@ class _CardEditPageState extends State<CardEditPage> {
                           borderSide: BorderSide(color: Colors.teal),
                         ),
                         filled: true,
-                        fillColor: Colors.grey[800],
+                        fillColor: Color.fromRGBO(33, 35, 34, 1),
                       ),
                       validator: (value) {
                         if (value == null || value.trim().isEmpty) {
@@ -480,9 +477,9 @@ class _CardEditPageState extends State<CardEditPage> {
                           borderSide: BorderSide(color: Colors.teal),
                         ),
                         filled: true,
-                        fillColor: Colors.grey[800],
+                        fillColor: Color.fromRGBO(33, 35, 34, 1),
                       ),
-                      dropdownColor: Colors.grey[800],
+                      dropdownColor: Color.fromRGBO(33, 35, 34, 1),
                       items: _bankNames.map((String bank) {
                         return DropdownMenuItem<String>(
                           value: bank,
@@ -523,9 +520,9 @@ class _CardEditPageState extends State<CardEditPage> {
                           borderSide: BorderSide(color: Colors.teal),
                         ),
                         filled: true,
-                        fillColor: Colors.grey[800],
+                        fillColor: Color.fromRGBO(33, 35, 34, 1),
                       ),
-                      dropdownColor: Colors.grey[800],
+                      dropdownColor: Color.fromRGBO(33, 35, 34, 1),
                       items: _cardTypes.map((String type) {
                         return DropdownMenuItem<String>(
                           value: type,
@@ -568,7 +565,7 @@ class _CardEditPageState extends State<CardEditPage> {
                           borderSide: BorderSide(color: Colors.teal),
                         ),
                         filled: true,
-                        fillColor: Colors.grey[800],
+                        fillColor: Color.fromRGBO(33, 35, 34, 1),
                         counterText: '',
                       ),
                       validator: (value) {
@@ -607,7 +604,7 @@ class _CardEditPageState extends State<CardEditPage> {
                           borderSide: BorderSide(color: Colors.teal),
                         ),
                         filled: true,
-                        fillColor: Colors.grey[800],
+                        fillColor: Color.fromRGBO(33, 35, 34, 1),
                       ),
                       validator: (value) {
                         if (value == null || value.trim().isEmpty) {
@@ -682,6 +679,8 @@ class _CardEditPageState extends State<CardEditPage> {
                       ),
                     ),
                   ),
+
+                  SizedBox(height: 12),
                 ],
               ),
             ),
