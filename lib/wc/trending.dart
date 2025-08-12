@@ -19,123 +19,191 @@ class _TrendingPageState extends State<TrendingPage> {
   DateTime _selectedMonth = DateTime.now();
 
   Future<Map<String, dynamic>> _fetchMonthlyData(String userId, DateTime month) async {
-    final monthStart = DateTime(month.year, month.month, 1);
-    final monthEnd = DateTime(month.year, month.month + 1, 1);
+    try {
+      print('Fetching data for user: $userId, month: ${DateFormat('yyyy-MM').format(month)}');
 
-    final snapshot = await _firestore
-        .collection('transactions')
-        .where('userid', isEqualTo: userId)
-        .where('timestamp', isGreaterThanOrEqualTo: Timestamp.fromDate(monthStart))
-        .where('timestamp', isLessThan: Timestamp.fromDate(monthEnd))
-        .get();
+      // Fix date calculations
+      final monthStart = DateTime(month.year, month.month, 1);
+      DateTime monthEnd;
+      if (month.month == 12) {
+        monthEnd = DateTime(month.year + 1, 1, 1);
+      } else {
+        monthEnd = DateTime(month.year, month.month + 1, 1);
+      }
 
-    double totalExpenses = 0.0;
-    double totalIncome = 0.0;
-    int transactionCount = 0;
-    Map<String, double> categoryTotals = {};
-    List<double> dailyExpenses = List.filled(DateTime(month.year, month.month + 1, 0).day, 0.0);
+      print('Date range: $monthStart to $monthEnd');
 
-    for (var doc in snapshot.docs) {
-      final data = doc.data();
-      final amount = (data['amount'] as num?)?.toDouble() ?? 0.0;
-      final timestamp = data['timestamp'] as Timestamp?;
-      final categoryRef = data['category'] as DocumentReference?;
+      final snapshot = await _firestore
+          .collection('transactions')
+          .where('userId', isEqualTo: userId)
+          .where('timestamp', isGreaterThanOrEqualTo: Timestamp.fromDate(monthStart))
+          .where('timestamp', isLessThan: Timestamp.fromDate(monthEnd))
+          .get();
 
-      String transactionType = data['type'] ?? data['categoryType'] ?? '';
+      print('Found ${snapshot.docs.length} transactions');
 
-      if (transactionType.isEmpty && categoryRef != null) {
+      double totalExpenses = 0.0;
+      double totalIncome = 0.0;
+      int transactionCount = 0;
+      Map<String, double> categoryTotals = {};
+
+      // Fix daily expenses array size
+      final daysInMonth = DateTime(month.year, month.month + 1, 0).day;
+      List<double> dailyExpenses = List.filled(daysInMonth, 0.0);
+
+      for (var doc in snapshot.docs) {
         try {
-          final categoryDoc = await categoryRef.get();
-          if (categoryDoc.exists) {
-            final categoryData = categoryDoc.data() as Map<String, dynamic>?;
-            transactionType = categoryData?['type'] ?? '';
+          final data = doc.data();
+          final amount = (data['amount'] as num?)?.toDouble() ?? 0.0;
+          final timestamp = data['timestamp'] as Timestamp?;
+          final categoryRef = data['category'] as DocumentReference?;
+
+          String transactionType = data['type'] ?? data['categoryType'] ?? '';
+
+          // If type is not directly available, fetch from category
+          if (transactionType.isEmpty && categoryRef != null) {
+            try {
+              final categoryDoc = await categoryRef.get();
+              if (categoryDoc.exists) {
+                final categoryData = categoryDoc.data() as Map<String, dynamic>?;
+                transactionType = categoryData?['type'] ?? '';
+              }
+            } catch (e) {
+              print('Error fetching category type: $e');
+              continue; // Skip this transaction
+            }
+          }
+
+          transactionCount++;
+
+          if (transactionType == 'expense') {
+            totalExpenses += amount.abs();
+
+            // Add to daily expenses for chart
+            if (timestamp != null) {
+              final day = timestamp.toDate().day - 1;
+              if (day >= 0 && day < dailyExpenses.length) {
+                dailyExpenses[day] += amount.abs();
+              }
+            }
+
+            // Get category name for breakdown
+            if (categoryRef != null) {
+              try {
+                final categoryDoc = await categoryRef.get();
+                if (categoryDoc.exists) {
+                  final categoryData = categoryDoc.data() as Map<String, dynamic>?;
+                  final categoryName = categoryData?['name'] ?? 'Unknown';
+                  categoryTotals[categoryName] = (categoryTotals[categoryName] ?? 0.0) + amount.abs();
+                }
+              } catch (e) {
+                print('Error fetching category data: $e');
+                categoryTotals['Unknown'] = (categoryTotals['Unknown'] ?? 0.0) + amount.abs();
+              }
+            }
+          } else if (transactionType == 'income') {
+            totalIncome += amount.abs();
           }
         } catch (e) {
-          print('Error fetching category type: $e');
+          print('Error processing transaction ${doc.id}: $e');
+          continue;
         }
       }
 
-      transactionCount++;
+      final result = {
+        'totalExpenses': totalExpenses,
+        'totalIncome': totalIncome,
+        'balance': totalIncome - totalExpenses,
+        'transactionCount': transactionCount,
+        'categoryTotals': categoryTotals,
+        'dailyExpenses': dailyExpenses,
+      };
 
-      if (transactionType == 'expense') {
-        totalExpenses += amount.abs();
-
-        // Add to daily expenses for chart
-        if (timestamp != null) {
-          final day = timestamp.toDate().day - 1;
-          if (day >= 0 && day < dailyExpenses.length) {
-            dailyExpenses[day] += amount.abs();
-          }
-        }
-
-        // Get category name for breakdown
-        if (categoryRef != null) {
-          try {
-            final categoryDoc = await categoryRef.get();
-            if (categoryDoc.exists) {
-              final categoryData = categoryDoc.data() as Map<String, dynamic>?;
-              final categoryName = categoryData?['name'] ?? 'Unknown';
-              categoryTotals[categoryName] = (categoryTotals[categoryName] ?? 0.0) + amount.abs();
-            }
-          } catch (e) {
-            print('Error fetching category data: $e');
-          }
-        }
-      } else if (transactionType == 'income') {
-        totalIncome += amount.abs();
-      }
+      print('Monthly data result: Expenses: $totalExpenses, Income: $totalIncome, Transactions: $transactionCount');
+      return result;
+    } catch (e) {
+      print('Error in _fetchMonthlyData: $e');
+      rethrow;
     }
-
-    return {
-      'totalExpenses': totalExpenses,
-      'totalIncome': totalIncome,
-      'balance': totalIncome - totalExpenses,
-      'transactionCount': transactionCount,
-      'categoryTotals': categoryTotals,
-      'dailyExpenses': dailyExpenses,
-    };
   }
 
   Future<Map<String, dynamic>> _fetchComparisonData(String userId) async {
-    final now = DateTime.now();
-    final currentMonth = DateTime(now.year, now.month, 1);
-    final lastMonth = DateTime(now.year, now.month - 1, 1);
-    final threeMonthsAgo = DateTime(now.year, now.month - 3, 1);
-    final sixMonthsAgo = DateTime(now.year, now.month - 6, 1);
+    try {
+      print('Fetching comparison data for user: $userId');
 
-    // Get current month data
-    final currentData = await _fetchMonthlyData(userId, currentMonth);
+      final now = DateTime.now();
+      final currentMonth = DateTime(now.year, now.month, 1);
 
-    // Get last month data
-    final lastMonthData = await _fetchMonthlyData(userId, lastMonth);
+      // Fix date calculations for previous months
+      DateTime lastMonth;
+      if (now.month == 1) {
+        lastMonth = DateTime(now.year - 1, 12, 1);
+      } else {
+        lastMonth = DateTime(now.year, now.month - 1, 1);
+      }
 
-    // Get average for last 3 months
-    double threeMonthTotal = 0.0;
-    for (int i = 1; i <= 3; i++) {
-      final monthData = await _fetchMonthlyData(userId, DateTime(now.year, now.month - i, 1));
-      threeMonthTotal += monthData['totalExpenses'] as double;
+      // Get current month data
+      final currentData = await _fetchMonthlyData(userId, currentMonth);
+      print('Current month data fetched');
+
+      // Get last month data
+      final lastMonthData = await _fetchMonthlyData(userId, lastMonth);
+      print('Last month data fetched');
+
+      // Get average for last 3 months
+      double threeMonthTotal = 0.0;
+      for (int i = 1; i <= 3; i++) {
+        DateTime targetMonth;
+        if (now.month - i <= 0) {
+          targetMonth = DateTime(now.year - 1, 12 + (now.month - i), 1);
+        } else {
+          targetMonth = DateTime(now.year, now.month - i, 1);
+        }
+        final monthData = await _fetchMonthlyData(userId, targetMonth);
+        threeMonthTotal += monthData['totalExpenses'] as double;
+      }
+
+      // Get average for last 6 months
+      double sixMonthTotal = 0.0;
+      for (int i = 1; i <= 6; i++) {
+        DateTime targetMonth;
+        if (now.month - i <= 0) {
+          int targetYear = now.year;
+          int targetMonthNum = now.month - i;
+          while (targetMonthNum <= 0) {
+            targetYear--;
+            targetMonthNum += 12;
+          }
+          targetMonth = DateTime(targetYear, targetMonthNum, 1);
+        } else {
+          targetMonth = DateTime(now.year, now.month - i, 1);
+        }
+        final monthData = await _fetchMonthlyData(userId, targetMonth);
+        sixMonthTotal += monthData['totalExpenses'] as double;
+      }
+
+      final result = {
+        'current': currentData,
+        'lastMonth': lastMonthData,
+        'threeMonthAvg': threeMonthTotal / 3,
+        'sixMonthAvg': sixMonthTotal / 6,
+        'dailyAvgCurrent': (currentData['totalExpenses'] as double) / now.day,
+        'dailyAvgLast': (lastMonthData['totalExpenses'] as double) / DateTime(lastMonth.year, lastMonth.month + 1, 0).day,
+      };
+
+      print('Comparison data completed successfully');
+      return result;
+    } catch (e) {
+      print('Error in _fetchComparisonData: $e');
+      rethrow;
     }
-
-    // Get average for last 6 months
-    double sixMonthTotal = 0.0;
-    for (int i = 1; i <= 6; i++) {
-      final monthData = await _fetchMonthlyData(userId, DateTime(now.year, now.month - i, 1));
-      sixMonthTotal += monthData['totalExpenses'] as double;
-    }
-
-    return {
-      'current': currentData,
-      'lastMonth': lastMonthData,
-      'threeMonthAvg': threeMonthTotal / 3,
-      'sixMonthAvg': sixMonthTotal / 6,
-      'dailyAvgCurrent': (currentData['totalExpenses'] as double) / now.day,
-      'dailyAvgLast': (lastMonthData['totalExpenses'] as double) / DateTime(lastMonth.year, lastMonth.month + 1, 0).day,
-    };
   }
 
   @override
   Widget build(BuildContext context) {
     final userId = _auth.currentUser?.uid;
+    print('Building TrendingPage with userId: $userId');
+
     if (userId == null) {
       return Scaffold(
         backgroundColor: const Color(0xFF1C1C1C),
@@ -195,13 +263,62 @@ class _TrendingPageState extends State<TrendingPage> {
         child: FutureBuilder<Map<String, dynamic>>(
           future: _fetchComparisonData(userId),
           builder: (context, snapshot) {
+            // Add proper error handling
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    CircularProgressIndicator(color: Colors.teal),
+                    SizedBox(height: 16),
+                    Text(
+                      'Loading your financial data...',
+                      style: TextStyle(color: Colors.white70),
+                    ),
+                  ],
+                ),
+              );
+            }
+
+            if (snapshot.hasError) {
+              print('Error in FutureBuilder: ${snapshot.error}');
+              return Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(Icons.error, color: Colors.red, size: 48),
+                    const SizedBox(height: 16),
+                    Text(
+                      'Error loading data: ${snapshot.error}',
+                      style: const TextStyle(color: Colors.red),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 16),
+                    ElevatedButton(
+                      onPressed: () {
+                        setState(() {}); // Trigger rebuild
+                      },
+                      child: const Text('Retry'),
+                    ),
+                  ],
+                ),
+              );
+            }
+
             if (!snapshot.hasData) {
-              return const Center(child: CircularProgressIndicator());
+              return const Center(
+                child: Text(
+                  'No data available',
+                  style: TextStyle(color: Colors.white70),
+                ),
+              );
             }
 
             final data = snapshot.data!;
             final currentData = data['current'] as Map<String, dynamic>;
             final lastMonthData = data['lastMonth'] as Map<String, dynamic>;
+
+            print('Rendering data with current expenses: ${currentData['totalExpenses']}');
 
             return Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -248,6 +365,7 @@ class _TrendingPageState extends State<TrendingPage> {
     );
   }
 
+  // Rest of your methods remain the same...
   Widget _buildOverviewCard(Map<String, dynamic> data) {
     return Container(
       padding: const EdgeInsets.all(20),
@@ -473,52 +591,58 @@ class _TrendingPageState extends State<TrendingPage> {
             ],
           ),
           const SizedBox(height: 16),
-          ...sortedCategories.take(4).map((entry) {
-            final percentage = total > 0 ? (entry.value / total * 100) : 0.0;
-            return Container(
-              margin: const EdgeInsets.only(bottom: 16),
-              child: Column(
-                children: [
-                  Row(
-                    children: [
-                      Icon(
-                        _getCategoryIcon(entry.key),
-                        color: _getCategoryColor(entry.key),
-                        size: 20,
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Text(
-                                  '${entry.key} ${percentage.toStringAsFixed(2)}%',
-                                  style: const TextStyle(color: Colors.white, fontSize: 14),
-                                ),
-                                Text(
-                                  'RM${entry.value.toStringAsFixed(0)}',
-                                  style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 4),
-                            LinearProgressIndicator(
-                              value: percentage / 100,
-                              backgroundColor: Colors.grey[700],
-                              valueColor: AlwaysStoppedAnimation<Color>(_getCategoryColor(entry.key)),
-                            ),
-                          ],
+          if (sortedCategories.isEmpty)
+            const Text(
+              'No expense data available',
+              style: TextStyle(color: Colors.white70, fontSize: 14),
+            )
+          else
+            ...sortedCategories.take(4).map((entry) {
+              final percentage = total > 0 ? (entry.value / total * 100) : 0.0;
+              return Container(
+                margin: const EdgeInsets.only(bottom: 16),
+                child: Column(
+                  children: [
+                    Row(
+                      children: [
+                        Icon(
+                          _getCategoryIcon(entry.key),
+                          color: _getCategoryColor(entry.key),
+                          size: 20,
                         ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            );
-          }),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Text(
+                                    '${entry.key} ${percentage.toStringAsFixed(2)}%',
+                                    style: const TextStyle(color: Colors.white, fontSize: 14),
+                                  ),
+                                  Text(
+                                    'RM${entry.value.toStringAsFixed(0)}',
+                                    style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 4),
+                              LinearProgressIndicator(
+                                value: percentage / 100,
+                                backgroundColor: Colors.grey[700],
+                                valueColor: AlwaysStoppedAnimation<Color>(_getCategoryColor(entry.key)),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              );
+            }),
         ],
       ),
     );
@@ -571,7 +695,14 @@ class _TrendingPageState extends State<TrendingPage> {
           const SizedBox(height: 20),
           SizedBox(
             height: 120,
-            child: Row(
+            child: dailyExpenses.isEmpty
+                ? const Center(
+              child: Text(
+                'No expense data available',
+                style: TextStyle(color: Colors.white70, fontSize: 14),
+              ),
+            )
+                : Row(
               crossAxisAlignment: CrossAxisAlignment.end,
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: List.generate(dailyExpenses.length, (index) {
@@ -804,101 +935,139 @@ class _TrendingPageState extends State<TrendingPage> {
   }
 
   Future<Map<String, dynamic>> _fetchComprehensiveFinancialData(String userId) async {
-    final now = DateTime.now();
-    List<double> monthlySpending = List.filled(12, 0.0);
-    List<double> monthlyIncome = List.filled(12, 0.0);
-    Map<String, double> categoryTotals = {};
-    Map<String, List<double>> categoryTrends = {};
-    List<double> savingsRate = List.filled(12, 0.0);
+    try {
+      final now = DateTime.now();
+      List<double> monthlySpending = List.filled(12, 0.0);
+      List<double> monthlyIncome = List.filled(12, 0.0);
+      Map<String, double> categoryTotals = {};
+      Map<String, List<double>> categoryTrends = {};
+      List<double> savingsRate = List.filled(12, 0.0);
 
-    for (int i = 0; i < 12; i++) {
-      final monthStart = DateTime(now.year, now.month - i, 1);
-      final monthEnd = DateTime(now.year, now.month - i + 1, 1);
+      for (int i = 0; i < 12; i++) {
+        DateTime targetMonth;
+        if (now.month - i <= 0) {
+          int targetYear = now.year;
+          int targetMonthNum = now.month - i;
+          while (targetMonthNum <= 0) {
+            targetYear--;
+            targetMonthNum += 12;
+          }
+          targetMonth = DateTime(targetYear, targetMonthNum, 1);
+        } else {
+          targetMonth = DateTime(now.year, now.month - i, 1);
+        }
 
-      final snapshot = await _firestore
-          .collection('transactions')
-          .where('userid', isEqualTo: userId)
-          .where('timestamp', isGreaterThanOrEqualTo: Timestamp.fromDate(monthStart))
-          .where('timestamp', isLessThan: Timestamp.fromDate(monthEnd))
-          .get();
+        final monthStart = DateTime(targetMonth.year, targetMonth.month, 1);
+        DateTime monthEnd;
+        if (targetMonth.month == 12) {
+          monthEnd = DateTime(targetMonth.year + 1, 1, 1);
+        } else {
+          monthEnd = DateTime(targetMonth.year, targetMonth.month + 1, 1);
+        }
 
-      double monthExpenses = 0.0;
-      double monthIncome = 0.0;
-      Map<String, double> monthCategorySpending = {};
+        print('Fetching transactions for user: $userId, month: ${DateFormat('yyyy-MM').format(targetMonth)}');
+        final snapshot = await _firestore
+            .collection('transactions')
+            .where('userId', isEqualTo: userId)
+            .where('timestamp', isGreaterThanOrEqualTo: Timestamp.fromDate(monthStart))
+            .where('timestamp', isLessThan: Timestamp.fromDate(monthEnd))
+            .get();
 
-      for (var doc in snapshot.docs) {
-        final data = doc.data();
-        final amount = (data['amount'] as num?)?.toDouble() ?? 0.0;
-        final categoryRef = data['category'] as DocumentReference?;
-        String transactionType = data['type'] ?? data['categoryType'] ?? '';
+        print('Found ${snapshot.docs.length} transactions for ${DateFormat('yyyy-MM').format(targetMonth)}');
 
-        if (transactionType.isEmpty && categoryRef != null) {
+        double monthExpenses = 0.0;
+        double monthIncome = 0.0;
+        Map<String, double> monthCategorySpending = {};
+
+        for (var doc in snapshot.docs) {
           try {
-            final categoryDoc = await categoryRef.get();
-            if (categoryDoc.exists) {
-              final categoryData = categoryDoc.data() as Map<String, dynamic>?;
-              transactionType = categoryData?['type'] ?? '';
+            final data = doc.data();
+            final amount = (data['amount'] as num?)?.toDouble() ?? 0.0;
+            final categoryRef = data['category'] as DocumentReference?;
+            String transactionType = data['type'] ?? data['categoryType'] ?? '';
+
+            if (transactionType.isEmpty && categoryRef != null) {
+              try {
+                final categoryDoc = await categoryRef.get();
+                if (categoryDoc.exists) {
+                  final categoryData = categoryDoc.data() as Map<String, dynamic>?;
+                  transactionType = categoryData?['type'] ?? '';
+                }
+              } catch (e) {
+                print('Error fetching category type: $e');
+                continue;
+              }
+            }
+
+            if (transactionType == 'expense') {
+              monthExpenses += amount.abs();
+              if (categoryRef != null) {
+                try {
+                  final categoryDoc = await categoryRef.get();
+                  if (categoryDoc.exists) {
+                    final categoryData = categoryDoc.data() as Map<String, dynamic>?;
+                    final categoryName = categoryData?['name'] ?? 'Unknown';
+                    monthCategorySpending[categoryName] = (monthCategorySpending[categoryName] ?? 0.0) + amount.abs();
+                  }
+                } catch (e) {
+                  print('Error fetching category data: $e');
+                  monthCategorySpending['Unknown'] = (monthCategorySpending['Unknown'] ?? 0.0) + amount.abs();
+                }
+              }
+            } else if (transactionType == 'income') {
+              monthIncome += amount.abs();
             }
           } catch (e) {
-            print('Error fetching category type: $e');
+            print('Error processing transaction ${doc.id}: $e');
+            continue;
           }
         }
 
-        if (transactionType == 'expense') {
-          monthExpenses += amount.abs();
-          if (categoryRef != null) {
-            try {
-              final categoryDoc = await categoryRef.get();
-              if (categoryDoc.exists) {
-                final categoryData = categoryDoc.data() as Map<String, dynamic>?;
-                final categoryName = categoryData?['name'] ?? 'Unknown';
-                monthCategorySpending[categoryName] = (monthCategorySpending[categoryName] ?? 0.0) + amount.abs();
-              }
-            } catch (e) {
-              print('Error fetching category data: $e');
-            }
+        monthlySpending[11 - i] = monthExpenses;
+        monthlyIncome[11 - i] = monthIncome;
+        savingsRate[11 - i] = monthIncome > 0 ? ((monthIncome - monthExpenses) / monthIncome) : 0.0;
+
+        monthCategorySpending.forEach((category, amount) {
+          categoryTotals[category] = (categoryTotals[category] ?? 0.0) + amount;
+          if (!categoryTrends.containsKey(category)) {
+            categoryTrends[category] = List.filled(12, 0.0);
           }
-        } else if (transactionType == 'income') {
-          monthIncome += amount.abs();
-        }
+          categoryTrends[category]![11 - i] = amount;
+        });
       }
 
-      monthlySpending[11 - i] = monthExpenses;
-      monthlyIncome[11 - i] = monthIncome;
-      savingsRate[11 - i] = monthIncome > 0 ? ((monthIncome - monthExpenses) / monthIncome) : 0.0;
-
-      monthCategorySpending.forEach((category, amount) {
-        categoryTotals[category] = (categoryTotals[category] ?? 0.0) + amount;
-        if (!categoryTrends.containsKey(category)) {
-          categoryTrends[category] = List.filled(12, 0.0);
-        }
-        categoryTrends[category]![11 - i] = amount;
-      });
+      return {
+        'monthlySpending': monthlySpending,
+        'monthlyIncome': monthlyIncome,
+        'categoryTotals': categoryTotals,
+        'categoryTrends': categoryTrends,
+        'savingsRate': savingsRate,
+        'avgMonthlySpending': monthlySpending.fold(0.0, (sum, item) => sum + item) / 12,
+      };
+    } catch (e) {
+      print('Error in _fetchComprehensiveFinancialData: $e');
+      rethrow;
     }
-
-    return {
-      'monthlySpending': monthlySpending,
-      'monthlyIncome': monthlyIncome,
-      'categoryTotals': categoryTotals,
-      'categoryTrends': categoryTrends,
-      'savingsRate': savingsRate,
-      'avgMonthlySpending': monthlySpending.fold(0.0, (sum, item) => sum + item) / 12,
-    };
   }
 
   Future<double> _predictNextMonthSpending(String userId) async {
-    final financialData = await _fetchComprehensiveFinancialData(userId);
-    final spendingData = financialData['monthlySpending'] as List<double>;
+    try {
+      final financialData = await _fetchComprehensiveFinancialData(userId);
+      final spendingData = financialData['monthlySpending'] as List<double>;
 
-    // Simple moving average prediction (can be enhanced with more sophisticated algorithms)
-    final recentMonths = spendingData.take(3).toList(); // Last 3 months
-    final avgSpending = recentMonths.fold(0.0, (sum, item) => sum + item) / recentMonths.length;
+      // Simple moving average prediction (can be enhanced with more sophisticated algorithms)
+      final recentMonths = spendingData.take(3).toList(); // Last 3 months
+      final avgSpending = recentMonths.fold(0.0, (sum, item) => sum + item) / recentMonths.length;
 
-    // Add some seasonality factor (can be customized based on user patterns)
-    final currentMonth = DateTime.now().month;
-    final seasonalityFactor = _getSeasonalityFactor(currentMonth);
+      // Add some seasonality factor (can be customized based on user patterns)
+      final currentMonth = DateTime.now().month;
+      final seasonalityFactor = _getSeasonalityFactor(currentMonth);
 
-    return avgSpending * seasonalityFactor;
+      return avgSpending * seasonalityFactor;
+    } catch (e) {
+      print('Error in _predictNextMonthSpending: $e');
+      return 0.0; // Return 0 if prediction fails
+    }
   }
 
   double _getSeasonalityFactor(int month) {

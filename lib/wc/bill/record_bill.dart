@@ -19,7 +19,7 @@ class RecordBillPage extends StatefulWidget {
 class _RecordBillPageState extends State<RecordBillPage> {
   final _formKey = GlobalKey<FormState>();
   final _billerNameController = TextEditingController();
-  final _accountNumberController = TextEditingController();
+
   final _descriptionController = TextEditingController();
   final _amountController = TextEditingController();
   final _customCategoryController = TextEditingController();
@@ -29,6 +29,13 @@ class _RecordBillPageState extends State<RecordBillPage> {
   File? _billImage;
   String? _billImageUrl;
   bool _isUploadingImage = false;
+
+  // Card selection variables
+  String? _selectedCardId;
+  String? _selectedCardName;
+  double _selectedCardBalance = 0.0;
+  List<Map<String, dynamic>> _availableCards = [];
+  bool _payWithCard = false;
 
   // Initialize Cloudinary - replace with your credentials
   final cloudinary = CloudinaryPublic('dftbkgqni', 'my_unsigned_preset', cache: false);
@@ -46,6 +53,277 @@ class _RecordBillPageState extends State<RecordBillPage> {
   void initState() {
     super.initState();
     _selectedCategory = _categories.first['name'];
+    _loadUserCards();
+  }
+
+  Future<void> _loadUserCards() async {
+    try {
+      final cardsSnapshot = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(widget.userId)
+          .collection('cards')
+          .orderBy('balance', descending: true)
+          .get();
+
+      setState(() {
+        _availableCards = cardsSnapshot.docs.map((doc) {
+          final data = doc.data();
+          return {
+            'id': doc.id,
+            'name': data['name'] ?? 'Unknown Card',
+            'balance': (data['balance'] ?? 0.0).toDouble(),
+            'bankName': data['bankName'] ?? '',
+            'type': data['type'] ?? 'Debit',
+            'last4': data['last4'] ?? '****',
+          };
+        }).toList();
+      });
+    } catch (e) {
+      print('Error loading cards: $e');
+    }
+  }
+
+  void _showCardSelectionDialog() {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return Dialog(
+          backgroundColor: const Color.fromRGBO(45, 45, 45, 1),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Container(
+            constraints: const BoxConstraints(maxHeight: 500),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Header
+                Container(
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    color: Colors.teal.withOpacity(0.1),
+                    borderRadius: const BorderRadius.only(
+                      topLeft: Radius.circular(16),
+                      topRight: Radius.circular(16),
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(
+                        Icons.credit_card,
+                        color: Colors.teal,
+                        size: 24,
+                      ),
+                      const SizedBox(width: 12),
+                      const Text(
+                        'Select Payment Card',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 18,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const Spacer(),
+                      IconButton(
+                        icon: const Icon(Icons.close, color: Colors.white70),
+                        onPressed: () => Navigator.pop(context),
+                      ),
+                    ],
+                  ),
+                ),
+
+                // Cards List
+                Flexible(
+                  child: _availableCards.isEmpty
+                      ? Padding(
+                    padding: const EdgeInsets.all(32),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.credit_card_off,
+                          color: Colors.grey[600],
+                          size: 48,
+                        ),
+                        const SizedBox(height: 16),
+                        const Text(
+                          'No cards available',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        const Text(
+                          'Add a card first to pay bills directly',
+                          style: TextStyle(
+                            color: Colors.white60,
+                            fontSize: 14,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                      ],
+                    ),
+                  )
+                      : ListView.builder(
+                    shrinkWrap: true,
+                    padding: const EdgeInsets.all(16),
+                    itemCount: _availableCards.length,
+                    itemBuilder: (context, index) {
+                      final card = _availableCards[index];
+                      final isSelected = card['id'] == _selectedCardId;
+                      final hasEnoughBalance = card['balance'] >= (double.tryParse(_amountController.text) ?? 0);
+
+                      return GestureDetector(
+                        onTap: hasEnoughBalance ? () {
+                          setState(() {
+                            _selectedCardId = card['id'];
+                            _selectedCardName = card['name'];
+                            _selectedCardBalance = card['balance'];
+                            _payWithCard = true;
+                          });
+                          Navigator.pop(context);
+                        } : null,
+                        child: Container(
+                          margin: const EdgeInsets.only(bottom: 12),
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: isSelected
+                                ? Colors.teal.withOpacity(0.2)
+                                : Colors.grey[800],
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: isSelected
+                                  ? Colors.teal
+                                  : hasEnoughBalance
+                                  ? Colors.grey[700]!
+                                  : Colors.red.withOpacity(0.3),
+                              width: isSelected ? 2 : 1,
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.all(8),
+                                decoration: BoxDecoration(
+                                  color: hasEnoughBalance
+                                      ? Colors.teal.withOpacity(0.1)
+                                      : Colors.red.withOpacity(0.1),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Icon(
+                                  Icons.credit_card,
+                                  color: hasEnoughBalance ? Colors.teal : Colors.red,
+                                  size: 20,
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      card['name'],
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      '${card['type']} • •••• ${card['last4']}',
+                                      style: TextStyle(
+                                        color: Colors.grey[400],
+                                        fontSize: 14,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.end,
+                                children: [
+                                  Text(
+                                    'RM${card['balance'].toStringAsFixed(2)}',
+                                    style: TextStyle(
+                                      color: hasEnoughBalance ? Colors.white : Colors.red,
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                  if (!hasEnoughBalance)
+                                    Container(
+                                      margin: const EdgeInsets.only(top: 4),
+                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                      decoration: BoxDecoration(
+                                        color: Colors.red.withOpacity(0.1),
+                                        borderRadius: BorderRadius.circular(4),
+                                      ),
+                                      child: const Text(
+                                        'Insufficient',
+                                        style: TextStyle(
+                                          color: Colors.red,
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+
+                // Option to not use card
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    border: Border(
+                      top: BorderSide(color: Colors.grey[700]!, width: 1),
+                    ),
+                  ),
+                  child: GestureDetector(
+                    onTap: () {
+                      setState(() {
+                        _payWithCard = false;
+                        _selectedCardId = null;
+                        _selectedCardName = null;
+                        _selectedCardBalance = 0.0;
+                      });
+                      Navigator.pop(context);
+                    },
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      decoration: BoxDecoration(
+                        color: Colors.grey[800],
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Center(
+                        child: Text(
+                          'Don\'t use card (Manual payment)',
+                          style: TextStyle(
+                            color: Colors.white70,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
   }
 
   Future<void> _selectDueDate(BuildContext context) async {
@@ -132,18 +410,36 @@ class _RecordBillPageState extends State<RecordBillPage> {
             : _selectedCategory!;
         final amount = double.parse(_amountController.text.trim());
 
+        // Check if paying with card and has sufficient balance
+        if (_payWithCard && _selectedCardId != null) {
+          if (_selectedCardBalance < amount) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Insufficient card balance'),
+                backgroundColor: Colors.red,
+              ),
+            );
+            setState(() {
+              _isLoading = false;
+            });
+            return;
+          }
+        }
+
         final billData = {
           'userId': widget.userId,
           'billerName': _billerNameController.text.trim(),
-          'accountNumber': _accountNumberController.text.trim(),
+
           'description': _descriptionController.text.trim(),
           'amount': amount,
           'categoryName': categoryName,
           'dueDate': Timestamp.fromDate(_dueDate!),
-          'status': 'pending',
+          'status': _payWithCard && _selectedCardId != null ? 'paid' : 'pending',
           'createdAt': Timestamp.now(),
-          'paidAt': null,
+          'paidAt': _payWithCard && _selectedCardId != null ? Timestamp.now() : null,
           if (_billImageUrl != null) 'billImageUrl': _billImageUrl,
+          if (_payWithCard && _selectedCardId != null) 'paidWithCardId': _selectedCardId,
+          if (_payWithCard && _selectedCardName != null) 'paidWithCardName': _selectedCardName,
         };
 
         final docRef = await FirebaseFirestore.instance
@@ -152,18 +448,74 @@ class _RecordBillPageState extends State<RecordBillPage> {
             .collection('bills')
             .add(billData);
 
-        // Schedule notification for the bill
-        await NotificationService().scheduleBillNotification(
-          billId: docRef.id,
-          billerName: _billerNameController.text.trim(),
-          amount: amount,
-          categoryName: categoryName,
-          dueDate: _dueDate!,
-        );
+        // If paying with card, update card balance and create payment record
+        if (_payWithCard && _selectedCardId != null) {
+          // Update card balance
+          await FirebaseFirestore.instance
+              .collection('users')
+              .doc(widget.userId)
+              .collection('cards')
+              .doc(_selectedCardId)
+              .update({
+            'balance': FieldValue.increment(-amount),
+          });
 
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Bill added successfully')),
-        );
+          // Create payment record
+          await FirebaseFirestore.instance
+              .collection('users')
+              .doc(widget.userId)
+              .collection('payments')
+              .add({
+            'userId': widget.userId,
+            'billId': docRef.id,
+            'billerName': _billerNameController.text.trim(),
+            'description': _descriptionController.text.trim(),
+            'amount': amount,
+            'categoryName': categoryName,
+            'timestamp': Timestamp.now(),
+            'cardId': _selectedCardId,
+            'cardName': _selectedCardName,
+            if (_billImageUrl != null) 'billImageUrl': _billImageUrl,
+          });
+
+          // Create transaction record for the card
+          await FirebaseFirestore.instance
+              .collection('transactions')
+              .add({
+            'userId': widget.userId,
+            'amount': amount,
+            'timestamp': Timestamp.now(),
+            'fromCardId': _selectedCardId,
+            'type': 'expense',
+            'description': 'Bill payment: ${_billerNameController.text.trim()}',
+            'name': _billerNameController.text.trim(),
+            'category': categoryName,
+          });
+
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Bill paid successfully with $_selectedCardName'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        } else {
+          // Schedule notification for unpaid bill
+          await NotificationService().scheduleBillNotification(
+            billId: docRef.id,
+            billerName: _billerNameController.text.trim(),
+            amount: amount,
+            categoryName: categoryName,
+            dueDate: _dueDate!,
+          );
+
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Bill added successfully'),
+              backgroundColor: Colors.teal,
+            ),
+          );
+        }
+
         widget.onBillAdded?.call();
         Navigator.pop(context);
       } catch (e) {
@@ -217,7 +569,7 @@ class _RecordBillPageState extends State<RecordBillPage> {
   @override
   void dispose() {
     _billerNameController.dispose();
-    _accountNumberController.dispose();
+
     _descriptionController.dispose();
     _amountController.dispose();
     _customCategoryController.dispose();
@@ -344,23 +696,7 @@ class _RecordBillPageState extends State<RecordBillPage> {
 
                 const SizedBox(height: 20),
 
-                // Account Number Field
-                TextFormField(
-                  controller: _accountNumberController,
-                  decoration: _buildInputDecoration(
-                    'Account Number *',
-                    suffixIcon: const Icon(Icons.numbers, color: Colors.white54, size: 20),
-                  ),
-                  style: const TextStyle(color: Colors.white, fontSize: 16),
-                  validator: (value) {
-                    if (value == null || value.trim().isEmpty) {
-                      return 'Please enter account number';
-                    }
-                    return null;
-                  },
-                ),
 
-                const SizedBox(height: 20),
 
                 // Description Field
                 TextFormField(
@@ -410,6 +746,12 @@ class _RecordBillPageState extends State<RecordBillPage> {
                     }
                     return null;
                   },
+                  onChanged: (value) {
+                    // Reload cards when amount changes to update insufficient balance warnings
+                    if (mounted) {
+                      setState(() {});
+                    }
+                  },
                 ),
 
                 const SizedBox(height: 20),
@@ -440,6 +782,122 @@ class _RecordBillPageState extends State<RecordBillPage> {
                     ),
                   ),
                 ),
+
+                const SizedBox(height: 32),
+
+                // Payment Method Section
+                const Text(
+                  'Payment Method',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                const SizedBox(height: 16),
+
+                // Card Selection
+                GestureDetector(
+                  onTap: _showCardSelectionDialog,
+                  child: Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: const Color.fromRGBO(45, 45, 45, 1),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: _payWithCard ? Colors.teal : Colors.grey,
+                        width: _payWithCard ? 1.5 : 0.5,
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: _payWithCard
+                                ? Colors.teal.withOpacity(0.1)
+                                : Colors.grey.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Icon(
+                            Icons.credit_card,
+                            color: _payWithCard ? Colors.teal : Colors.white54,
+                            size: 20,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                _payWithCard && _selectedCardName != null
+                                    ? _selectedCardName!
+                                    : 'Select payment card',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                              if (_payWithCard && _selectedCardBalance > 0)
+                                Text(
+                                  'Balance: RM${_selectedCardBalance.toStringAsFixed(2)}',
+                                  style: TextStyle(
+                                    color: Colors.grey[400],
+                                    fontSize: 14,
+                                  ),
+                                ),
+                              if (!_payWithCard)
+                                Text(
+                                  'Pay manually later',
+                                  style: TextStyle(
+                                    color: Colors.grey[400],
+                                    fontSize: 14,
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                        Icon(
+                          _payWithCard ? Icons.check_circle : Icons.arrow_forward_ios,
+                          color: _payWithCard ? Colors.teal : Colors.white54,
+                          size: 20,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+
+                if (_payWithCard && _selectedCardId != null)
+                  Container(
+                    margin: const EdgeInsets.only(top: 12),
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.teal.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.teal.withOpacity(0.3)),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(
+                          Icons.info_outline,
+                          color: Colors.teal,
+                          size: 16,
+                        ),
+                        const SizedBox(width: 8),
+                        const Expanded(
+                          child: Text(
+                            'This bill will be marked as paid immediately',
+                            style: TextStyle(
+                              color: Colors.teal,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
 
                 const SizedBox(height: 32),
 
@@ -645,13 +1103,13 @@ class _RecordBillPageState extends State<RecordBillPage> {
                   child: ElevatedButton(
                     onPressed: _isLoading ? null : _saveBill,
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.teal,
+                      backgroundColor: _payWithCard ? Colors.green : Colors.teal,
                       foregroundColor: Colors.white,
                       elevation: 0,
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(16),
                       ),
-                      disabledBackgroundColor: Colors.teal.withOpacity(0.5),
+                      disabledBackgroundColor: (_payWithCard ? Colors.green : Colors.teal).withOpacity(0.5),
                     ),
                     child: _isLoading
                         ? const SizedBox(
@@ -662,12 +1120,22 @@ class _RecordBillPageState extends State<RecordBillPage> {
                         strokeWidth: 2,
                       ),
                     )
-                        : const Text(
-                      'Save Bill',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w600,
-                      ),
+                        : Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          _payWithCard ? Icons.payment : Icons.save,
+                          size: 20,
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          _payWithCard ? 'Pay Bill Now' : 'Save Bill',
+                          style: const TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ),

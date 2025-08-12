@@ -16,7 +16,7 @@ class BottomNavBar extends StatelessWidget {
         items: const [
           BottomNavigationBarItem(icon: Icon(Icons.receipt), label: 'Details'),
           BottomNavigationBarItem(icon: Icon(Icons.trending_up), label: 'Trending'),
-          BottomNavigationBarItem(icon: Icon(Icons.insights), label: 'Insights'),
+          BottomNavigationBarItem(icon: Icon(Icons.insights), label: 'Financial Plan'),
           BottomNavigationBarItem(icon: Icon(Icons.person), label: 'Mine'),
         ],
         selectedItemColor: Colors.white,

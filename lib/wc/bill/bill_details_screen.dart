@@ -153,7 +153,7 @@ class _BillDetailsScreenState extends State<BillDetailsScreen> {
   @override
   Widget build(BuildContext context) {
     final billerName = widget.billData['billerName'] as String? ?? 'Unknown Biller';
-    final accountNumber = widget.billData['accountNumber'] as String? ?? 'N/A';
+
     final description = widget.billData['description'] as String? ?? 'No description';
     final amount = widget.billData['amount'] as double? ?? 0.0;
     final dueDate = (widget.billData['dueDate'] as Timestamp?)?.toDate() ?? DateTime.now();
@@ -430,12 +430,7 @@ class _BillDetailsScreenState extends State<BillDetailsScreen> {
                             value: billerName,
                             isBold: true,
                           ),
-                          const SizedBox(height: 20),
-                          _buildDetailRow(
-                            icon: Icons.numbers_rounded,
-                            label: 'Account Number',
-                            value: accountNumber,
-                          ),
+
                           const SizedBox(height: 20),
                           _buildDetailRow(
                             icon: Icons.description_rounded,

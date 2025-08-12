@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
 import 'update_profile.dart';
+import 'package:fyp/wc/rewards_page.dart';
 
 class ProfilePage extends StatefulWidget {
   const ProfilePage({super.key});
@@ -76,45 +77,56 @@ class _ProfilePageState extends State<ProfilePage> {
     required String title,
     required String value,
     Color? iconColor,
+    VoidCallback? onTap,
   }) {
     return Card(
       color: const Color.fromRGBO(33, 35, 34, 1),
       margin: const EdgeInsets.symmetric(vertical: 8),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Row(
-          children: [
-            Icon(
-              icon,
-              color: iconColor ?? Colors.teal,
-              size: 24,
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: const TextStyle(
-                      color: Colors.grey,
-                      fontSize: 14,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    value,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ],
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(8),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            children: [
+              Icon(
+                icon,
+                color: iconColor ?? Colors.teal,
+                size: 24,
               ),
-            ),
-          ],
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        color: Colors.grey,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      value,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (onTap != null)
+                const Icon(
+                  Icons.chevron_right,
+                  color: Colors.white70,
+                  size: 20,
+                ),
+            ],
+          ),
         ),
       ),
     );
@@ -286,6 +298,41 @@ class _ProfilePageState extends State<ProfilePage> {
                     color: Colors.green,
                   ),
                 ],
+              ),
+
+              const SizedBox(height: 24),
+
+              // Gamification Section
+              const Text(
+                'Gamification',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              _buildInfoCard(
+                icon: Icons.star,
+                title: 'Points',
+                value: '${userData!['points'] ?? 0}',
+                iconColor: Colors.amber,
+              ),
+
+              _buildInfoCard(
+                icon: Icons.badge,
+                title: 'Equipped Badge',
+                value: userData!['equippedBadge'] ?? 'None',
+                iconColor: Colors.purple,
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const RewardsPage(),
+                    ),
+                  );
+                },
               ),
 
               const SizedBox(height: 24),

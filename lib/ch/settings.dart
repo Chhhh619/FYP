@@ -7,13 +7,17 @@ import 'package:fyp/wc/bill/bill_payment_screen.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:fyp/ch/homepage.dart';
 import 'package:fyp/ch/goal.dart';
+import 'package:fyp/wc/financial_plan.dart';
+import 'package:fyp/wc/point_shop_page.dart';
 import 'package:fyp/wc/rewards_page.dart';
 import 'package:fyp/wc/currencyconverter.dart';
 import 'package:fyp/ch/budget.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:fyp/wc/trending.dart';
 import 'package:intl/intl.dart';
 import 'package:fyp/wc/financial_tips.dart';
 import 'package:fyp/wc/gamification_page.dart';
+import 'package:fyp/wc/adminpage.dart'; // Add this import for AdminPage
 import 'card_list.dart';
 import 'export_page.dart';
 import 'income.dart';
@@ -36,6 +40,7 @@ class _SettingsPageState extends State<SettingsPage> {
   double? monthlyBudget;
   int? billStartDate;
   int selectedIndex = 3;
+  bool? _isAdmin; // Add admin status tracking
 
   @override
   void dispose() {
@@ -59,7 +64,9 @@ class _SettingsPageState extends State<SettingsPage> {
 
       if (userDoc.exists) {
         final data = userDoc.data()!;
-        final createdAt = data['createdAt']?.toDate() ?? DateTime(2025, 7, 8);
+        final createdAt = data['created_at']?.toDate() ??
+            data['createdAt']?.toDate() ??
+            DateTime(2025, 7, 8);
         final transactionsCount = await _calculateTotalTransactions(userId);
         final subscriptionsCount = await _calculateTotalSubscriptions(userId);
         final budget = await _fetchMonthlyBudget(userId);
@@ -75,6 +82,7 @@ class _SettingsPageState extends State<SettingsPage> {
           totalSubscriptions = subscriptionsCount;
           monthlyBudget = budget;
           billStartDate = startDate;
+          _isAdmin = data['isAdmin'] == true; // Set admin status
         });
       } else {
         await _initializeUserData(userId);
@@ -85,10 +93,11 @@ class _SettingsPageState extends State<SettingsPage> {
   Future<void> _initializeUserData(String userId) async {
     final now = DateTime.now();
     await FirebaseFirestore.instance.collection('users').doc(userId).set({
-      'createdAt': Timestamp.fromDate(DateTime(2025, 7, 8)),
+      'created_at': Timestamp.fromDate(DateTime(2025, 7, 8)),
       'totalTransactions': 0,
       'lastUpdated': Timestamp.fromDate(now),
       'billStartDate': 23,
+      'isAdmin': false, // Initialize as non-admin
     }, SetOptions(merge: true));
     await _loadUserData();
   }
@@ -233,51 +242,13 @@ class _SettingsPageState extends State<SettingsPage> {
       if (index == 0) {
         Navigator.push(context, MaterialPageRoute(builder: (context) => const HomePage()));
       } else if (index == 1) {
-        Navigator.push(context, MaterialPageRoute(builder: (context) => const FinancialTipsScreen()));
+        Navigator.push(context, MaterialPageRoute(builder: (context) => const TrendingPage()));
       } else if (index == 2) {
-        Navigator.push(context, MaterialPageRoute(builder: (context) => const GamificationPage()));
+        Navigator.push(context, MaterialPageRoute(builder: (context) => const FinancialPlanPage()));
       } else if (index == 3) {
         // Stay on SettingsPage
       }
     });
-  }
-
-  Future<void> addFromCardIdToAllTransactions(String fromCardIdValue) async {
-    const int batchSize = 500;
-    QueryDocumentSnapshot? lastDoc;
-    bool more = true;
-    int totalUpdated = 0;
-
-    while (more) {
-      Query query = FirebaseFirestore.instance
-          .collection('transactions')
-          .orderBy(FieldPath.documentId)
-          .limit(batchSize);
-
-      if (lastDoc != null) {
-        query = query.startAfterDocument(lastDoc);
-      }
-
-      final snapshot = await query.get();
-      if (snapshot.docs.isEmpty) {
-        more = false;
-        break;
-      }
-
-      final batch = FirebaseFirestore.instance.batch();
-      for (final doc in snapshot.docs) {
-        batch.update(doc.reference, {
-          'fromCardId': fromCardIdValue, // 🔁 You can change logic here
-        });
-      }
-
-      await batch.commit();
-      lastDoc = snapshot.docs.last;
-      totalUpdated += snapshot.docs.length;
-      print("✅ Updated ${snapshot.docs.length} docs...");
-    }
-
-    print("🎉 All done. Total updated: $totalUpdated");
   }
 
   @override
@@ -353,6 +324,36 @@ class _SettingsPageState extends State<SettingsPage> {
                 vertical: 8.0,
               ),
               children: [
+                // Add Admin Dashboard section if user is admin
+                if (_isAdmin == true) ...[
+                  const Padding(
+                    padding: EdgeInsets.only(top: 8.0, bottom: 8.0, left: 4.0),
+                    child: Text(
+                      'Admin',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                  _buildListTile(
+                    leadingIcon: Icons.admin_panel_settings,
+                    title: 'Admin Dashboard',
+                    trailing: const Icon(
+                      Icons.chevron_right,
+                      color: Colors.white70,
+                    ),
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => const AdminPage(),
+                        ),
+                      );
+                    },
+                  ),
+                ],
                 const Padding(
                   padding: EdgeInsets.only(top: 8.0, bottom: 8.0, left: 4.0),
                   child: Text(
@@ -400,6 +401,31 @@ class _SettingsPageState extends State<SettingsPage> {
                   },
                 ),
                 _buildListTile(
+                  leadingIcon: Icons.receipt,
+                  title: 'Bills',
+                  trailing: const Icon(
+                    Icons.chevron_right,
+                    color: Colors.white70,
+                  ),
+                  onTap: () {
+                    if (userId != null) {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => BillPaymentScreen(userId: userId),
+                        ),
+                      );
+                    } else {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('User not logged in'),
+                          backgroundColor: Colors.red,
+                        ),
+                      );
+                    }
+                  },
+                ),
+                _buildListTile(
                   leadingIcon: Icons.currency_exchange,
                   title: 'Currency Converter',
                   trailing: const Icon(
@@ -442,6 +468,54 @@ class _SettingsPageState extends State<SettingsPage> {
                     Navigator.push(
                       context,
                       MaterialPageRoute(builder: (context) => GoalPage()),
+                    );
+                  },
+                ),
+                _buildListTile(
+                  leadingIcon: Icons.book,
+                  title: 'Financial Tips',
+                  trailing: const Icon(
+                    Icons.chevron_right,
+                    color: Colors.white70,
+                  ),
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const FinancialTipsScreen(),
+                      ),
+                    );
+                  },
+                ),
+                _buildListTile(
+                  leadingIcon: Icons.gamepad,
+                  title: 'Challenges',
+                  trailing: const Icon(
+                    Icons.chevron_right,
+                    color: Colors.white70,
+                  ),
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const GamificationPage(),
+                      ),
+                    );
+                  },
+                ),
+                _buildListTile(
+                  leadingIcon: Icons.shopping_cart,
+                  title: 'Point Shop',
+                  trailing: const Icon(
+                    Icons.chevron_right,
+                    color: Colors.white70,
+                  ),
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const PointShopPage(),
+                      ),
                     );
                   },
                 ),
@@ -534,8 +608,7 @@ class _SettingsPageState extends State<SettingsPage> {
                     Navigator.push(
                       context,
                       MaterialPageRoute(
-                        builder: (context) => CardListPage(
-                        ),
+                        builder: (context) => CardListPage(),
                       ),
                     );
                   },
@@ -555,6 +628,7 @@ class _SettingsPageState extends State<SettingsPage> {
       ),
     );
   }
+
   Widget _buildListTile({
     required IconData leadingIcon,
     required String title,

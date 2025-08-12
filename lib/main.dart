@@ -18,7 +18,7 @@ import 'wc/bill/bill_payment_screen.dart';
 import 'wc/Onboard/Onboarding.dart';
 import 'wc/bill/payment_history_screen.dart';
 import 'wc/financial_plan.dart';
-import 'wc/goal.dart';
+
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:fyp/wc/bill/notification_service.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -94,8 +94,6 @@ class MyApp extends StatelessWidget {
         '/converter': (context) => const CurrencyConverterScreen(),
         '/financial_plan': (context) =>  FinancialPlanPage(),
         '/tips': (context) => const FinancialTipsScreen(),
-        '/add_goal': (context) => const AddGoalPage(),
-        '/edit_goal': (context) => const EditGoalPage(),
         '/game': (context) => const GamificationPage(),
         '/trending': (context) => const TrendingPage(),
         '/settings': (context) => const SettingsPage(),

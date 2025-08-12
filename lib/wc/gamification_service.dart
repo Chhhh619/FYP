@@ -16,12 +16,6 @@ class GamificationService {
           .where('isActive', isEqualTo: true)
           .get();
 
-      // Get user's transaction data for challenge checking
-      final now = DateTime.now();
-      final startOfMonth = DateTime(now.year, now.month, 1);
-      final startOfWeek = now.subtract(Duration(days: now.weekday - 1));
-      final startOfYear = DateTime(now.year, 1, 1);
-
       for (var challengeDoc in challengesSnapshot.docs) {
         final challenge = challengeDoc.data();
         final challengeId = challengeDoc.id;
@@ -38,27 +32,47 @@ class GamificationService {
           continue; // Skip completed challenges
         }
 
-        // Calculate progress based on challenge type
+        // Get the challenge creation date
+        final challengeCreatedAt = challenge['createdAt'] as Timestamp?;
+        if (challengeCreatedAt == null) {
+          print('Warning: Challenge $challengeId has no creation date');
+          continue;
+        }
+
+        // Get user's assignment date (when they were assigned this challenge)
+        // If no assignment date exists, use challenge creation date
+        DateTime trackingStartDate = challengeCreatedAt.toDate();
+
+        if (progressDoc.exists) {
+          final assignedAt = progressDoc.data()?['assignedAt'] as Timestamp?;
+          if (assignedAt != null) {
+            trackingStartDate = assignedAt.toDate();
+          }
+        }
+
+        print('DEBUG: Tracking progress for challenge $challengeId from $trackingStartDate');
+
+        // Calculate progress based on challenge type, but only from the tracking start date
         double progress = 0;
 
         switch (challenge['type']) {
           case 'transaction_count':
-            progress = await _getTransactionCount(userId, challenge['period']);
+            progress = await _getTransactionCount(userId, challenge['period'], trackingStartDate);
             break;
           case 'spending_limit':
-            progress = await _getSpendingAmount(userId, challenge['period']);
+            progress = await _getSpendingAmount(userId, challenge['period'], trackingStartDate);
             break;
           case 'category_spending':
-            progress = await _getCategorySpending(userId, challenge['categoryName'], challenge['period']);
+            progress = await _getCategorySpending(userId, challenge['categoryName'], challenge['period'], trackingStartDate);
             break;
           case 'savings_goal':
-            progress = await _getSavingsAmount(userId, challenge['period']);
+            progress = await _getSavingsAmount(userId, challenge['period'], trackingStartDate);
             break;
           case 'consecutive_days':
-            progress = await _getConsecutiveDays(userId);
+            progress = await _getConsecutiveDays(userId, trackingStartDate);
             break;
           case 'budget_adherence':
-            progress = await _getBudgetAdherence(userId, challenge['period']);
+            progress = await _getBudgetAdherence(userId, challenge['period'], trackingStartDate);
             break;
           default:
             continue;
@@ -76,6 +90,7 @@ class GamificationService {
           'progress': progress,
           'isCompleted': isCompleted,
           'lastUpdated': FieldValue.serverTimestamp(),
+          'trackingStartDate': Timestamp.fromDate(trackingStartDate),
           if (isCompleted && (!progressDoc.exists || progressDoc.data()?['isCompleted'] != true))
             'completedAt': FieldValue.serverTimestamp(),
         }, SetOptions(merge: true));
@@ -103,25 +118,26 @@ class GamificationService {
     }
   }
 
-  Future<double> _getTransactionCount(String userId, String period) async {
-    final dateRange = _getDateRange(period);
+  Future<double> _getTransactionCount(String userId, String period, DateTime trackingStartDate) async {
+    final dateRange = _getDateRangeFromStartDate(period, trackingStartDate);
 
     final transactionsSnapshot = await _firestore
         .collection('transactions')
-        .where('userid', isEqualTo: userId)
+        .where('userId', isEqualTo: userId)
         .where('timestamp', isGreaterThanOrEqualTo: Timestamp.fromDate(dateRange['start']!))
         .where('timestamp', isLessThanOrEqualTo: Timestamp.fromDate(dateRange['end']!))
         .get();
 
+    print('DEBUG: Transaction count for period $period from ${dateRange['start']} to ${dateRange['end']}: ${transactionsSnapshot.docs.length}');
     return transactionsSnapshot.docs.length.toDouble();
   }
 
-  Future<double> _getSpendingAmount(String userId, String period) async {
-    final dateRange = _getDateRange(period);
+  Future<double> _getSpendingAmount(String userId, String period, DateTime trackingStartDate) async {
+    final dateRange = _getDateRangeFromStartDate(period, trackingStartDate);
 
     final transactionsSnapshot = await _firestore
         .collection('transactions')
-        .where('userid', isEqualTo: userId)
+        .where('userId', isEqualTo: userId)
         .where('timestamp', isGreaterThanOrEqualTo: Timestamp.fromDate(dateRange['start']!))
         .where('timestamp', isLessThanOrEqualTo: Timestamp.fromDate(dateRange['end']!))
         .get();
@@ -146,32 +162,88 @@ class GamificationService {
       }
     }
 
+    print('DEBUG: Total spending for period $period from ${dateRange['start']} to ${dateRange['end']}: $totalSpending');
     return totalSpending;
   }
 
-  Future<double> _getCategorySpending(String userId, String categoryName, String period) async {
-    final dateRange = _getDateRange(period);
+  Future<double> _getCategorySpending(String userId, String categoryName, String period, DateTime trackingStartDate) async {
+    final dateRange = _getDateRangeFromStartDate(period, trackingStartDate);
 
-    // Query the categories collection to find the document with the specified name and userid
-    final categoryQuery = await _firestore
+    print('DEBUG: Searching for category "$categoryName" spending from ${dateRange['start']} to ${dateRange['end']}');
+
+    // Try multiple approaches to find the category
+    QuerySnapshot categoryQuery;
+
+    // First try: search by name and userId
+    categoryQuery = await _firestore
         .collection('categories')
         .where('name', isEqualTo: categoryName)
-        .where('userid', isEqualTo: userId)
+        .where('userId', isEqualTo: userId)
         .limit(1)
         .get();
 
+    // If no results, try with userid (lowercase)
     if (categoryQuery.docs.isEmpty) {
-      print('Category $categoryName not found for user $userId');
-      return 0.0; // Return 0 if category is not found
+      categoryQuery = await _firestore
+          .collection('categories')
+          .where('name', isEqualTo: categoryName)
+          .where('userid', isEqualTo: userId)
+          .limit(1)
+          .get();
     }
 
-    final String categoryDocId = categoryQuery.docs.first.id;
-    final DocumentReference categoryRef = _firestore.collection('categories').doc(categoryDocId);
+    // If still no results, try case-insensitive search for global or user-specific categories
+    if (categoryQuery.docs.isEmpty) {
+      final allCategoriesSnapshot = await _firestore
+          .collection('categories')
+          .get();
 
-    // Query transactions for the category
+      final filteredDocs = allCategoriesSnapshot.docs.where((doc) {
+        final data = doc.data() as Map<String, dynamic>;
+        final docName = (data['name'] as String?)?.toLowerCase();
+        final docUserId = data['userId'] ?? data['userid'];
+        return docName == categoryName.toLowerCase() &&
+            (docUserId == null || docUserId == '' || docUserId == userId);
+      }).toList();
+
+      if (filteredDocs.isEmpty) {
+        print('DEBUG: Category "$categoryName" not found for user $userId');
+        return 0.0;
+      }
+
+      final categoryDoc = filteredDocs.first;
+      final DocumentReference categoryRef = _firestore.collection('categories').doc(categoryDoc.id);
+
+      // Query transactions for the category within the tracking period
+      final transactionsSnapshot = await _firestore
+          .collection('transactions')
+          .where('userId', isEqualTo: userId)
+          .where('category', isEqualTo: categoryRef)
+          .where('timestamp', isGreaterThanOrEqualTo: Timestamp.fromDate(dateRange['start']!))
+          .where('timestamp', isLessThanOrEqualTo: Timestamp.fromDate(dateRange['end']!))
+          .get();
+
+      double totalSpending = 0;
+
+      for (var doc in transactionsSnapshot.docs) {
+        final data = doc.data();
+        final amount = data['amount'] is int
+            ? (data['amount'] as int).toDouble()
+            : (data['amount'] as double? ?? 0.0);
+        totalSpending += amount.abs();
+      }
+
+      print('DEBUG: Category $categoryName spending from tracking start: $totalSpending');
+      return totalSpending;
+    }
+
+    final categoryDoc = categoryQuery.docs.first;
+    final DocumentReference categoryRef = _firestore.collection('categories').doc(categoryDoc.id);
+
+    // Query transactions for the category within the tracking period
     final transactionsSnapshot = await _firestore
         .collection('transactions')
-        .where('userid', isEqualTo: userId)
+        .where('userId', isEqualTo: userId)
         .where('category', isEqualTo: categoryRef)
         .where('timestamp', isGreaterThanOrEqualTo: Timestamp.fromDate(dateRange['start']!))
         .where('timestamp', isLessThanOrEqualTo: Timestamp.fromDate(dateRange['end']!))
@@ -187,16 +259,16 @@ class GamificationService {
       totalSpending += amount.abs();
     }
 
-    print('Category $categoryName spending for user $userId: $totalSpending');
+    print('DEBUG: Category $categoryName spending from tracking start: $totalSpending');
     return totalSpending;
   }
 
-  Future<double> _getSavingsAmount(String userId, String period) async {
-    final dateRange = _getDateRange(period);
+  Future<double> _getSavingsAmount(String userId, String period, DateTime trackingStartDate) async {
+    final dateRange = _getDateRangeFromStartDate(period, trackingStartDate);
 
     final transactionsSnapshot = await _firestore
         .collection('transactions')
-        .where('userid', isEqualTo: userId)
+        .where('userId', isEqualTo: userId)
         .where('timestamp', isGreaterThanOrEqualTo: Timestamp.fromDate(dateRange['start']!))
         .where('timestamp', isLessThanOrEqualTo: Timestamp.fromDate(dateRange['end']!))
         .get();
@@ -225,17 +297,23 @@ class GamificationService {
       }
     }
 
-    return totalIncome - totalExpenses; // Net savings
+    final savings = totalIncome - totalExpenses;
+    print('DEBUG: Savings from tracking start: Income=$totalIncome, Expenses=$totalExpenses, Net=$savings');
+    return savings; // Net savings
   }
 
-  Future<double> _getConsecutiveDays(String userId) async {
+  Future<double> _getConsecutiveDays(String userId, DateTime trackingStartDate) async {
     final now = DateTime.now();
-    final thirtyDaysAgo = now.subtract(const Duration(days: 30));
+
+    // Only look at transactions from the tracking start date forward
+    final searchStartDate = trackingStartDate.isAfter(now.subtract(const Duration(days: 30)))
+        ? trackingStartDate
+        : now.subtract(const Duration(days: 30));
 
     final transactionsSnapshot = await _firestore
         .collection('transactions')
-        .where('userid', isEqualTo: userId)
-        .where('timestamp', isGreaterThanOrEqualTo: Timestamp.fromDate(thirtyDaysAgo))
+        .where('userId', isEqualTo: userId)
+        .where('timestamp', isGreaterThanOrEqualTo: Timestamp.fromDate(searchStartDate))
         .where('timestamp', isLessThanOrEqualTo: Timestamp.fromDate(now))
         .orderBy('timestamp', descending: true)
         .get();
@@ -246,17 +324,27 @@ class GamificationService {
       final timestamp = doc.data()['timestamp'] as Timestamp?;
       if (timestamp != null) {
         final date = timestamp.toDate();
-        final dayKey = '${date.year}-${date.month}-${date.day}';
-        daysWithTransactions.add(dayKey);
+        // Only count days from tracking start date forward
+        if (date.isAfter(trackingStartDate.subtract(const Duration(days: 1)))) {
+          final dayKey = '${date.year}-${date.month}-${date.day}';
+          daysWithTransactions.add(dayKey);
+        }
       }
     }
 
-    // Count consecutive days from today backwards
+    // Count consecutive days from today backwards, but only from tracking start date
     int consecutiveDays = 0;
     DateTime checkDate = DateTime(now.year, now.month, now.day);
+    final trackingStartDayKey = '${trackingStartDate.year}-${trackingStartDate.month}-${trackingStartDate.day}';
 
     while (consecutiveDays < 30) {
       final dayKey = '${checkDate.year}-${checkDate.month}-${checkDate.day}';
+
+      // Don't count days before tracking started
+      if (checkDate.isBefore(trackingStartDate)) {
+        break;
+      }
+
       if (daysWithTransactions.contains(dayKey)) {
         consecutiveDays++;
         checkDate = checkDate.subtract(const Duration(days: 1));
@@ -265,19 +353,36 @@ class GamificationService {
       }
     }
 
+    print('DEBUG: Consecutive days from tracking start ($trackingStartDate): $consecutiveDays');
     return consecutiveDays.toDouble();
   }
 
-  Future<double> _getBudgetAdherence(String userId, String period) async {
+  Future<double> _getBudgetAdherence(String userId, String period, DateTime trackingStartDate) async {
     // This is a simplified budget adherence check
-    // You might want to implement a more sophisticated budget system
-    final spending = await _getSpendingAmount(userId, period);
+    final spending = await _getSpendingAmount(userId, period, trackingStartDate);
 
     // For now, let's assume a simple budget of 1000 per month
     final budget = 1000.0;
     final adherencePercentage = ((budget - spending) / budget * 100).clamp(0.0, 100.0);
 
+    print('DEBUG: Budget adherence from tracking start: Spending=$spending, Budget=$budget, Adherence=$adherencePercentage%');
     return adherencePercentage;
+  }
+
+  // New method that calculates date range considering the tracking start date
+  Map<String, DateTime> _getDateRangeFromStartDate(String period, DateTime trackingStartDate) {
+    final now = DateTime.now();
+    final standardRange = _getDateRange(period);
+
+    // Use the later of the tracking start date or the standard period start
+    final effectiveStartDate = trackingStartDate.isAfter(standardRange['start']!)
+        ? trackingStartDate
+        : standardRange['start']!;
+
+    return {
+      'start': effectiveStartDate,
+      'end': standardRange['end']!,
+    };
   }
 
   Map<String, DateTime> _getDateRange(String period) {

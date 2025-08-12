@@ -4,8 +4,9 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
 import 'banned_users_page.dart';
 import 'admin_challenges_page.dart';
-import 'financial_tips.dart'; // Import Tip class from financial_tips.dart
+import 'financial_tips.dart';
 import 'package:fyp/ch/categories_list.dart';
+import 'admin_point_shop.dart';
 
 class AdminPage extends StatefulWidget {
   const AdminPage({super.key});
@@ -20,21 +21,12 @@ class _AdminPageState extends State<AdminPage> {
   final TextEditingController _tipTitleController = TextEditingController();
   final TextEditingController _tipDescriptionController = TextEditingController();
   final TextEditingController _categoryNameController = TextEditingController();
+  final TextEditingController _thresholdController = TextEditingController();
   String? _tipCategory;
   String? _categoryType;
   String _selectedEmoji = '💰';
   bool _isLoading = true;
   bool _hasAccess = false;
-
-  final List<String> _categories = [
-    'dining',
-    'budgeting',
-    'savings',
-    'debt',
-    'shopping',
-    'transport',
-    'subscription',
-  ];
 
   final List<String> _categoryTypes = ['expense', 'income'];
 
@@ -49,6 +41,7 @@ class _AdminPageState extends State<AdminPage> {
     _tipTitleController.dispose();
     _tipDescriptionController.dispose();
     _categoryNameController.dispose();
+    _thresholdController.dispose();
     super.dispose();
   }
 
@@ -91,6 +84,21 @@ class _AdminPageState extends State<AdminPage> {
       );
       if (mounted) Navigator.pop(context);
     }
+  }
+
+  // Get expense categories dynamically
+  Stream<List<Map<String, dynamic>>> getExpenseCategories() {
+    return _firestore
+        .collection('categories')
+        .where('userId', isEqualTo: '')
+        .where('type', isEqualTo: 'expense')
+        .snapshots()
+        .map((snapshot) => snapshot.docs.map((doc) => {
+      'id': doc.id,
+      'name': doc.data()['name'],
+      'icon': doc.data()['icon'],
+      'threshold': doc.data()['threshold'] ?? 300.0,
+    }).toList());
   }
 
   Widget _buildUserDetailRow(String label, String value) {
@@ -174,20 +182,6 @@ class _AdminPageState extends State<AdminPage> {
               ),
               _buildUserDetailRow('Status:', isBanned ? 'Banned' : (isAdmin ? 'Admin' : 'Active')),
               const SizedBox(height: 16),
-              ElevatedButton.icon(
-                onPressed: () {
-                  Navigator.pop(context);
-                  _showUserChallengeManagement(userId, userData['displayName'] ?? userData['email']?.split('@')[0] ?? 'User');
-                },
-                icon: const Icon(Icons.emoji_events),
-                label: const Text('Manage Challenges'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.blue,
-                  foregroundColor: Colors.white,
-                  minimumSize: const Size(double.infinity, 50),
-                ),
-              ),
-              const SizedBox(height: 8),
               if (!isAdmin && !isBanned)
                 ElevatedButton(
                   onPressed: () {
@@ -273,7 +267,6 @@ class _AdminPageState extends State<AdminPage> {
                       ),
                     ),
                   ),
-
                 ],
               ),
               const SizedBox(height: 16),
@@ -384,7 +377,6 @@ class _AdminPageState extends State<AdminPage> {
                                         onPressed: () => _forceClaimReward(userId, challengeId, challengeData),
                                         tooltip: 'Force Claim Reward',
                                       ),
-
                                     IconButton(
                                       icon: const Icon(Icons.delete, color: Colors.red),
                                       onPressed: () => _removeUserChallenge(userId, challengeId),
@@ -589,94 +581,6 @@ class _AdminPageState extends State<AdminPage> {
     }
   }
 
-  Future<void> _resetSpecificChallenge(String userId, String challengeId) async {
-    try {
-      await _firestore
-          .collection('users')
-          .doc(userId)
-          .collection('challengeProgress')
-          .doc(challengeId)
-          .update({
-        'progress': 0,
-        'isCompleted': false,
-        'isClaimed': false,
-        'resetAt': FieldValue.serverTimestamp(),
-        'resetBy': _auth.currentUser?.uid,
-        'lastUpdated': FieldValue.serverTimestamp(),
-      });
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Challenge reset successfully'),
-          backgroundColor: Colors.green,
-        ),
-      );
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error resetting challenge: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
-    }
-  }
-
-  Future<void> _resetUserChallenges(String userId, String userName) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: Colors.grey[800],
-        title: const Text('Reset All Challenges', style: TextStyle(color: Colors.white)),
-        content: Text(
-          'Are you sure you want to reset all challenges for $userName? This will reset progress but keep the challenges assigned.',
-          style: const TextStyle(color: Colors.white),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Reset All', style: TextStyle(color: Colors.orange)),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true) return;
-    try {
-      final progressSnapshot = await _firestore
-          .collection('users')
-          .doc(userId)
-          .collection('challengeProgress')
-          .get();
-      final batch = _firestore.batch();
-      for (var doc in progressSnapshot.docs) {
-        batch.update(doc.reference, {
-          'progress': 0,
-          'isCompleted': false,
-          'isClaimed': false,
-          'resetAt': FieldValue.serverTimestamp(),
-          'resetBy': _auth.currentUser?.uid,
-          'lastUpdated': FieldValue.serverTimestamp(),
-        });
-      }
-      await batch.commit();
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('All challenges reset successfully'),
-          backgroundColor: Colors.green,
-        ),
-      );
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error resetting challenges: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
-    }
-  }
-
   Future<void> _forceClaimReward(String userId, String challengeId, Map<String, dynamic> challengeData) async {
     try {
       final batch = _firestore.batch();
@@ -730,7 +634,6 @@ class _AdminPageState extends State<AdminPage> {
   }
 
   Future<void> _banUser(String userId, String userName) async {
-    // Check if user is trying to ban themselves
     if (userId == _auth.currentUser?.uid) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -774,12 +677,11 @@ class _AdminPageState extends State<AdminPage> {
     });
 
     try {
-      // Update user document with ban information
       await _firestore.collection('users').doc(userId).update({
         'banned': true,
         'bannedAt': FieldValue.serverTimestamp(),
         'bannedBy': _auth.currentUser?.uid,
-        'bannedReason': 'Banned by admin', // You can add a reason field
+        'bannedReason': 'Banned by admin',
       });
 
       ScaffoldMessenger.of(context).showSnackBar(
@@ -808,7 +710,6 @@ class _AdminPageState extends State<AdminPage> {
     }
   }
 
-// Improved unban user function
   Future<void> _unbanUser(String userId, String userName) async {
     bool confirm = await showDialog(
       context: context,
@@ -843,12 +744,10 @@ class _AdminPageState extends State<AdminPage> {
     });
 
     try {
-      // Update user document to remove ban
       await _firestore.collection('users').doc(userId).update({
         'banned': false,
         'unbannedAt': FieldValue.serverTimestamp(),
         'unbannedBy': _auth.currentUser?.uid,
-        // Optionally remove ban-related fields
         'bannedAt': FieldValue.delete(),
         'bannedBy': FieldValue.delete(),
         'bannedReason': FieldValue.delete(),
@@ -875,54 +774,487 @@ class _AdminPageState extends State<AdminPage> {
     }
   }
 
-// Add this method to check if a user can be banned
-  bool _canBanUser(Map<String, dynamic> userData, String userId) {
-    // Don't allow banning admins or the current user
-    if (userData['isAdmin'] == true || userId == _auth.currentUser?.uid) {
-      return false;
-    }
-    // Don't allow banning already banned users
-    if (userData['banned'] == true) {
-      return false;
-    }
-    return true;
+
+  void _editTip(String tipId, Map<String, dynamic> tipData) {
+    _tipTitleController.text = tipData['title'] ?? '';
+    _tipDescriptionController.text = tipData['description'] ?? '';
+    final originalCategory = tipData['category'] as String?;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) {
+        String? selectedCategory = originalCategory;
+
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              backgroundColor: Colors.grey[800],
+              title: const Text(
+                'Edit Financial Tip',
+                style: TextStyle(color: Colors.white),
+              ),
+              content: SingleChildScrollView(
+                child: SizedBox(
+                  width: MediaQuery.of(context).size.width * 0.9,
+                  height: MediaQuery.of(context).size.height * 0.7,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      // Title Field
+                      TextField(
+                        controller: _tipTitleController,
+                        style: const TextStyle(color: Colors.white),
+                        decoration: InputDecoration(
+                          labelText: 'Title',
+                          labelStyle: TextStyle(color: Colors.grey[400]),
+                          hintText: 'Enter tip title',
+                          hintStyle: TextStyle(color: Colors.grey[600]),
+                          enabledBorder: const OutlineInputBorder(
+                            borderSide: BorderSide(color: Colors.teal),
+                          ),
+                          focusedBorder: const OutlineInputBorder(
+                            borderSide: BorderSide(color: Colors.teal, width: 2),
+                          ),
+                          filled: true,
+                          fillColor: Colors.grey[900],
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+
+                      // Description Field
+                      TextField(
+                        controller: _tipDescriptionController,
+                        style: const TextStyle(color: Colors.white),
+                        maxLines: 3,
+                        decoration: InputDecoration(
+                          labelText: 'Description',
+                          labelStyle: TextStyle(color: Colors.grey[400]),
+                          hintText: 'Enter tip description',
+                          hintStyle: TextStyle(color: Colors.grey[600]),
+                          enabledBorder: const OutlineInputBorder(
+                            borderSide: BorderSide(color: Colors.teal),
+                          ),
+                          focusedBorder: const OutlineInputBorder(
+                            borderSide: BorderSide(color: Colors.teal, width: 2),
+                          ),
+                          filled: true,
+                          fillColor: Colors.grey[900],
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+
+                      // Category Selection Header
+                      Row(
+                        children: [
+                          const Icon(Icons.category, color: Colors.teal),
+                          const SizedBox(width: 8),
+                          const Text(
+                            'Select Category:',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+
+                      // Selected Category Display
+                      if (selectedCategory != null)
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: Colors.teal.withOpacity(0.2),
+                            border: Border.all(color: Colors.teal),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Row(
+                            children: [
+                              const Icon(Icons.check_circle, color: Colors.teal),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  'Selected: $selectedCategory',
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                              TextButton(
+                                onPressed: () {
+                                  setDialogState(() {
+                                    selectedCategory = null;
+                                    _tipCategory = null;
+                                  });
+                                },
+                                child: const Text(
+                                  'Clear',
+                                  style: TextStyle(color: Colors.orange),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      const SizedBox(height: 8),
+
+                      // Category List
+                      Expanded(
+                        child: Container(
+                          decoration: BoxDecoration(
+                            border: Border.all(color: Colors.grey[600]!),
+                            borderRadius: BorderRadius.circular(8),
+                            color: Colors.grey[900],
+                          ),
+                          child: StreamBuilder<List<Map<String, dynamic>>>(
+                            stream: getExpenseCategories(),
+                            builder: (context, snapshot) {
+                              if (snapshot.connectionState == ConnectionState.waiting) {
+                                return const Center(
+                                  child: Column(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      CircularProgressIndicator(color: Colors.teal),
+                                      SizedBox(height: 16),
+                                      Text(
+                                        'Loading categories...',
+                                        style: TextStyle(color: Colors.grey),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              }
+
+                              if (snapshot.hasError) {
+                                return Center(
+                                  child: Column(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      const Icon(Icons.error, color: Colors.red, size: 48),
+                                      const SizedBox(height: 16),
+                                      Text(
+                                        'Error loading categories: ${snapshot.error}',
+                                        style: const TextStyle(color: Colors.red),
+                                        textAlign: TextAlign.center,
+                                      ),
+                                      const SizedBox(height: 16),
+                                      ElevatedButton(
+                                        onPressed: () => setDialogState(() {}),
+                                        child: const Text('Retry'),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              }
+
+                              final categories = snapshot.data ?? [];
+
+                              if (categories.isEmpty) {
+                                return Center(
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(16),
+                                    child: Column(
+                                      mainAxisAlignment: MainAxisAlignment.center,
+                                      children: [
+                                        const Icon(Icons.warning, color: Colors.orange, size: 48),
+                                        const SizedBox(height: 16),
+                                        const Text(
+                                          'No expense categories available!',
+                                          style: TextStyle(
+                                            color: Colors.orange,
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 16,
+                                          ),
+                                          textAlign: TextAlign.center,
+                                        ),
+                                        const SizedBox(height: 8),
+                                        const Text(
+                                          'You need to create expense categories first before editing tips.',
+                                          style: TextStyle(color: Colors.grey, fontSize: 14),
+                                          textAlign: TextAlign.center,
+                                        ),
+                                        const SizedBox(height: 16),
+                                        ElevatedButton.icon(
+                                          onPressed: () {
+                                            Navigator.pop(context);
+                                            _showAddCategoryDialog();
+                                          },
+                                          icon: const Icon(Icons.add),
+                                          label: const Text('Add Category First'),
+                                          style: ElevatedButton.styleFrom(
+                                            backgroundColor: Colors.orange,
+                                            foregroundColor: Colors.white,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                );
+                              }
+
+                              // Check if the original category still exists
+                              final categoryExists = categories.any((cat) => cat['name'] == originalCategory);
+
+                              return Column(
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.all(12),
+                                    decoration: BoxDecoration(
+                                      color: Colors.grey[800],
+                                      borderRadius: const BorderRadius.only(
+                                        topLeft: Radius.circular(8),
+                                        topRight: Radius.circular(8),
+                                      ),
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        Expanded(
+                                          child: Text(
+                                            '${categories.length} categories available',
+                                            style: TextStyle(
+                                              color: Colors.grey[400],
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                          ),
+                                        ),
+                                        if (originalCategory != null && !categoryExists)
+                                          Flexible(
+                                            child: Text(
+                                              'Original category not found!',
+                                              style: const TextStyle(
+                                                color: Colors.red,
+                                                fontSize: 12,
+                                                fontWeight: FontWeight.bold,
+                                              ),
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                          )
+                                        else if (selectedCategory == null)
+                                          const Text(
+                                            'Tap to select',
+                                            style: TextStyle(
+                                              color: Colors.teal,
+                                              fontSize: 12,
+                                            ),
+                                          ),
+                                      ],
+                                    ),
+                                  ),
+                                  Expanded(
+                                    child: ListView.builder(
+                                      padding: EdgeInsets.zero,
+                                      itemCount: categories.length,
+                                      itemBuilder: (context, index) {
+                                        final category = categories[index];
+                                        final categoryName = category['name'] as String;
+                                        final isSelected = selectedCategory == categoryName;
+
+                                        return Container(
+                                          decoration: BoxDecoration(
+                                            border: Border(
+                                              bottom: BorderSide(
+                                                color: Colors.grey[700]!,
+                                                width: 0.5,
+                                              ),
+                                            ),
+                                          ),
+                                          child: ListTile(
+                                            contentPadding: const EdgeInsets.symmetric(
+                                              horizontal: 16,
+                                              vertical: 8,
+                                            ),
+                                            leading: Container(
+                                              width: 40,
+                                              height: 40,
+                                              decoration: BoxDecoration(
+                                                color: isSelected ? Colors.teal : Colors.grey[700],
+                                                borderRadius: BorderRadius.circular(20),
+                                              ),
+                                              child: Center(
+                                                child: Text(
+                                                  category['icon'] ?? '💰',
+                                                  style: const TextStyle(fontSize: 20),
+                                                ),
+                                              ),
+                                            ),
+                                            title: Text(
+                                              categoryName,
+                                              style: TextStyle(
+                                                color: isSelected ? Colors.teal : Colors.white,
+                                                fontWeight: isSelected
+                                                    ? FontWeight.bold
+                                                    : FontWeight.normal,
+                                              ),
+                                            ),
+                                            subtitle: Text(
+                                              'Threshold: RM${category['threshold']}',
+                                              style: TextStyle(
+                                                color: isSelected ? Colors.teal[300] : Colors.grey,
+                                                fontSize: 12,
+                                              ),
+                                            ),
+                                            trailing: isSelected
+                                                ? const Icon(
+                                              Icons.check_circle,
+                                              color: Colors.teal,
+                                            )
+                                                : const Icon(
+                                              Icons.radio_button_unchecked,
+                                              color: Colors.grey,
+                                            ),
+                                            selected: isSelected,
+                                            selectedTileColor: Colors.teal.withOpacity(0.1),
+                                            onTap: () {
+                                              setDialogState(() {
+                                                selectedCategory = categoryName;
+                                                _tipCategory = categoryName;
+                                              });
+                                            },
+                                          ),
+                                        );
+                                      },
+                                    ),
+                                  ),
+                                ],
+                              );
+                            },
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () {
+                    _tipTitleController.clear();
+                    _tipDescriptionController.clear();
+                    _tipCategory = null;
+                    Navigator.pop(context);
+                  },
+                  child: const Text(
+                    'Cancel',
+                    style: TextStyle(color: Colors.grey),
+                  ),
+                ),
+                ElevatedButton(
+                  onPressed: _isLoading
+                      ? null
+                      : () async {
+                    // Validation
+                    if (_tipTitleController.text.trim().isEmpty) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Please enter a title'),
+                          backgroundColor: Colors.orange,
+                        ),
+                      );
+                      return;
+                    }
+
+                    if (_tipDescriptionController.text.trim().isEmpty) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Please enter a description'),
+                          backgroundColor: Colors.orange,
+                        ),
+                      );
+                      return;
+                    }
+
+                    if (_tipCategory == null || _tipCategory!.isEmpty) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Please select a category'),
+                          backgroundColor: Colors.orange,
+                        ),
+                      );
+                      return;
+                    }
+
+                    // Call the update tip method
+                    await _updateTip(tipId);
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.teal,
+                    foregroundColor: Colors.white,
+                    minimumSize: const Size(120, 45),
+                  ),
+                  child: _isLoading
+                      ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(
+                      color: Colors.white,
+                      strokeWidth: 2,
+                    ),
+                  )
+                      : const Text(
+                    'Update Tip',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
   }
 
-// Add this method to check if a user can be unbanned
-  bool _canUnbanUser(Map<String, dynamic> userData) {
-    // Only allow unbanning if user is currently banned
-    return userData['banned'] == true;
-  }
-
-  Future<void> _addTip() async {
+  Future<void> _updateTip(String tipId) async {
     if (_tipTitleController.text.trim().isEmpty ||
         _tipDescriptionController.text.trim().isEmpty ||
         _tipCategory == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please fill in all tip fields')),
+        const SnackBar(
+          content: Text('Please fill in all tip fields'),
+          backgroundColor: Colors.orange,
+        ),
       );
       return;
     }
+
     setState(() {
       _isLoading = true;
     });
+
     try {
-      await _firestore.collection('tips').add({
+      // Update the tip in Firestore
+      await _firestore.collection('tips').doc(tipId).update({
         'title': _tipTitleController.text.trim(),
         'description': _tipDescriptionController.text.trim(),
         'category': _tipCategory,
         'timestamp': FieldValue.serverTimestamp(),
+        'updatedBy': _auth.currentUser?.uid,
       });
+
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Tip added successfully')),
+        SnackBar(
+          content: Text('Tip "${_tipTitleController.text.trim()}" updated successfully!'),
+          backgroundColor: Colors.green,
+        ),
       );
+
+      // Clear the controllers
       _tipTitleController.clear();
       _tipDescriptionController.clear();
       _tipCategory = null;
+
+      // Close the dialog
       if (mounted) Navigator.pop(context);
     } catch (e) {
+      print('Error updating tip: $e');
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error adding tip: $e')),
+        SnackBar(
+          content: Text('Error updating tip: ${e.toString()}'),
+          backgroundColor: Colors.red,
+        ),
       );
     } finally {
       setState(() {
@@ -931,251 +1263,530 @@ class _AdminPageState extends State<AdminPage> {
     }
   }
 
-  Future<void> _editTip(String tipId, Map<String, dynamic> tipData) async {
-    _tipTitleController.text = tipData['title'] ?? '';
-    _tipDescriptionController.text = tipData['description'] ?? '';
-    _tipCategory = tipData['category'] as String?;
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: Colors.grey[800],
-        title: const Text(
-          'Edit Financial Tip',
-          style: TextStyle(color: Colors.white),
-        ),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: _tipTitleController,
-                style: const TextStyle(color: Colors.white),
-                decoration: InputDecoration(
-                  labelText: 'Title',
-                  labelStyle: TextStyle(color: Colors.grey[400]),
-                  enabledBorder: const OutlineInputBorder(
-                    borderSide: BorderSide(color: Colors.teal),
-                  ),
-                  focusedBorder: const OutlineInputBorder(
-                    borderSide: BorderSide(color: Colors.teal, width: 2),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: _tipDescriptionController,
-                style: const TextStyle(color: Colors.white),
-                maxLines: 3,
-                decoration: InputDecoration(
-                  labelText: 'Description',
-                  labelStyle: TextStyle(color: Colors.grey[400]),
-                  enabledBorder: const OutlineInputBorder(
-                    borderSide: BorderSide(color: Colors.teal),
-                  ),
-                  focusedBorder: const OutlineInputBorder(
-                    borderSide: BorderSide(color: Colors.teal, width: 2),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 16),
-              DropdownButtonFormField<String>(
-                value: _tipCategory,
-                hint: const Text(
-                  'Select Category',
-                  style: TextStyle(color: Colors.grey),
-                ),
-                dropdownColor: Colors.grey[800],
-                style: const TextStyle(color: Colors.white),
-                decoration: const InputDecoration(
-                  enabledBorder: OutlineInputBorder(
-                    borderSide: BorderSide(color: Colors.teal),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderSide: BorderSide(color: Colors.teal, width: 2),
-                  ),
-                ),
-                items: _categories.map((category) {
-                  return DropdownMenuItem(
-                    value: category,
-                    child: Text(category),
-                  );
-                }).toList(),
-                onChanged: (value) {
-                  setState(() {
-                    _tipCategory = value;
-                  });
-                },
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text(
-              'Cancel',
-              style: TextStyle(color: Colors.grey),
-            ),
-          ),
-          ElevatedButton(
-            onPressed: _isLoading
-                ? null
-                : () async {
-              if (_tipTitleController.text.trim().isEmpty ||
-                  _tipDescriptionController.text.trim().isEmpty ||
-                  _tipCategory == null) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Please fill in all tip fields')),
-                );
-                return;
-              }
-              setState(() {
-                _isLoading = true;
-              });
-              try {
-                await _firestore.collection('tips').doc(tipId).update({
-                  'title': _tipTitleController.text.trim(),
-                  'description': _tipDescriptionController.text.trim(),
-                  'category': _tipCategory,
-                  'timestamp': FieldValue.serverTimestamp(),
-                });
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Tip updated successfully')),
-                );
-                _tipTitleController.clear();
-                _tipDescriptionController.clear();
-                _tipCategory = null;
-                if (mounted) Navigator.pop(context);
-              } catch (e) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('Error updating tip: $e')),
-                );
-              } finally {
-                setState(() {
-                  _isLoading = false;
-                });
-              }
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.teal,
-              foregroundColor: Colors.black,
-            ),
-            child: _isLoading
-                ? const CircularProgressIndicator(color: Colors.white)
-                : const Text('Update Tip'),
-          ),
-        ],
-      ),
-    );
-  }
+
+
 
   void _showAddTipDialog() {
     _tipTitleController.clear();
     _tipDescriptionController.clear();
     _tipCategory = null;
+
     showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) {
+        String? selectedCategory;
+
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              backgroundColor: Colors.grey[800],
+              title: const Text(
+                'Add New Financial Tip',
+                style: TextStyle(color: Colors.white),
+              ),
+              content: SingleChildScrollView(
+                child: SizedBox(
+                  width: MediaQuery.of(context).size.width * 0.9,
+                  height: MediaQuery.of(context).size.height * 0.7,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      // Title Field
+                      TextField(
+                        controller: _tipTitleController,
+                        style: const TextStyle(color: Colors.white),
+                        decoration: InputDecoration(
+                          labelText: 'Title',
+                          labelStyle: TextStyle(color: Colors.grey[400]),
+                          hintText: 'Enter tip title',
+                          hintStyle: TextStyle(color: Colors.grey[600]),
+                          enabledBorder: const OutlineInputBorder(
+                            borderSide: BorderSide(color: Colors.teal),
+                          ),
+                          focusedBorder: const OutlineInputBorder(
+                            borderSide: BorderSide(color: Colors.teal, width: 2),
+                          ),
+                          filled: true,
+                          fillColor: Colors.grey[900],
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+
+                      // Description Field
+                      TextField(
+                        controller: _tipDescriptionController,
+                        style: const TextStyle(color: Colors.white),
+                        maxLines: 3,
+                        decoration: InputDecoration(
+                          labelText: 'Description',
+                          labelStyle: TextStyle(color: Colors.grey[400]),
+                          hintText: 'Enter tip description',
+                          hintStyle: TextStyle(color: Colors.grey[600]),
+                          enabledBorder: const OutlineInputBorder(
+                            borderSide: BorderSide(color: Colors.teal),
+                          ),
+                          focusedBorder: const OutlineInputBorder(
+                            borderSide: BorderSide(color: Colors.teal, width: 2),
+                          ),
+                          filled: true,
+                          fillColor: Colors.grey[900],
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+
+                      // Category Selection Header
+                      Row(
+                        children: [
+                          const Icon(Icons.category, color: Colors.teal),
+                          const SizedBox(width: 8),
+                          const Text(
+                            'Select Category:',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+
+                      // Selected Category Display
+                      if (selectedCategory != null)
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: Colors.teal.withOpacity(0.2),
+                            border: Border.all(color: Colors.teal),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Row(
+                            children: [
+                              const Icon(Icons.check_circle, color: Colors.teal),
+                              const SizedBox(width: 8),
+                              Text(
+                                'Selected: $selectedCategory',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              const Spacer(),
+                              TextButton(
+                                onPressed: () {
+                                  setDialogState(() {
+                                    selectedCategory = null;
+                                    _tipCategory = null;
+                                  });
+                                },
+                                child: const Text(
+                                  'Clear',
+                                  style: TextStyle(color: Colors.orange),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      const SizedBox(height: 8),
+
+                      // Category List
+                      Expanded(
+                        child: Container(
+                          decoration: BoxDecoration(
+                            border: Border.all(color: Colors.grey[600]!),
+                            borderRadius: BorderRadius.circular(8),
+                            color: Colors.grey[900],
+                          ),
+                          child: StreamBuilder<List<Map<String, dynamic>>>(
+                            stream: getExpenseCategories(),
+                            builder: (context, snapshot) {
+                              if (snapshot.connectionState == ConnectionState.waiting) {
+                                return const Center(
+                                  child: Column(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      CircularProgressIndicator(color: Colors.teal),
+                                      SizedBox(height: 16),
+                                      Text(
+                                        'Loading categories...',
+                                        style: TextStyle(color: Colors.grey),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              }
+
+                              if (snapshot.hasError) {
+                                return Center(
+                                  child: Column(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      const Icon(Icons.error, color: Colors.red, size: 48),
+                                      const SizedBox(height: 16),
+                                      Text(
+                                        'Error loading categories: ${snapshot.error}',
+                                        style: const TextStyle(color: Colors.red),
+                                        textAlign: TextAlign.center,
+                                      ),
+                                      const SizedBox(height: 16),
+                                      ElevatedButton(
+                                        onPressed: () => setDialogState(() {}),
+                                        child: const Text('Retry'),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              }
+
+                              final categories = snapshot.data ?? [];
+
+                              if (categories.isEmpty) {
+                                return Center(
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(16),
+                                    child: Column(
+                                      mainAxisAlignment: MainAxisAlignment.center,
+                                      children: [
+                                        const Icon(Icons.warning, color: Colors.orange, size: 48),
+                                        const SizedBox(height: 16),
+                                        const Text(
+                                          'No expense categories available!',
+                                          style: TextStyle(
+                                            color: Colors.orange,
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 16,
+                                          ),
+                                          textAlign: TextAlign.center,
+                                        ),
+                                        const SizedBox(height: 8),
+                                        const Text(
+                                          'You need to create expense categories first before adding tips.',
+                                          style: TextStyle(color: Colors.grey, fontSize: 14),
+                                          textAlign: TextAlign.center,
+                                        ),
+                                        const SizedBox(height: 16),
+                                        ElevatedButton.icon(
+                                          onPressed: () {
+                                            Navigator.pop(context);
+                                            _showAddCategoryDialog();
+                                          },
+                                          icon: const Icon(Icons.add),
+                                          label: const Text('Add Category First'),
+                                          style: ElevatedButton.styleFrom(
+                                            backgroundColor: Colors.orange,
+                                            foregroundColor: Colors.white,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                );
+                              }
+
+                              return Column(
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.all(12),
+                                    decoration: BoxDecoration(
+                                      color: Colors.grey[800],
+                                      borderRadius: const BorderRadius.only(
+                                        topLeft: Radius.circular(8),
+                                        topRight: Radius.circular(8),
+                                      ),
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        Text(
+                                          '${categories.length} categories available',
+                                          style: TextStyle(
+                                            color: Colors.grey[400],
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                        const Spacer(),
+                                        if (selectedCategory == null)
+                                          const Text(
+                                            'Tap to select',
+                                            style: TextStyle(
+                                              color: Colors.teal,
+                                              fontSize: 12,
+                                            ),
+                                          ),
+                                      ],
+                                    ),
+                                  ),
+                                  Expanded(
+                                    child: ListView.builder(
+                                      padding: EdgeInsets.zero,
+                                      itemCount: categories.length,
+                                      itemBuilder: (context, index) {
+                                        final category = categories[index];
+                                        final categoryName = category['name'] as String;
+                                        final isSelected = selectedCategory == categoryName;
+
+                                        return Container(
+                                          decoration: BoxDecoration(
+                                            border: Border(
+                                              bottom: BorderSide(
+                                                color: Colors.grey[700]!,
+                                                width: 0.5,
+                                              ),
+                                            ),
+                                          ),
+                                          child: ListTile(
+                                            contentPadding: const EdgeInsets.symmetric(
+                                              horizontal: 16,
+                                              vertical: 8,
+                                            ),
+                                            leading: Container(
+                                              width: 40,
+                                              height: 40,
+                                              decoration: BoxDecoration(
+                                                color: isSelected ? Colors.teal : Colors.grey[700],
+                                                borderRadius: BorderRadius.circular(20),
+                                              ),
+                                              child: Center(
+                                                child: Text(
+                                                  category['icon'] ?? '💰',
+                                                  style: const TextStyle(fontSize: 20),
+                                                ),
+                                              ),
+                                            ),
+                                            title: Text(
+                                              categoryName,
+                                              style: TextStyle(
+                                                color: isSelected ? Colors.teal : Colors.white,
+                                                fontWeight: isSelected
+                                                    ? FontWeight.bold
+                                                    : FontWeight.normal,
+                                              ),
+                                            ),
+                                            subtitle: Text(
+                                              'Threshold: RM${category['threshold']}',
+                                              style: TextStyle(
+                                                color: isSelected ? Colors.teal[300] : Colors.grey,
+                                                fontSize: 12,
+                                              ),
+                                            ),
+                                            trailing: isSelected
+                                                ? const Icon(
+                                              Icons.check_circle,
+                                              color: Colors.teal,
+                                            )
+                                                : const Icon(
+                                              Icons.radio_button_unchecked,
+                                              color: Colors.grey,
+                                            ),
+                                            selected: isSelected,
+                                            selectedTileColor: Colors.teal.withOpacity(0.1),
+                                            onTap: () {
+                                              setDialogState(() {
+                                                selectedCategory = categoryName;
+                                                _tipCategory = categoryName;
+                                              });
+                                            },
+                                          ),
+                                        );
+                                      },
+                                    ),
+                                  ),
+                                ],
+                              );
+                            },
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () {
+                    _tipTitleController.clear();
+                    _tipDescriptionController.clear();
+                    _tipCategory = null;
+                    Navigator.pop(context);
+                  },
+                  child: const Text(
+                    'Cancel',
+                    style: TextStyle(color: Colors.grey),
+                  ),
+                ),
+                ElevatedButton(
+                  onPressed: _isLoading
+                      ? null
+                      : () async {
+                    // Validation
+                    if (_tipTitleController.text.trim().isEmpty) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Please enter a title'),
+                          backgroundColor: Colors.orange,
+                        ),
+                      );
+                      return;
+                    }
+
+                    if (_tipDescriptionController.text.trim().isEmpty) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Please enter a description'),
+                          backgroundColor: Colors.orange,
+                        ),
+                      );
+                      return;
+                    }
+
+                    if (_tipCategory == null || _tipCategory!.isEmpty) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Please select a category'),
+                          backgroundColor: Colors.orange,
+                        ),
+                      );
+                      return;
+                    }
+
+                    // Call the add tip method
+                    await _addTip();
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.teal,
+                    foregroundColor: Colors.white,
+                    minimumSize: const Size(120, 45),
+                  ),
+                  child: _isLoading
+                      ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(
+                      color: Colors.white,
+                      strokeWidth: 2,
+                    ),
+                  )
+                      : const Text(
+                    'Add Tip',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<void> _addTip() async {
+    if (_tipTitleController.text.trim().isEmpty ||
+        _tipDescriptionController.text.trim().isEmpty ||
+        _tipCategory == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please fill in all tip fields'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      // Add the tip to Firestore
+      await _firestore.collection('tips').add({
+        'title': _tipTitleController.text.trim(),
+        'description': _tipDescriptionController.text.trim(),
+        'category': _tipCategory,
+        'timestamp': FieldValue.serverTimestamp(),
+        'createdBy': _auth.currentUser?.uid,
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Tip "${_tipTitleController.text.trim()}" added successfully!'),
+          backgroundColor: Colors.green,
+        ),
+      );
+
+      // Clear the controllers
+      _tipTitleController.clear();
+      _tipDescriptionController.clear();
+      _tipCategory = null;
+
+      // Close the dialog
+      if (mounted) Navigator.pop(context);
+    } catch (e) {
+      print('Error adding tip: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error adding tip: ${e.toString()}'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } finally {
+      setState(() {
+        _isLoading = false;
+      });
+    }
+  }
+
+  Future<void> _deleteTip(String tipId, String tipTitle) async {
+    final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         backgroundColor: Colors.grey[800],
-        title: const Text(
-          'Add New Financial Tip',
-          style: TextStyle(color: Colors.white),
-        ),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: _tipTitleController,
-                style: const TextStyle(color: Colors.white),
-                decoration: InputDecoration(
-                  labelText: 'Title',
-                  labelStyle: TextStyle(color: Colors.grey[400]),
-                  enabledBorder: const OutlineInputBorder(
-                    borderSide: BorderSide(color: Colors.teal),
-                  ),
-                  focusedBorder: const OutlineInputBorder(
-                    borderSide: BorderSide(color: Colors.teal, width: 2),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: _tipDescriptionController,
-                style: const TextStyle(color: Colors.white),
-                maxLines: 3,
-                decoration: InputDecoration(
-                  labelText: 'Description',
-                  labelStyle: TextStyle(color: Colors.grey[400]),
-                  enabledBorder: const OutlineInputBorder(
-                    borderSide: BorderSide(color: Colors.teal),
-                  ),
-                  focusedBorder: const OutlineInputBorder(
-                    borderSide: BorderSide(color: Colors.teal, width: 2),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 16),
-              DropdownButtonFormField<String>(
-                value: _tipCategory,
-                hint: const Text(
-                  'Select Category',
-                  style: TextStyle(color: Colors.grey),
-                ),
-                dropdownColor: Colors.grey[800],
-                style: const TextStyle(color: Colors.white),
-                decoration: const InputDecoration(
-                  enabledBorder: OutlineInputBorder(
-                    borderSide: BorderSide(color: Colors.teal),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderSide: BorderSide(color: Colors.teal, width: 2),
-                  ),
-                ),
-                items: _categories.map((category) {
-                  return DropdownMenuItem(
-                    value: category,
-                    child: Text(category),
-                  );
-                }).toList(),
-                onChanged: (value) {
-                  setState(() {
-                    _tipCategory = value;
-                  });
-                },
-              ),
-            ],
-          ),
+        title: const Text('Delete Financial Tip', style: TextStyle(color: Colors.white)),
+        content: Text(
+          'Are you sure you want to delete the tip "$tipTitle"?',
+          style: const TextStyle(color: Colors.white),
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text(
-              'Cancel',
-              style: TextStyle(color: Colors.grey),
-            ),
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
           ),
-          ElevatedButton(
-            onPressed: _isLoading ? null : _addTip,
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.teal,
-              foregroundColor: Colors.black,
-            ),
-            child: _isLoading
-                ? const CircularProgressIndicator(color: Colors.white)
-                : const Text('Add Tip'),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Delete', style: TextStyle(color: Colors.red)),
           ),
         ],
       ),
     );
+
+    if (confirmed != true) return;
+
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      await _firestore.collection('tips').doc(tipId).delete();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Tip deleted successfully')),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error deleting tip: $e')),
+      );
+    } finally {
+      setState(() {
+        _isLoading = false;
+      });
+    }
   }
 
   IconData _getIconForCategory(String category) {
     switch (category.toLowerCase()) {
       case 'dining':
         return Icons.restaurant;
-      case 'budgeting':
-        return Icons.account_balance;
+      case 'housing':
+        return Icons.home;
       case 'savings':
         return Icons.savings;
       case 'debt':
@@ -1191,123 +1802,149 @@ class _AdminPageState extends State<AdminPage> {
     }
   }
 
-  // ==================== CATEGORY MANAGEMENT ====================
   void _showAddCategoryDialog() {
     _categoryNameController.clear();
+    _thresholdController.clear();
     _categoryType = 'expense';
     _selectedEmoji = '💰';
 
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: Colors.grey[800],
-        title: const Text(
-          'Add Default Category',
-          style: TextStyle(color: Colors.white),
-        ),
-        content: SizedBox(
-          width: double.maxFinite,
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  controller: _categoryNameController,
-                  style: const TextStyle(color: Colors.white),
-                  decoration: InputDecoration(
-                    labelText: 'Category Name',
-                    labelStyle: TextStyle(color: Colors.grey[400]),
-                    enabledBorder: const OutlineInputBorder(
-                      borderSide: BorderSide(color: Colors.teal),
-                    ),
-                    focusedBorder: const OutlineInputBorder(
-                      borderSide: BorderSide(color: Colors.teal, width: 2),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                DropdownButtonFormField<String>(
-                  value: _categoryType,
-                  hint: const Text(
-                    'Select Type',
-                    style: TextStyle(color: Colors.grey),
-                  ),
-                  dropdownColor: Colors.grey[800],
-                  style: const TextStyle(color: Colors.white),
-                  decoration: const InputDecoration(
-                    enabledBorder: OutlineInputBorder(
-                      borderSide: BorderSide(color: Colors.teal),
-                    ),
-                    focusedBorder: OutlineInputBorder(
-                      borderSide: BorderSide(color: Colors.teal, width: 2),
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          backgroundColor: Colors.grey[800],
+          title: const Text(
+            'Add Default Category',
+            style: TextStyle(color: Colors.white),
+          ),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: _categoryNameController,
+                    style: const TextStyle(color: Colors.white),
+                    decoration: InputDecoration(
+                      labelText: 'Category Name',
+                      labelStyle: TextStyle(color: Colors.grey[400]),
+                      enabledBorder: const OutlineInputBorder(
+                        borderSide: BorderSide(color: Colors.teal),
+                      ),
+                      focusedBorder: const OutlineInputBorder(
+                        borderSide: BorderSide(color: Colors.teal, width: 2),
+                      ),
                     ),
                   ),
-                  items: _categoryTypes.map((type) {
-                    return DropdownMenuItem(
-                      value: type,
-                      child: Text(type),
-                    );
-                  }).toList(),
-                  onChanged: (value) {
-                    setState(() {
-                      _categoryType = value;
-                    });
-                  },
-                ),
-                const SizedBox(height: 16),
-                const Text(
-                  'Select Emoji:',
-                  style: TextStyle(color: Colors.white, fontSize: 16),
-                ),
-                const SizedBox(height: 8),
-                // Alternative: Use Wrap widget instead of GridView
-                Wrap(
-                  spacing: 8.0,
-                  runSpacing: 8.0,
-                  children: [
-                    for (var emoji in [
-                      '💰', '🍔', '🚗', '🏠', '🛒', '🎮',
-                      '✈️', '🏥', '🎓', '💊', '👕', '🎁',
-                      '🍿', '☕', '🍺', '🍎', '🍕', '🏋️'
-                    ])
-                      GestureDetector(
-                        onTap: () => setState(() => _selectedEmoji = emoji),
-                        child: CircleAvatar(
-                          radius: 20,
-                          backgroundColor: _selectedEmoji == emoji
-                              ? Colors.teal
-                              : Colors.grey[700],
-                          child: Text(
-                            emoji,
-                            style: const TextStyle(fontSize: 20),
-                          ),
+                  const SizedBox(height: 16),
+                  if (_categoryType == 'expense') ...[
+                    TextField(
+                      controller: _thresholdController,
+                      style: const TextStyle(color: Colors.white),
+                      keyboardType: TextInputType.numberWithOptions(decimal: true),
+                      decoration: InputDecoration(
+                        labelText: 'Overspending Threshold (RM)',
+                        labelStyle: TextStyle(color: Colors.grey[400]),
+                        hintText: 'e.g., 500.00',
+                        hintStyle: TextStyle(color: Colors.grey[600]),
+                        enabledBorder: const OutlineInputBorder(
+                          borderSide: BorderSide(color: Colors.teal),
+                        ),
+                        focusedBorder: const OutlineInputBorder(
+                          borderSide: BorderSide(color: Colors.teal, width: 2),
                         ),
                       ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Tips will be shown when users spend above this amount',
+                      style: TextStyle(color: Colors.grey[400], fontSize: 12),
+                    ),
+                    const SizedBox(height: 16),
                   ],
-                ),
-              ],
+                  DropdownButtonFormField<String>(
+                    value: _categoryType,
+                    hint: const Text(
+                      'Select Type',
+                      style: TextStyle(color: Colors.grey),
+                    ),
+                    dropdownColor: Colors.grey[800],
+                    style: const TextStyle(color: Colors.white),
+                    decoration: const InputDecoration(
+                      enabledBorder: OutlineInputBorder(
+                        borderSide: BorderSide(color: Colors.teal),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderSide: BorderSide(color: Colors.teal, width: 2),
+                      ),
+                    ),
+                    items: _categoryTypes.map((type) {
+                      return DropdownMenuItem(
+                        value: type,
+                        child: Text(type),
+                      );
+                    }).toList(),
+                    onChanged: (value) {
+                      setDialogState(() {
+                        _categoryType = value;
+                      });
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'Select Emoji:',
+                    style: TextStyle(color: Colors.white, fontSize: 16),
+                  ),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8.0,
+                    runSpacing: 8.0,
+                    children: [
+                      for (var emoji in [
+                        '💰', '🍔', '🚗', '🏠', '🛒', '🎮',
+                        '✈️', '🏥', '🎓', '💊', '👕', '🎁',
+                        '🍿', '☕', '🍺', '🍎', '🍕', '🏋️'
+                      ])
+                        GestureDetector(
+                          onTap: () => setDialogState(() => _selectedEmoji = emoji),
+                          child: CircleAvatar(
+                            radius: 20,
+                            backgroundColor: _selectedEmoji == emoji
+                                ? Colors.teal
+                                : Colors.grey[700],
+                            child: Text(
+                              emoji,
+                              style: const TextStyle(fontSize: 20),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ],
+              ),
             ),
           ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text(
+                'Cancel',
+                style: TextStyle(color: Colors.grey),
+              ),
+            ),
+            ElevatedButton(
+              onPressed: _isLoading ? null : _addDefaultCategory,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.teal,
+                foregroundColor: Colors.black,
+              ),
+              child: _isLoading
+                  ? const CircularProgressIndicator(color: Colors.white)
+                  : const Text('Add Category'),
+            ),
+          ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text(
-              'Cancel',
-              style: TextStyle(color: Colors.grey),
-            ),
-          ),
-          ElevatedButton(
-            onPressed: _isLoading ? null : _addDefaultCategory,
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.teal,
-              foregroundColor: Colors.black,
-            ),
-            child: _isLoading
-                ? const CircularProgressIndicator(color: Colors.white)
-                : const Text('Add Category'),
-          ),
-        ],
       ),
     );
   }
@@ -1320,25 +1957,51 @@ class _AdminPageState extends State<AdminPage> {
       return;
     }
 
+    double? threshold;
+    if (_categoryType == 'expense') {
+      if (_thresholdController.text.trim().isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Please enter a threshold amount for expense categories')),
+        );
+        return;
+      }
+
+      threshold = double.tryParse(_thresholdController.text.trim());
+      if (threshold == null || threshold <= 0) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Please enter a valid threshold amount')),
+        );
+        return;
+      }
+    }
+
     setState(() {
       _isLoading = true;
     });
 
     try {
-      await _firestore.collection('categories').add({
+      final categoryData = <String, dynamic>{ // ✅ Explicit type
         'name': _categoryNameController.text.trim(),
         'icon': _selectedEmoji,
         'type': _categoryType,
-        'userid': "", // Change from null to empty string
+        'userId': "",
+      };
 
-      });
+      // ✅ Store threshold as double, not string
+      if (_categoryType == 'expense' && threshold != null) {
+        categoryData['threshold'] = threshold; // This should work now
+      }
+
+      await _firestore.collection('categories').add(categoryData);
 
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Default category added successfully')),
       );
       _categoryNameController.clear();
+      _thresholdController.clear();
       if (mounted) Navigator.pop(context);
     } catch (e) {
+      print('Error adding category: $e'); // Add this for debugging
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Error adding category: $e')),
       );
@@ -1348,7 +2011,6 @@ class _AdminPageState extends State<AdminPage> {
       });
     }
   }
-
 
   Future<void> _deleteCategory(String categoryId) async {
     final confirmed = await showDialog<bool>(
@@ -1407,19 +2069,108 @@ class _AdminPageState extends State<AdminPage> {
           category['name'] ?? 'Unknown',
           style: const TextStyle(color: Colors.white),
         ),
-        subtitle: Text(
-          'Type: ${category['type'] ?? 'N/A'}',
-          style: const TextStyle(color: Colors.grey),
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Type: ${category['type'] ?? 'N/A'}',
+              style: const TextStyle(color: Colors.grey),
+            ),
+            if (category['type'] == 'expense' && category['threshold'] != null)
+              Text(
+                'Threshold: RM${category['threshold']}',
+                style: const TextStyle(color: Colors.teal, fontSize: 12),
+              ),
+          ],
         ),
         trailing: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
+            if (category['type'] == 'expense')
+              IconButton(
+                icon: const Icon(Icons.edit, color: Colors.yellow),
+                onPressed: () => _editCategoryThreshold(categoryId, category),
+              ),
             IconButton(
               icon: const Icon(Icons.delete, color: Colors.red),
               onPressed: () => _deleteCategory(categoryId),
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  void _editCategoryThreshold(String categoryId, Map<String, dynamic> category) {
+    // Handle both string and double from existing data
+    final existingThreshold = category['threshold'];
+    final thresholdValue = existingThreshold is String
+        ? double.tryParse(existingThreshold)
+        : existingThreshold as double?;
+
+    _thresholdController.text = thresholdValue?.toString() ?? '';
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: Colors.grey[800],
+        title: Text(
+          'Edit Threshold for ${category['name']}',
+          style: const TextStyle(color: Colors.white),
+        ),
+        content: TextField(
+          controller: _thresholdController,
+          style: const TextStyle(color: Colors.white),
+          keyboardType: TextInputType.numberWithOptions(decimal: true),
+          decoration: InputDecoration(
+            labelText: 'Overspending Threshold (RM)',
+            labelStyle: TextStyle(color: Colors.grey[400]),
+            enabledBorder: const OutlineInputBorder(
+              borderSide: BorderSide(color: Colors.teal),
+            ),
+            focusedBorder: const OutlineInputBorder(
+              borderSide: BorderSide(color: Colors.teal, width: 2),
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              final threshold = double.tryParse(_thresholdController.text.trim());
+              if (threshold == null || threshold <= 0) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Please enter a valid threshold amount')),
+                );
+                return;
+              }
+
+              try {
+                // ✅ Store as double, not string
+                await _firestore.collection('categories').doc(categoryId).update({
+                  'threshold': threshold, // Double, not string
+                });
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Threshold updated successfully')),
+                );
+                Navigator.pop(context);
+              } catch (e) {
+                print('Error updating threshold: $e'); // Debug logging
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Error updating threshold: $e')),
+                );
+              }
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.teal,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Update'),
+          ),
+        ],
       ),
     );
   }
@@ -1457,6 +2208,16 @@ class _AdminPageState extends State<AdminPage> {
         ),
         actions: [
           IconButton(
+            icon: const Icon(Icons.shopping_cart, color: Colors.yellow),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const AdminPointShopPage()),
+              );
+            },
+            tooltip: 'Manage Point Shop',
+          ),
+          IconButton(
             icon: const Icon(Icons.emoji_events, color: Colors.teal),
             onPressed: () {
               Navigator.push(
@@ -1466,7 +2227,6 @@ class _AdminPageState extends State<AdminPage> {
             },
             tooltip: 'Manage Global Challenges',
           ),
-
           IconButton(
             icon: const Icon(Icons.person_off, color: Colors.white),
             onPressed: () {
@@ -1497,6 +2257,7 @@ class _AdminPageState extends State<AdminPage> {
               child: TabBarView(
                 children: [
                   // Financial Tips Tab
+                  // Inside the TabBarView for the Financial Tips tab
                   Padding(
                     padding: const EdgeInsets.all(16.0),
                     child: Column(
@@ -1512,7 +2273,7 @@ class _AdminPageState extends State<AdminPage> {
                         ),
                         const SizedBox(height: 16),
                         ElevatedButton(
-                          onPressed: _showAddTipDialog,
+                          onPressed: _showAddTipDialog, // Ensure this method exists
                           style: ElevatedButton.styleFrom(
                             backgroundColor: Colors.teal,
                             foregroundColor: Colors.black,
@@ -1528,10 +2289,8 @@ class _AdminPageState extends State<AdminPage> {
                                 .orderBy('timestamp', descending: true)
                                 .snapshots()
                                 .map((snapshot) {
-                              print('Firestore tips snapshot: ${snapshot.docs.length} documents');
                               return snapshot.docs.map((doc) {
-                                print('Processing tip: ${doc.id} - ${doc.data()}');
-                                return Tip.fromFirestore(doc);
+                                return Tip.fromFirestore(doc); // Ensure Tip class is defined
                               }).toList();
                             }),
                             builder: (context, snapshot) {
@@ -1539,7 +2298,6 @@ class _AdminPageState extends State<AdminPage> {
                                 return const Center(child: CircularProgressIndicator(color: Colors.teal));
                               }
                               if (snapshot.hasError) {
-                                print('Error loading tips: ${snapshot.error}');
                                 return Center(
                                   child: Column(
                                     mainAxisAlignment: MainAxisAlignment.center,
@@ -1561,7 +2319,6 @@ class _AdminPageState extends State<AdminPage> {
                                 );
                               }
                               if (!snapshot.hasData || snapshot.data!.isEmpty) {
-                                print('No tips found in Firestore');
                                 return const Center(
                                   child: Text(
                                     'No tips available',
@@ -1570,7 +2327,6 @@ class _AdminPageState extends State<AdminPage> {
                                 );
                               }
                               final tips = snapshot.data!;
-                              print('Tips loaded in admin page: ${tips.map((t) => "${t.title} (${t.category})").toList()}');
                               return ListView.builder(
                                 itemCount: tips.length,
                                 itemBuilder: (context, index) {
@@ -1579,7 +2335,7 @@ class _AdminPageState extends State<AdminPage> {
                                     color: Colors.grey[800],
                                     child: ListTile(
                                       leading: Icon(
-                                        _getIconForCategory(tip.category),
+                                        _getIconForCategory(tip.category), // Ensure this method exists
                                         color: Colors.teal,
                                       ),
                                       title: Text(
@@ -1599,22 +2355,11 @@ class _AdminPageState extends State<AdminPage> {
                                               'title': tip.title,
                                               'description': tip.description,
                                               'category': tip.category,
-                                            }),
+                                            }), // Ensure _editTip exists
                                           ),
                                           IconButton(
                                             icon: const Icon(Icons.delete, color: Colors.red),
-                                            onPressed: () async {
-                                              try {
-                                                await _firestore.collection('tips').doc(tip.id).delete();
-                                                ScaffoldMessenger.of(context).showSnackBar(
-                                                  const SnackBar(content: Text('Tip deleted')),
-                                                );
-                                              } catch (e) {
-                                                ScaffoldMessenger.of(context).showSnackBar(
-                                                  SnackBar(content: Text('Error: $e')),
-                                                );
-                                              }
-                                            },
+                                            onPressed: () => _deleteTip(tip.id, tip.title), // Calls _deleteTip
                                           ),
                                         ],
                                       ),
@@ -1629,7 +2374,8 @@ class _AdminPageState extends State<AdminPage> {
                     ),
                   ),
 
-                  // Default Categories Tab
+
+                  // Categories Tab
                   Padding(
                     padding: const EdgeInsets.all(16.0),
                     child: Column(
@@ -1658,8 +2404,7 @@ class _AdminPageState extends State<AdminPage> {
                           child: StreamBuilder<QuerySnapshot>(
                             stream: _firestore
                                 .collection('categories')
-                                .where('userid', whereIn: [""]) // Only empty string
-
+                                .where('userId', whereIn: [""])
                                 .snapshots(),
                             builder: (context, snapshot) {
                               if (snapshot.connectionState == ConnectionState.waiting) {
@@ -1821,14 +2566,6 @@ class _AdminPageState extends State<AdminPage> {
                                       trailing: Row(
                                         mainAxisSize: MainAxisSize.min,
                                         children: [
-                                          IconButton(
-                                            icon: const Icon(Icons.emoji_events, color: Colors.teal),
-                                            onPressed: () => _showUserChallengeManagement(
-                                              userId,
-                                              userData['displayName'] ?? userData['email']?.split('@')[0] ?? 'User',
-                                            ),
-                                            tooltip: 'Manage Challenges',
-                                          ),
                                           IconButton(
                                             icon: const Icon(Icons.info_outline, color: Colors.white),
                                             onPressed: () => _showUserProfile(userData, userId),

@@ -1,0 +1,37 @@
+[
+  {
+    "userid": "4hXIwTkPmROw3amPI8rBPCGZFKu2",
+    "amount": 200.0,
+    "category": {"_path": {"segments": ["categories", "hyYzZeLQUjbBWH5pMTkv"]}},
+    "timestamp": "2025-07-23T11:12:31+08:00",
+    "type": "expense"
+  },
+  {
+    "userid": "r4BcxlSsOsQMurpb0IfFCFo8iVA3",
+    "amount": 20.35,
+    "category": {"_path": {"segments": ["categories", "nKPK5X2Ff74ZPSvlx4hO"]}},
+    "timestamp": "2025-07-22T21:25:08+08:00",
+    "type": "expense"
+  },
+  {
+    "userid": "r4BcxlSsOsQMurpb0IfFCFo8iVA3",
+    "amount": 24.0,
+    "category": {"_path": {"segments": ["categories", "nKPK5X2Ff74ZPSvlx4hO"]}},
+    "timestamp": "2025-07-22T19:46:51+08:00",
+    "type": "expense"
+  },
+  {
+    "userid": "o16TZBRHJZSoKKT7t5nZJbgZvbm1",
+    "amount": 800.0,
+    "category": {"_path": {"segments": ["categories", "hyYzZeLQUjbBWH5pMTkv"]}},
+    "timestamp": "2025-07-23T01:29:23+08:00",
+    "type": "expense"
+  },
+  {
+    "userid": "KwmZSzmr1pSArvCCnkuemIGLZ7g2",
+    "amount": 100.0,
+    "category": {"_path": {"segments": ["categories", "AZT5q1Uufb7NQg4JlCWC"]}},
+    "timestamp": "2025-07-21T17:48:07+08:00",
+    "type": "expense"
+  }
+]

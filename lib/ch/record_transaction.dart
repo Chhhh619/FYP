@@ -220,7 +220,23 @@ class _RecordTransactionPageState extends State<RecordTransactionPage> {
         });
       }
 
-      Navigator.of(context).popUntil((route) => route.isFirst);
+      // FIXED NAVIGATION - Instead of popUntil, use proper navigation
+      if (!mounted) return;
+
+      // Close the modal first
+      Navigator.of(context).pop();
+
+      // Then navigate back to homepage with a slight delay
+      Future.delayed(const Duration(milliseconds: 100), () {
+        if (mounted) {
+          // Use pushNamedAndRemoveUntil to ensure we go to home properly
+          Navigator.of(context).pushNamedAndRemoveUntil(
+            '/home',
+                (route) => false,
+          );
+        }
+      });
+
     } catch (error) {
       String errorMessage;
       print('Transaction error: $error'); // Debug logging
@@ -235,16 +251,19 @@ class _RecordTransactionPageState extends State<RecordTransactionPage> {
         errorMessage = 'Failed to save transaction. Please try again.';
       }
 
+      // Close modal and show error
       Navigator.of(context).pop();
 
       Future.delayed(const Duration(milliseconds: 300), () {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(errorMessage),
-            backgroundColor: Colors.red,
-            duration: const Duration(seconds: 4),
-          ),
-        );
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(errorMessage),
+              backgroundColor: Colors.red,
+              duration: const Duration(seconds: 4),
+            ),
+          );
+        }
       });
     }
   }

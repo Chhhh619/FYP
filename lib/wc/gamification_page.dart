@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 import 'rewards_page.dart';
 import 'gamification_service.dart';
 import 'completed_challenges_page.dart';
+import 'point_shop_page.dart';
 
 class GamificationPage extends StatefulWidget {
   const GamificationPage({super.key});
@@ -50,6 +51,8 @@ class _GamificationPageState extends State<GamificationPage> {
     }
   }
 
+  // Replace the existing _loadChallenges method in gamification_page.dart
+
   Future<void> _loadChallenges() async {
     final userId = _auth.currentUser?.uid;
     if (userId == null) return;
@@ -81,13 +84,45 @@ class _GamificationPageState extends State<GamificationPage> {
         final challengeId = doc.id;
         final progress = userProgress[challengeId];
 
+        // Only show challenges that have been assigned to the user
+        // (i.e., they have an assignedAt timestamp or were created before this tracking system)
+        if (progress == null) {
+          // Check if this is a new challenge that should be auto-assigned
+          final challengeCreatedAt = challengeData['createdAt'] as Timestamp?;
+          if (challengeCreatedAt != null) {
+            // Auto-assign new active challenges to users who don't have them yet
+            await _autoAssignChallenge(challengeId, userId);
+
+            // Create default progress entry
+            final defaultProgress = {
+              'progress': 0,
+              'isCompleted': false,
+              'isClaimed': false,
+              'assignedAt': Timestamp.now(),
+            };
+
+            final challengeWithProgress = {
+              'id': challengeId,
+              ...challengeData,
+              'progress': defaultProgress['progress'],
+              'isCompleted': defaultProgress['isCompleted'],
+              'isClaimed': defaultProgress['isClaimed'],
+              'assignedAt': defaultProgress['assignedAt'],
+            };
+
+            active.add(challengeWithProgress);
+          }
+          continue;
+        }
+
         final challengeWithProgress = {
           'id': challengeId,
           ...challengeData,
-          'progress': progress?['progress'] ?? 0,
-          'isCompleted': progress?['isCompleted'] ?? false,
-          'isClaimed': progress?['isClaimed'] ?? false,
-          'completedAt': progress?['completedAt'],
+          'progress': progress['progress'] ?? 0,
+          'isCompleted': progress['isCompleted'] ?? false,
+          'isClaimed': progress['isClaimed'] ?? false,
+          'completedAt': progress['completedAt'],
+          'assignedAt': progress['assignedAt'],
         };
 
         // Only include challenges that are either:
@@ -114,6 +149,32 @@ class _GamificationPageState extends State<GamificationPage> {
       setState(() {
         _isLoading = false;
       });
+    }
+  }
+
+  // Helper method to auto-assign a challenge to a user
+  Future<void> _autoAssignChallenge(String challengeId, String userId) async {
+    try {
+      final progressRef = _firestore
+          .collection('users')
+          .doc(userId)
+          .collection('challengeProgress')
+          .doc(challengeId);
+
+      // Check if already exists
+      final existingDoc = await progressRef.get();
+      if (!existingDoc.exists) {
+        await progressRef.set({
+          'progress': 0,
+          'isCompleted': false,
+          'isClaimed': false,
+          'assignedAt': FieldValue.serverTimestamp(),
+          'lastUpdated': FieldValue.serverTimestamp(),
+        });
+        print('Auto-assigned challenge $challengeId to user $userId');
+      }
+    } catch (e) {
+      print('Error auto-assigning challenge: $e');
     }
   }
 
@@ -363,6 +424,16 @@ class _GamificationPageState extends State<GamificationPage> {
         ),
         centerTitle: true,
         actions: [
+          IconButton(
+            icon: const Icon(Icons.shopping_cart, color: Colors.yellow),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const PointShopPage()),
+              );
+            },
+            tooltip: 'Point Shop',
+          ),
           IconButton(
             icon: const Icon(Icons.history, color: Colors.teal),
             onPressed: () {

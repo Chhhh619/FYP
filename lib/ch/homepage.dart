@@ -1,19 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:flutter/rendering.dart';
 import 'package:fyp/ch/record_transaction.dart';
 import 'package:fyp/ch/settings.dart';
 import 'package:fyp/bottom_nav_bar.dart';
 import 'package:fyp/wc/financial_plan.dart';
 import 'package:fyp/wc/financial_tips.dart';
 import 'package:fyp/ch/persistent_add_button.dart';
+import 'package:fyp/wc/trending.dart';
 import 'package:intl/intl.dart';
 import 'package:fyp/wc/gamification_page.dart';
-import 'package:fyp/wc/trending.dart';
-import 'package:fyp/wc/financial_plan.dart';
-import 'package:fyp/wc/ban_check_utility.dart';
-import 'dart:async';
 import 'package:fyp/ch/billing_date_helper.dart';
 import 'package:fyp/ch/records_detail.dart';
 
@@ -34,9 +30,7 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
   String viewMode = 'month';
   DateTime selectedDate = DateTime.now();
   String popupMode = 'month';
-  bool _hasShownPopup = false;
-  DateTime? _lastSubscriptionCheck;
-  late StreamSubscription<bool>? _banStatusSubscription;
+
 
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final FirebaseAuth _auth = FirebaseAuth.instance;
@@ -53,25 +47,7 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
     _checkAndGenerateSubscriptions();
     _checkAndGenerateIncomes();
     print('HomePage initialized, User ID: ${_auth.currentUser?.uid}');
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!_hasShownPopup) {
-        _showTipPopup();
-    _scrollController.addListener(_scrollListener);
-    _checkInitialBanStatus();
-    _setupBanStatusListener();
-  }
 
-  void _checkInitialBanStatus() async {
-    await BanCheckUtility.checkUserBanStatus(context);
-  }
-
-  void _setupBanStatusListener() {
-    _banStatusSubscription = BanCheckUtility.getBanStatusStream().listen((isBanned) {
-      if (isBanned) {
-        // User got banned while app was running
-        BanCheckUtility.checkUserBanStatus(context);
-      }
-    });
   }
 
   Future<List<Map<String, dynamic>>> _processTransactionsWithCategories(
@@ -228,7 +204,6 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
           final startOfDay = DateTime(nextDue.year, nextDue.month, nextDue.day);
           print('Generating transaction for ${data['name']} on $nextDue');
 
-          // Check if transaction already exists for this date
           final existingTxs = await _firestore
               .collection('transactions')
               .where('userId', isEqualTo: userId)
@@ -326,49 +301,12 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
 
   @override
   void dispose() {
-    _scrollController.removeListener(_scrollListener);
     _scrollController.dispose();
-    _banStatusSubscription?.cancel();
     super.dispose();
   }
 
   @override
   bool get wantKeepAlive => true;
-
-  void _scrollListener() {
-    if (_scrollController.position.userScrollDirection ==
-        ScrollDirection.reverse) {
-      if (!_isScrollingDown) {
-        setState(() {
-          _isScrollingDown = true;
-        });
-      }
-    } else if (_scrollController.position.userScrollDirection ==
-        ScrollDirection.forward) {
-      if (_isScrollingDown) {
-        setState(() {
-          _isScrollingDown = false;
-        });
-      }
-    }
-  }
-
-  void _updateCurrentPeriod([DateTime? startDate]) {
-    selectedDate = startDate ?? DateTime.now();
-    final formatter = DateFormat('d MMM');
-    if (viewMode == 'month') {
-      displayText = DateFormat('MMM').format(selectedDate);
-      final start = DateTime(selectedDate.year, selectedDate.month, 1);
-      final end = DateTime(selectedDate.year, selectedDate.month + 1, 0);
-      currentPeriod = '${formatter.format(start)} - ${formatter.format(end)}';
-    } else {
-      displayText = selectedDate.year.toString();
-      final start = DateTime(selectedDate.year, 1, 1);
-      final end = DateTime(selectedDate.year, 12, 31);
-      currentPeriod = '${formatter.format(start)} - ${formatter.format(end)}';
-    }
-    setState(() {});
-  }
 
   void _showCustomDatePicker() {
     availableScreenWidth = MediaQuery.of(context).size.width;
@@ -500,8 +438,8 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
   void _toggleViewMode() {
     setState(() {
       viewMode = viewMode == 'month' ? 'year' : 'month';
-      _updateCurrentPeriod(selectedDate);
     });
+    _updateCurrentPeriod(selectedDate);
   }
 
   void _setTransactionType(bool? type) {
@@ -689,17 +627,7 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
     }
   }
 
-  Future<void> _showTipPopup() async {
-    final userId = _auth.currentUser?.uid;
-    if (userId == null || _hasShownPopup) {
-      print('No user logged in or popup already shown');
-      return;
-    }
 
-    try {
-      final feedbackSnapshot = await _firestore.collection('users').doc(userId).collection('tips_feedback').doc('1').get();
-      final feedbackData = feedbackSnapshot.data();
-      final isIrrelevant = feedbackData != null && feedbackData['isIrrelevant'] is bool ? feedbackData['isIrrelevant'] as bool : false;
 
   @override
   Widget build(BuildContext context) {
