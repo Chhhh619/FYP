@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-
+import 'dart:convert';
 import 'subscription_record.dart';
-import 'edit_subscription.dart'; // Import the new edit page
+import 'edit_subscription.dart';
 
 class SubscriptionPage extends StatefulWidget {
   const SubscriptionPage({super.key});
@@ -302,6 +302,62 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
     );
   }
 
+  Widget _buildIconWidget(String icon) {
+    // Check if it's a base64 data URI
+    if (icon.startsWith('data:image')) {
+      try {
+        final base64Data = icon.split(',')[1];
+        final bytes = base64Decode(base64Data);
+        return ClipOval(
+          child: Image.memory(
+            bytes,
+            width: 36,
+            height: 36,
+            fit: BoxFit.cover,
+            errorBuilder: (context, error, stackTrace) {
+              return const Text('❔', style: TextStyle(fontSize: 18, color: Colors.white));
+            },
+          ),
+        );
+      } catch (e) {
+        return const Text('❔', style: TextStyle(fontSize: 18, color: Colors.white));
+      }
+    }
+
+    // Handle asset images
+    if (icon.startsWith('assets/')) {
+      return ClipOval(
+        child: Image.asset(
+          icon,
+          width: 36,
+          height: 36,
+          fit: BoxFit.cover,
+          errorBuilder: (context, error, stackTrace) {
+            return const Text('❔', style: TextStyle(fontSize: 18, color: Colors.white));
+          },
+        ),
+      );
+    }
+
+    // Handle network images (if you still want to support them)
+    if (icon.startsWith('http')) {
+      return ClipOval(
+        child: Image.network(
+          icon,
+          width: 36,
+          height: 36,
+          fit: BoxFit.cover,
+          errorBuilder: (context, error, stackTrace) {
+            return const Text('❔', style: TextStyle(fontSize: 18, color: Colors.white));
+          },
+        ),
+      );
+    }
+
+    // Default emoji/text icon
+    return Text(icon, style: const TextStyle(fontSize: 18, color: Colors.white));
+  }
+
   Widget _buildSubscriptionTile(QueryDocumentSnapshot doc, DateTime now, bool isPending) {
     final data = doc.data() as Map<String, dynamic>;
     final name = data['name'] ?? 'Unnamed';
@@ -317,9 +373,6 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
     final nextDueDate = _calculateNextDueDate(lastGenerated, repeat);
     final formattedDate = '${nextDueDate.day} ${_monthName(nextDueDate.month)}';
 
-    final isAssetPath = icon.startsWith('assets/');
-    final isImageUrl = icon.startsWith('http://') || icon.startsWith('https://');
-
     return GestureDetector(
       onTap: () => _showSubscriptionOptions(doc),
       onLongPress: () => _showDeleteConfirmation(doc.id, name),
@@ -330,37 +383,7 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
           contentPadding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 16.0),
           leading: CircleAvatar(
             backgroundColor: Colors.teal.withOpacity(0.2),
-            child: isAssetPath
-                ? ClipOval(
-              child: Image.asset(
-                icon,
-                width: 36,
-                height: 36,
-                fit: BoxFit.cover,
-                errorBuilder: (context, error, stackTrace) {
-                  return Text(
-                    '❔',
-                    style: const TextStyle(fontSize: 18, color: Colors.white),
-                  );
-                },
-              ),
-            )
-                : isImageUrl
-                ? ClipOval(
-              child: Image.network(
-                icon,
-                width: 36,
-                height: 36,
-                fit: BoxFit.cover,
-                errorBuilder: (context, error, stackTrace) {
-                  return Text(
-                    '❔',
-                    style: const TextStyle(fontSize: 18, color: Colors.white),
-                  );
-                },
-              ),
-            )
-                : Text(icon, style: const TextStyle(fontSize: 18, color: Colors.white)),
+            child: _buildIconWidget(icon), // Use the new helper function
           ),
           title: Text(name, style: const TextStyle(color: Colors.white)),
           subtitle: Column(
