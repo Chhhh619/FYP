@@ -8,6 +8,7 @@ import 'package:firebase_storage/firebase_storage.dart';
 import 'package:intl/intl.dart';
 import 'package:crop_your_image/crop_your_image.dart';
 import 'select_card_popup.dart';
+import 'dart:convert';
 
 class AddSubscriptionPage extends StatefulWidget {
   const AddSubscriptionPage({super.key});
@@ -62,50 +63,201 @@ class _AddSubscriptionPageState extends State<AddSubscriptionPage> {
       ),
       isScrollControlled: true,
       builder: (context) {
-        return Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Text('Choose Icon', style: TextStyle(color: Colors.white, fontSize: 18)),
-              const SizedBox(height: 16),
-              SizedBox(
-                height: 200,
-                child: GridView.builder(
-                  itemCount: _localIcons.length,
-                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: 4,
-                    crossAxisSpacing: 12,
-                    mainAxisSpacing: 12,
+        // Use StatefulBuilder to make the modal rebuild when setState is called
+        return StatefulBuilder(
+          builder: (BuildContext context, StateSetter setModalState) {
+            return Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Header
+                  Container(
+                    width: 40,
+                    height: 4,
+                    margin: const EdgeInsets.only(bottom: 20),
+                    decoration: BoxDecoration(
+                      color: Colors.grey[600],
+                      borderRadius: BorderRadius.circular(2),
+                    ),
                   ),
-                  itemBuilder: (context, index) {
-                    final icon = _localIcons[index];
-                    return GestureDetector(
-                      onTap: () {
-                        setState(() {
-                          _selectedIcon = icon['path']!;
-                          _customIconFile = null;
-                          _croppedImage = null;
-                        });
-                        Navigator.pop(context);
-                      },
-                      child: CircleAvatar(
-                        radius: 30,
-                        backgroundColor: Colors.teal.withOpacity(0.2),
-                        backgroundImage: AssetImage(icon['path']!),
+                  const Text(
+                    'Choose Icon',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+
+                  // Prebuilt Icons Section
+                  const Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      'Popular Services',
+                      style: TextStyle(
+                        color: Colors.white70,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w500,
                       ),
-                    );
-                  },
-                ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    height: 120,
+                    child: GridView.builder(
+                      itemCount: _localIcons.length,
+                      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: 4,
+                        crossAxisSpacing: 16,
+                        mainAxisSpacing: 12,
+                      ),
+                      itemBuilder: (context, index) {
+                        final icon = _localIcons[index];
+                        final isSelected = _selectedIcon == icon['path'];
+
+                        return GestureDetector(
+                          onTap: () {
+                            setState(() {
+                              _selectedIcon = icon['path']!;
+                              _customIconFile = null;
+                              _croppedImage = null;
+                            });
+                            Navigator.pop(context);
+                          },
+                          child: Column(
+                            children: [
+                              Container(
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  border: isSelected
+                                      ? Border.all(color: Colors.teal, width: 3)
+                                      : null,
+                                ),
+                                child: CircleAvatar(
+                                  radius: 28,
+                                  backgroundColor: Colors.teal.withOpacity(0.2),
+                                  backgroundImage: AssetImage(icon['path']!),
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                icon['label']!,
+                                style: TextStyle(
+                                  color: isSelected ? Colors.teal : Colors.white70,
+                                  fontSize: 12,
+                                  fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+
+                  const SizedBox(height: 20),
+                  const Divider(color: Colors.grey),
+                  const SizedBox(height: 16),
+
+                  // Custom Upload Section
+                  const Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      'Custom Icon',
+                      style: TextStyle(
+                        color: Colors.white70,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+
+                  // Show current custom icon if exists
+                  if (_croppedImage != null) ...[
+                    GestureDetector(
+                      onTap: _pickCustomImage, // Make the entire row clickable to retrigger cropper
+                      child: Row(
+                        children: [
+                          Container(
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              border: Border.all(color: Colors.teal, width: 3),
+                            ),
+                            child: CircleAvatar(
+                              radius: 28,
+                              backgroundImage: MemoryImage(_croppedImage!),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text(
+                                  'Custom Icon Selected',
+                                  style: TextStyle(
+                                    color: Colors.teal,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                                const Text(
+                                  'Tap to change',
+                                  style: TextStyle(
+                                    color: Colors.cyan,
+                                    fontSize: 12,
+                                    decoration: TextDecoration.underline,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          IconButton(
+                            onPressed: () {
+                              // Update both the main widget state AND the modal state
+                              setState(() {
+                                _croppedImage = null;
+                                _customIconFile = null;
+                                _selectedIcon = '';
+                              });
+                              setModalState(() {}); // This rebuilds the modal
+                            },
+                            icon: const Icon(Icons.close, color: Colors.red),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                  ],
+
+                  // Upload Button
+                  SizedBox(
+                    width: double.infinity,
+                    child: TextButton.icon(
+                      onPressed: _pickCustomImage,
+                      style: TextButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        backgroundColor: Colors.grey[800],
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      icon: const Icon(Icons.upload, color: Colors.cyan),
+                      label: Text(
+                        _croppedImage != null ? 'Change Custom Icon' : 'Upload Your Own Icon',
+                        style: const TextStyle(color: Colors.cyan, fontWeight: FontWeight.w500),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                ],
               ),
-              const Divider(color: Colors.grey),
-              TextButton.icon(
-                onPressed: _pickCustomImage,
-                icon: const Icon(Icons.upload, color: Colors.cyan),
-                label: const Text('Upload your own icon', style: TextStyle(color: Colors.cyan)),
-              ),
-            ],
-          ),
+            );
+          },
         );
       },
     );
@@ -123,39 +275,180 @@ class _AddSubscriptionPageState extends State<AddSubscriptionPage> {
   void _openCropper(Uint8List imageBytes) {
     showDialog(
       context: context,
+      barrierDismissible: false,
       builder: (_) => AlertDialog(
-        backgroundColor: Colors.black,
+        backgroundColor: const Color.fromRGBO(28, 28, 28, 1),
         contentPadding: EdgeInsets.zero,
-        content: SizedBox(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+        ),
+        content: Container(
           width: double.maxFinite,
-          height: 400,
-          child: Crop(
-            controller: _cropController,
-            image: imageBytes,
-            onCropped: (cropped) {
-              setState(() => _croppedImage = cropped);
-              _customIconFile = null;
-              _selectedIcon = '';
-              Navigator.pop(context);
-              Navigator.pop(context);
-            },
-            withCircleUi: true,
-            baseColor: Colors.black,
-            maskColor: Colors.black.withOpacity(0.6),
-            radius: 150,
+          height: 500,
+          child: Column(
+            children: [
+              // Header
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.grey[900],
+                  borderRadius: const BorderRadius.only(
+                    topLeft: Radius.circular(16),
+                    topRight: Radius.circular(16),
+                  ),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text(
+                      'Crop Your Icon',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: () => Navigator.pop(context),
+                      icon: const Icon(Icons.close, color: Colors.white),
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
+                    ),
+                  ],
+                ),
+              ),
+
+              // Cropper
+              Expanded(
+                child: Container(
+                  color: Colors.black,
+                  child: Crop(
+                    controller: _cropController,
+                    image: imageBytes,
+                    onCropped: (cropped) {
+                      setState(() {
+                        _croppedImage = cropped;
+                        _customIconFile = null;
+                        _selectedIcon = '';
+                      });
+                      Navigator.pop(context);
+                      Navigator.pop(context); // Close icon selector too
+
+                      // Show success message
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Custom icon uploaded successfully!'),
+                          backgroundColor: Colors.teal,
+                          duration: Duration(seconds: 2),
+                        ),
+                      );
+                    },
+                    withCircleUi: true,
+                    baseColor: Colors.black,
+                    maskColor: Colors.black.withOpacity(0.7),
+                    radius: 120,
+                    interactive: true,
+                  ),
+                ),
+              ),
+
+              // Instructions & Action Buttons
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.grey[900],
+                  borderRadius: const BorderRadius.only(
+                    bottomLeft: Radius.circular(16),
+                    bottomRight: Radius.circular(16),
+                  ),
+                ),
+                child: Column(
+                  children: [
+                    Text(
+                      'Drag to reposition • Pinch to zoom',
+                      style: TextStyle(
+                        color: Colors.grey[400],
+                        fontSize: 14,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 16),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextButton(
+                            onPressed: () => Navigator.pop(context),
+                            style: TextButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                              backgroundColor: Colors.grey[700],
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                            ),
+                            child: const Text(
+                              'Cancel',
+                              style: TextStyle(color: Colors.white),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          flex: 2,
+                          child: ElevatedButton(
+                            onPressed: () => _cropController.crop(),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.teal,
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                            ),
+                            child: const Text(
+                              'Crop & Use',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
         ),
       ),
     );
   }
 
-  Future<String?> _uploadImageToStorage(Uint8List imageBytes, String userId) async {
+  String? _processCustomIcon(Uint8List imageBytes) {
     try {
-      final storageRef = _storage.ref().child('subscription_icons/$userId/${DateTime.now().millisecondsSinceEpoch}.png');
-      final uploadTask = await storageRef.putData(imageBytes);
-      return await uploadTask.ref.getDownloadURL();
+      // Convert to base64 string with data URI prefix
+      final base64String = 'data:image/png;base64,${base64Encode(imageBytes)}';
+
+      // Check size limit (Firestore has 1MB document limit)
+      if (base64String.length > 500000) { // 500KB limit to be safe
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Image too large. Please choose a smaller image.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return null;
+      }
+
+      return base64String;
     } catch (e) {
-      print('Error uploading image: $e');
+      print('Error processing image: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Failed to process image. Please try again.'),
+          backgroundColor: Colors.red,
+        ),
+      );
       return null;
     }
   }
@@ -198,26 +491,40 @@ class _AddSubscriptionPageState extends State<AddSubscriptionPage> {
     String? iconToSave = _selectedIcon.isNotEmpty ? _selectedIcon : null;
 
     if (_croppedImage != null) {
-      iconToSave = await _uploadImageToStorage(_croppedImage!, user.uid);
+      iconToSave = _processCustomIcon(_croppedImage!);
       if (iconToSave == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Failed to upload image')),
-        );
-        return;
+        return; // Error already shown in _processCustomIcon
       }
     }
 
-    await _firestore.collection('subscriptions').add({
-      'userId': user.uid,
-      'name': _nameController.text.trim(),
-      'amount': amount,
-      'startDate': Timestamp.fromDate(_startDate),
-      'repeat': _repeatType,
-      'icon': iconToSave ?? '❔',
-      'fromCardId': _selectedCard?['id'],
-    });
+    try {
+      await _firestore.collection('subscriptions').add({
+        'userId': user.uid,
+        'name': _nameController.text.trim(),
+        'amount': amount,
+        'startDate': Timestamp.fromDate(_startDate),
+        'repeat': _repeatType,
+        'icon': iconToSave ?? '❔',
+        'fromCardId': _selectedCard?['id'],
+        'createdAt': Timestamp.now(),
+      });
 
-    Navigator.pop(context);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Subscription added successfully!'),
+          backgroundColor: Colors.teal,
+        ),
+      );
+
+      Navigator.pop(context);
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to add subscription: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
   }
 
   Widget _buildTile({
@@ -225,7 +532,9 @@ class _AddSubscriptionPageState extends State<AddSubscriptionPage> {
     required String title,
     required Widget trailing,
     VoidCallback? onTap,
-  }) {
+  })
+
+  {
     return GestureDetector(
       onTap: onTap,
       child: Container(
