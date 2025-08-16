@@ -46,10 +46,9 @@ class TipService {
 
   Future<Map<String, double>> getSpendingInsights(
       String userId, DateTime startDate, DateTime endDate) async {
-    // FIX: Change 'userid' to 'userId' to match the field name used when storing transactions
     final transactionSnapshot = await _firestore
         .collection('transactions')
-        .where('userId', isEqualTo: userId)  // ✅ Fixed: was 'userid'
+        .where('userId', isEqualTo: userId)
         .where('timestamp',
         isGreaterThanOrEqualTo: Timestamp.fromDate(startDate))
         .where('timestamp', isLessThanOrEqualTo: Timestamp.fromDate(endDate))
@@ -60,9 +59,20 @@ class TipService {
     final spending = <String, double>{};
     for (var doc in transactionSnapshot.docs) {
       final data = doc.data();
-      final categoryRef = data['category'] as DocumentReference;
-      final categorySnapshot = await categoryRef.get();
-      final categoryName = categorySnapshot.get('name') as String? ?? 'unknown';
+
+      // Handle category as either String or DocumentReference
+      String categoryName = 'unknown';
+
+      if (data['category'] is String) {
+        // If category is stored as a String directly
+        categoryName = data['category'] as String;
+      } else if (data['category'] is DocumentReference) {
+        // If category is stored as a DocumentReference
+        final categoryRef = data['category'] as DocumentReference;
+        final categorySnapshot = await categoryRef.get();
+        categoryName = categorySnapshot.get('name') as String? ?? 'unknown';
+      }
+
       final amount = (data['amount'] is int)
           ? (data['amount'] as int).toDouble()
           : (data['amount'] as double? ?? 0.0);

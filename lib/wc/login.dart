@@ -681,7 +681,7 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
       width: double.infinity,
       height: 56,
       decoration: BoxDecoration(
-        color: const Color(0xFF2A2A2A),
+        color: Colors.white,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: Colors.grey[600]!),
         boxShadow: [
@@ -700,7 +700,7 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
           style: TextStyle(
             fontSize: 16,
             fontWeight: FontWeight.w600,
-            color: Colors.white,
+            color: Colors.black,
           ),
         ),
         style: ElevatedButton.styleFrom(

@@ -435,6 +435,139 @@ class _FinancialPlanPageState extends State<FinancialPlanPage>
     }
   }
 
+  // Add this method to your _FinancialPlanPageState class
+
+  Future<void> _refreshLatestAdvice(String userId) async {
+    setState(() => _isGeneratingAdvice = true);
+
+    try {
+      // Get the latest advice document
+      final latestAdviceSnapshot = await _firestore
+          .collection('financial_advice')
+          .where('userId', isEqualTo: userId)
+          .orderBy('createdAt', descending: true)
+          .limit(1)
+          .get();
+
+      if (latestAdviceSnapshot.docs.isEmpty) {
+        // No existing advice, create new one
+        await _generateNewAdvice(userId);
+        return;
+      }
+
+      // Get the latest advice document ID
+      final latestAdviceDoc = latestAdviceSnapshot.docs.first;
+      final adviceId = latestAdviceDoc.id;
+
+      // Generate fresh analysis with current data
+      final model = await _getGenerativeModel();
+      final financialData = await _fetchFinancialData(userId);
+
+      final currentIncome = financialData['currentIncome'] as double;
+      final currentExpenses = financialData['currentExpenses'] as double;
+      final savingsRate = financialData['savingsRate'] as double;
+      final categorySpending = financialData['categorySpending'] as Map<String, double>;
+      final spendingTrend = financialData['spendingTrend'] as double;
+      final monthlySavings = financialData['monthlySavings'] as double;
+      final averageDailySpending = financialData['averageDailySpending'] as double;
+      final transactionCounts = financialData['transactionCounts'] as Map<String, int>;
+
+      // Create the same detailed prompt
+      final prompt = '''
+      You are a professional financial advisor analyzing UPDATED spending patterns. Provide refreshed financial advice based on the latest transaction data.
+
+      CURRENT FINANCIAL SNAPSHOT (UPDATED):
+      - Monthly Income: RM${currentIncome.toStringAsFixed(2)}
+      - Monthly Expenses: RM${currentExpenses.toStringAsFixed(2)}
+      - Net Savings: RM${monthlySavings.toStringAsFixed(2)}
+      - Savings Rate: ${(savingsRate * 100).toStringAsFixed(1)}%
+      - Average Daily Spending: RM${averageDailySpending.toStringAsFixed(2)}
+      - Spending Trend: ${spendingTrend > 0 ? 'Increased by RM${spendingTrend.abs().toStringAsFixed(2)}' : 'Decreased by RM${spendingTrend.abs().toStringAsFixed(2)}'} vs last month
+
+      DETAILED SPENDING BREAKDOWN:
+      ${categorySpending.entries.map((e) => '- ${e.key}: RM${e.value.toStringAsFixed(2)} (${transactionCounts[e.key] ?? 0} transactions)').join('\n')}
+
+      [Rest of your existing prompt...]
+    ''';
+
+      final response = await model.generateContent([Content.text(prompt)]);
+      final aiResponse = response.text ?? '';
+
+      // Parse the response (same parsing logic)
+      final lines = aiResponse.split('\n').where((line) => line.trim().isNotEmpty).toList();
+      String analysis = '';
+      double savingsTarget = currentIncome * 0.15;
+      List<String> recommendations = [];
+      Map<String, String> categoryAdvice = {};
+
+      // [Your existing parsing logic here...]
+      bool inCategoryAdvice = false;
+      for (var line in lines) {
+        if (line.startsWith('ANALYSIS:')) {
+          analysis = line.split('ANALYSIS:').last.trim();
+        } else if (line.startsWith('SAVINGS_TARGET:')) {
+          final targetStr = line.split('SAVINGS_TARGET:').last.trim();
+          final match = RegExp(r'[\d,]+\.?\d*').firstMatch(targetStr);
+          if (match != null) {
+            savingsTarget = double.tryParse(match.group(0)!.replaceAll(',', '')) ?? savingsTarget;
+          }
+        } else if (line.startsWith('RECOMMENDATION_')) {
+          recommendations.add(line.split(':').last.trim());
+        } else if (line.contains('CATEGORY_ADVICE_START:')) {
+          inCategoryAdvice = true;
+        } else if (line.contains('CATEGORY_ADVICE_END:')) {
+          inCategoryAdvice = false;
+        } else if (inCategoryAdvice && line.contains(':')) {
+          final parts = line.split(':');
+          if (parts.length >= 2) {
+            categoryAdvice[parts[0].trim()] = parts.sublist(1).join(':').trim();
+          }
+        }
+      }
+
+      // Ensure we have fallback recommendations
+      if (recommendations.isEmpty) {
+        recommendations = _generateFallbackRecommendations(categorySpending, currentIncome);
+      }
+
+      if (analysis.isEmpty) {
+        analysis = _generateFallbackAnalysis(savingsRate, spendingTrend, categorySpending);
+      }
+
+      // UPDATE the existing document instead of creating new one
+      await _firestore.collection('financial_advice').doc(adviceId).update({
+        'title': 'AI Financial Analysis - ${DateFormat('MMM yyyy').format(DateTime.now())} (Refreshed)',
+        'description': 'Updated analysis based on latest transactions',
+        'updatedAt': Timestamp.fromDate(DateTime.now()), // Add update timestamp
+        'recommendations': recommendations.take(5).toList(),
+        'spendingInsights': categorySpending,
+        'aiAnalysis': analysis,
+        'monthlySavingsTarget': savingsTarget,
+        'categoryAdvice': categoryAdvice,
+        'isRefreshed': true, // Mark as refreshed
+        'lastRefreshedAt': Timestamp.fromDate(DateTime.now()),
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Analysis refreshed with latest data! 🔄'),
+          backgroundColor: Colors.teal,
+        ),
+      );
+
+    } catch (e) {
+      print('Error refreshing advice: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to refresh analysis: ${e.toString()}'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } finally {
+      setState(() => _isGeneratingAdvice = false);
+    }
+  }
+
   List<String> _generateFallbackRecommendations(
     Map<String, double> categorySpending,
     double income,
@@ -745,17 +878,22 @@ class _FinancialPlanPageState extends State<FinancialPlanPage>
             mainAxisAlignment: MainAxisAlignment.spaceAround,
             children: [
               _buildActionButton(
-                'Get AI Advice',
+                'New Advice',
                 Icons.auto_awesome,
                 Colors.purple,
-                () => _generateNewAdvice(userId),
+                    () => _generateNewAdvice(userId),
               ),
-
               _buildActionButton(
-                'View History',
+                'Refresh',
+                Icons.refresh,
+                Colors.teal,
+                    () => _refreshLatestAdvice(userId),
+              ),
+              _buildActionButton(
+                'History',
                 Icons.history,
                 Colors.blue,
-                () {
+                    () {
                   _tabController?.animateTo(1);
                 },
               ),
@@ -840,10 +978,12 @@ class _FinancialPlanPageState extends State<FinancialPlanPage>
         }
 
         final adviceDoc = snapshot.data!.docs.first;
-        final advice = FinancialAdvice.fromMap(
-          adviceDoc.data() as Map<String, dynamic>,
-          adviceDoc.id,
-        );
+        final adviceData = adviceDoc.data() as Map<String, dynamic>;
+        final advice = FinancialAdvice.fromMap(adviceData, adviceDoc.id);
+
+        // Check if advice was refreshed
+        final isRefreshed = adviceData['isRefreshed'] ?? false;
+        final lastRefreshedAt = adviceData['lastRefreshedAt'] as Timestamp?;
 
         return Container(
           padding: const EdgeInsets.all(16),
@@ -855,61 +995,128 @@ class _FinancialPlanPageState extends State<FinancialPlanPage>
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
-                children: [
-                  const Icon(
-                    Icons.auto_awesome,
-                    color: Colors.purple,
-                    size: 20,
+          Row(
+          children: [
+          const Icon(
+          Icons.auto_awesome,
+            color: Colors.purple,
+            size: 20,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Latest AI Advice',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
                   ),
-                  const SizedBox(width: 8),
-                  const Text(
-                    'Latest AI Advice',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
+                ),
+                if (isRefreshed && lastRefreshedAt != null)
+                  Text(
+                    'Refreshed ${_getTimeAgo(lastRefreshedAt.toDate())}',
+                    style: const TextStyle(
+                      color: Colors.teal,
+                      fontSize: 10,
                     ),
                   ),
-                  const Spacer(),
-                  Text(
-                    _getTimeAgo(advice.createdAt),
-                    style: const TextStyle(color: Colors.white54, fontSize: 12),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.purple.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(8),
+              ],
+            ),
+          ),
+          // Refresh button
+          Container(
+            height: 32,
+            width: 32,
+            decoration: BoxDecoration(
+              color: Colors.purple.withOpacity(0.2),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: IconButton(
+              padding: EdgeInsets.zero,
+              onPressed: _isGeneratingAdvice
+                  ? null
+                  : () => _refreshLatestAdvice(userId),
+              icon: _isGeneratingAdvice
+                  ? const SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: Colors.purple,
                 ),
-                child: Text(
-                  advice.aiAnalysis,
-                  style: const TextStyle(color: Colors.white, fontSize: 13),
-                ),
+              )
+                  : const Icon(
+                Icons.refresh,
+                color: Colors.purple,
+                size: 18,
               ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  const Icon(Icons.savings, color: Colors.teal, size: 16),
-                  const SizedBox(width: 4),
-                  Text(
-                    'Savings Target: RM${advice.monthlySavingsTarget.toStringAsFixed(0)}/month',
-                    style: const TextStyle(color: Colors.teal, fontSize: 12),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              const Text(
-                'Top Recommendations:',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 12,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
+              tooltip: 'Refresh analysis with latest data',
+            ),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            _getTimeAgo(advice.createdAt),
+            style: const TextStyle(color: Colors.white54, fontSize: 12),
+          ),
+          ],
+        ),
+        const SizedBox(height: 12),
+
+        // AI Analysis Section
+        Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+        color: Colors.purple.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(8),
+        ),
+        child: Text(
+        advice.aiAnalysis,
+        style: const TextStyle(color: Colors.white, fontSize: 13),
+        maxLines: 4,
+        overflow: TextOverflow.ellipsis,
+        ),
+        ),
+        const SizedBox(height: 12),
+
+        // Savings Target Row
+        Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+        color: Colors.teal.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(6),
+        ),
+        child: Row(
+        children: [
+        const Icon(Icons.savings, color: Colors.teal, size: 16),
+        const SizedBox(width: 8),
+        Text(
+        'Savings Target: RM${advice.monthlySavingsTarget.toStringAsFixed(0)}/month',
+        style: const TextStyle(
+        color: Colors.teal,
+        fontSize: 13,
+        fontWeight: FontWeight.w500,
+        ),
+        ),
+        ],
+        ),
+        ),
+        const SizedBox(height: 12),
+
+        // Top Recommendations Section
+        Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+        const Text(
+        'Top Recommendations:',
+        style: TextStyle(
+        color: Colors.white,
+        fontSize: 13,
+        fontWeight: FontWeight.bold,
+        ),
+        ),
               const SizedBox(height: 4),
               ...advice.recommendations
                   .take(2)
@@ -948,7 +1155,7 @@ class _FinancialPlanPageState extends State<FinancialPlanPage>
               ),
             ],
           ),
-        );
+        ]));
       },
     );
   }
@@ -970,27 +1177,40 @@ class _FinancialPlanPageState extends State<FinancialPlanPage>
                   ),
                 ),
               ),
+              // Refresh button
+              IconButton(
+                onPressed: _isGeneratingAdvice
+                    ? null
+                    : () => _refreshLatestAdvice(userId),
+                icon: _isGeneratingAdvice
+                    ? const SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Colors.white,
+                  ),
+                )
+                    : const Icon(Icons.refresh, color: Colors.teal),
+                tooltip: 'Refresh Latest',
+              ),
+              const SizedBox(width: 8),
+              // Existing New Analysis button
               ElevatedButton.icon(
                 onPressed: _isGeneratingAdvice
                     ? null
                     : () => _generateNewAdvice(userId),
                 icon: _isGeneratingAdvice
                     ? const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: Colors.white,
-                        ),
-                      )
-                    : const Icon(
-                        Icons.auto_awesome,
-                        color: Colors.white,
-                        size: 18,
-                      ),
-                label: Text(
-                  _isGeneratingAdvice ? 'Analyzing...' : 'New Analysis',
-                ),
+                  width: 22,
+                  height: 16,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Colors.white,
+                  ),
+                )
+                    : const Icon(Icons.auto_awesome, color: Colors.white, size: 12),
+                label: Text(_isGeneratingAdvice ? 'Analyzing...' : 'New Analysis'),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.purple,
                   foregroundColor: Colors.white,
