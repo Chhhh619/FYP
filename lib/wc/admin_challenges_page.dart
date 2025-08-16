@@ -54,12 +54,12 @@ class _AdminChallengesPageState extends State<AdminChallengesPage> {
     'less_equal',
   ];
 
-  // Clearer descriptions and examples for each challenge type
+  // descriptions and examples for each challenge type
   final Map<String, Map<String, dynamic>> _challengeInfo = {
     'transaction_count': {
       'description': 'Number of transactions recorded',
       'example': 'Record at least 10 transactions this month',
-      'icon': '📝',
+      'icon': '📊',
       'targetHint': 'Number of transactions (e.g., 10)',
       'defaultTarget': 10,
       'defaultPoints': 50,
@@ -89,10 +89,10 @@ class _AdminChallengesPageState extends State<AdminChallengesPage> {
       'defaultPoints': 150,
     },
     'consecutive_days': {
-      'description': 'Track expenses for consecutive days',
-      'example': 'Record transactions for 7 days in a row',
+      'description': 'Track expenses for consecutive days (no time limit)',
+      'example': 'Record transactions for 7 consecutive days',
       'icon': '📅',
-      'targetHint': 'Number of consecutive days (e.g., 7)',
+      'targetHint': 'Number of consecutive days needed (e.g., 7)',
       'defaultTarget': 7,
       'defaultPoints': 100,
     },
@@ -240,7 +240,7 @@ class _AdminChallengesPageState extends State<AdminChallengesPage> {
     );
   }
 
-  // Replace the existing _createChallenge method in admin_challenges_page.dart with this updated version
+
 
   Future<void> _createChallenge() async {
     if (!_validateForm()) return;
@@ -257,12 +257,19 @@ class _AdminChallengesPageState extends State<AdminChallengesPage> {
         'type': _selectedType,
         'period': _selectedType == 'consecutive_days' ? 'daily' : _selectedPeriod,
         'targetValue': double.parse(_targetValueController.text),
-        'comparisonType': _selectedComparison,
         'rewardPoints': int.parse(_rewardPointsController.text),
         'isActive': _isActive,
         'createdAt': FieldValue.serverTimestamp(),
         'createdBy': _auth.currentUser?.uid,
       };
+
+      // Only add comparison type for non-consecutive days challenges
+      if (_selectedType != 'consecutive_days') {
+        challengeData['comparisonType'] = _selectedComparison;
+      } else {
+        // For consecutive days, always use greater_equal (reach at least X days)
+        challengeData['comparisonType'] = 'greater_equal';
+      }
 
       if (_selectedType == 'category_spending' && _selectedDefaultCategory != null) {
         challengeData['categoryName'] = _selectedDefaultCategory;

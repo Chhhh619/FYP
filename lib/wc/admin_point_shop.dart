@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:intl/intl.dart';
 
 class AdminPointShopPage extends StatefulWidget {
   const AdminPointShopPage({super.key});
@@ -25,6 +26,9 @@ class _AdminPointShopPageState extends State<AdminPointShopPage> {
   bool _isActive = true;
   bool _limitedStock = false;
   bool _isLoading = false;
+
+  DateTime? _seasonalStartDate;
+  DateTime? _seasonalEndDate;
 
   final List<String> _categories = ['exclusive', 'seasonal', 'rare', 'common'];
   final List<String> _rarities = ['legendary', 'epic', 'rare', 'uncommon', 'common'];
@@ -133,6 +137,18 @@ class _AdminPointShopPageState extends State<AdminPointShopPage> {
       return;
     }
 
+    // Validate seasonal period if category is seasonal
+    if (_selectedCategory == 'seasonal' &&
+        (_seasonalStartDate == null || _seasonalEndDate == null)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please set availability period for seasonal badge'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
     setState(() {
       _isLoading = true;
     });
@@ -153,6 +169,13 @@ class _AdminPointShopPageState extends State<AdminPointShopPage> {
         'createdAt': FieldValue.serverTimestamp(),
         'createdBy': _auth.currentUser?.uid,
       };
+
+      // Add seasonal period data if category is seasonal
+      if (_selectedCategory == 'seasonal') {
+        itemData['seasonalStartDate'] = Timestamp.fromDate(_seasonalStartDate!);
+        itemData['seasonalEndDate'] = Timestamp.fromDate(_seasonalEndDate!);
+        itemData['isSeasonal'] = true;
+      }
 
       if (_limitedStock && _stockController.text.isNotEmpty) {
         final stock = int.parse(_stockController.text);
@@ -181,6 +204,8 @@ class _AdminPointShopPageState extends State<AdminPointShopPage> {
         _selectedRarity = 'common';
         _limitedStock = false;
         _isActive = true;
+        _seasonalStartDate = null;
+        _seasonalEndDate = null;
       });
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -192,6 +217,89 @@ class _AdminPointShopPageState extends State<AdminPointShopPage> {
     } finally {
       setState(() {
         _isLoading = false;
+      });
+    }
+  }
+
+  Future<void> _selectSeasonalStartDate() async {
+    final DateTime? picked = await showDatePicker(
+      context: context,
+      initialDate: _seasonalStartDate ?? DateTime.now(),
+      firstDate: DateTime.now(),
+      lastDate: DateTime.now().add(const Duration(days: 365)),
+      builder: (BuildContext context, Widget? child) {
+        return Theme(
+          data: ThemeData(
+            primaryColor: Colors.teal,
+            colorScheme: const ColorScheme.dark(
+              primary: Colors.teal,
+              surface: Color.fromRGBO(33, 35, 34, 1),
+              onSurface: Colors.white,
+            ),
+            textButtonTheme: TextButtonThemeData(
+              style: TextButton.styleFrom(foregroundColor: Colors.teal),
+            ),
+            dialogBackgroundColor: const Color.fromRGBO(33, 35, 34, 1),
+          ),
+          child: child!,
+        );
+      },
+    );
+
+    if (picked != null) {
+      setState(() {
+        _seasonalStartDate = picked;
+        // If end date is before start date, reset it
+        if (_seasonalEndDate != null && _seasonalEndDate!.isBefore(picked)) {
+          _seasonalEndDate = null;
+        }
+      });
+    }
+  }
+
+  Future<void> _selectSeasonalEndDate() async {
+    if (_seasonalStartDate == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please select start date first'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
+    final DateTime? picked = await showDatePicker(
+      context: context,
+      initialDate: _seasonalEndDate ?? _seasonalStartDate!.add(const Duration(days: 30)),
+      firstDate: _seasonalStartDate!.add(const Duration(days: 1)),
+      lastDate: DateTime.now().add(const Duration(days: 365)),
+      builder: (BuildContext context, Widget? child) {
+        return Theme(
+          data: ThemeData(
+            primaryColor: Colors.teal,
+            colorScheme: const ColorScheme.dark(
+              primary: Colors.teal,
+              surface: Color.fromRGBO(33, 35, 34, 1),
+              onSurface: Colors.white,
+            ),
+            textButtonTheme: TextButtonThemeData(
+              style: TextButton.styleFrom(foregroundColor: Colors.teal),
+            ),
+            dialogBackgroundColor: const Color.fromRGBO(33, 35, 34, 1),
+          ),
+          child: child!,
+        );
+      },
+    );
+
+    if (picked != null) {
+      setState(() {
+        _seasonalEndDate = DateTime(
+          picked.year,
+          picked.month,
+          picked.day,
+          23, 59, 59,
+        );
       });
     }
   }
@@ -434,6 +542,55 @@ class _AdminPointShopPageState extends State<AdminPointShopPage> {
     }
   }
 
+  Widget _buildSeasonalIndicator(Map<String, dynamic> item) {
+    final now = DateTime.now();
+    final startDate = item['seasonalStartDate'] != null
+        ? (item['seasonalStartDate'] as Timestamp).toDate()
+        : null;
+    final endDate = item['seasonalEndDate'] != null
+        ? (item['seasonalEndDate'] as Timestamp).toDate()
+        : null;
+
+    if (startDate == null || endDate == null) return const SizedBox.shrink();
+
+    final isActive = now.isAfter(startDate) && now.isBefore(endDate);
+    final daysRemaining = endDate.difference(now).inDays;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: isActive ? Colors.orange.withOpacity(0.2) : Colors.grey.withOpacity(0.2),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: isActive ? Colors.orange : Colors.grey,
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            Icons.calendar_month,
+            size: 12,
+            color: isActive ? Colors.orange : Colors.grey,
+          ),
+          const SizedBox(width: 4),
+          Text(
+            isActive
+                ? '${daysRemaining}d left'
+                : now.isBefore(startDate)
+                ? 'Starts ${DateFormat('MMM dd').format(startDate)}'
+                : 'Ended',
+            style: TextStyle(
+              color: isActive ? Colors.orange : Colors.grey,
+              fontSize: 10,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildInfoChip(String label, IconData icon, Color color) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
@@ -611,6 +768,112 @@ class _AdminPointShopPageState extends State<AdminPointShopPage> {
                       },
                       itemLabel: (cat) => cat.toUpperCase(),
                     ),
+
+                    if (_selectedCategory == 'seasonal') ...[
+                      const SizedBox(height: 16),
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.orange.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: Colors.orange.withOpacity(0.3)),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                const Icon(Icons.calendar_month, color: Colors.orange, size: 20),
+                                const SizedBox(width: 8),
+                                const Text(
+                                  'Seasonal Availability Period',
+                                  style: TextStyle(
+                                    color: Colors.orange,
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 12),
+                            if (_seasonalStartDate != null || _seasonalEndDate != null) ...[
+                              Container(
+                                padding: const EdgeInsets.all(8),
+                                decoration: BoxDecoration(
+                                  color: const Color.fromRGBO(40, 42, 41, 1),
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: Column(
+                                  children: [
+                                    if (_seasonalStartDate != null)
+                                      Row(
+                                        children: [
+                                          const Icon(Icons.event_available, color: Colors.green, size: 16),
+                                          const SizedBox(width: 8),
+                                          Text(
+                                            'Start: ${DateFormat('MMM dd, yyyy').format(_seasonalStartDate!)}',
+                                            style: const TextStyle(color: Colors.white, fontSize: 14),
+                                          ),
+                                        ],
+                                      ),
+                                    if (_seasonalStartDate != null && _seasonalEndDate != null)
+                                      const SizedBox(height: 4),
+                                    if (_seasonalEndDate != null)
+                                      Row(
+                                        children: [
+                                          const Icon(Icons.event_busy, color: Colors.red, size: 16),
+                                          const SizedBox(width: 8),
+                                          Text(
+                                            'End: ${DateFormat('MMM dd, yyyy').format(_seasonalEndDate!)}',
+                                            style: const TextStyle(color: Colors.white, fontSize: 14),
+                                          ),
+                                        ],
+                                      ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                            ],
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Expanded(
+                                  child: ElevatedButton.icon(
+                                    onPressed: _selectSeasonalStartDate,
+                                    icon: const Icon(Icons.date_range),
+                                    label: Text(_seasonalStartDate == null ? 'Set Start Date' : 'Change Start Date'),
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: Colors.orange,
+                                      foregroundColor: Colors.white,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: ElevatedButton.icon(
+                                    onPressed: _selectSeasonalEndDate,
+                                    icon: const Icon(Icons.date_range),
+                                    label: Text(_seasonalEndDate == null ? 'Set End Date' : 'Change End Date'),
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: Colors.orange,
+                                      foregroundColor: Colors.white,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            if (_selectedCategory == 'seasonal' && (_seasonalStartDate == null || _seasonalEndDate == null))
+                              const Padding(
+                                padding: EdgeInsets.only(top: 8),
+                                child: Text(
+                                  '⚠️ Seasonal badges require both start and end dates',
+                                  style: TextStyle(color: Colors.orange, fontSize: 12),
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                    ],
 
                     _buildDropdownField<String>(
                       label: 'Rarity',
@@ -893,6 +1156,8 @@ class _AdminPointShopPageState extends State<AdminPointShopPage> {
                                           Icons.inventory,
                                           item['stock'] > 0 ? Colors.orange : Colors.red,
                                         ),
+                                      if (item['isSeasonal'] == true)
+                                        _buildSeasonalIndicator(item),
                                     ],
                                   ),
                                 ],

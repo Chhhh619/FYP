@@ -51,8 +51,6 @@ class _GamificationPageState extends State<GamificationPage> {
     }
   }
 
-  // Replace the existing _loadChallenges method in gamification_page.dart
-
   Future<void> _loadChallenges() async {
     final userId = _auth.currentUser?.uid;
     if (userId == null) return;
@@ -85,7 +83,6 @@ class _GamificationPageState extends State<GamificationPage> {
         final progress = userProgress[challengeId];
 
         // Only show challenges that have been assigned to the user
-        // (i.e., they have an assignedAt timestamp or were created before this tracking system)
         if (progress == null) {
           // Check if this is a new challenge that should be auto-assigned
           final challengeCreatedAt = challengeData['createdAt'] as Timestamp?;
@@ -110,7 +107,10 @@ class _GamificationPageState extends State<GamificationPage> {
               'assignedAt': defaultProgress['assignedAt'],
             };
 
-            active.add(challengeWithProgress);
+            // Check if this new challenge is already expired
+            if (!_isChallengeExpired(challengeWithProgress)) {
+              active.add(challengeWithProgress);
+            }
           }
           continue;
         }
@@ -123,19 +123,36 @@ class _GamificationPageState extends State<GamificationPage> {
           'isClaimed': progress['isClaimed'] ?? false,
           'completedAt': progress['completedAt'],
           'assignedAt': progress['assignedAt'],
+          'periodNotComplete': progress['periodNotComplete'] ?? false,
+          'currentSpending': progress['currentSpending'],
+          'currentSavings': progress['currentSavings'],
         };
 
+        // Check if challenge period has expired
+        final isExpired = _isChallengeExpired(challengeWithProgress);
+
+        // If expired and not completed, skip it (don't show on main screen)
+        if (isExpired && challengeWithProgress['isCompleted'] != true) {
+          continue;
+        }
+
+        // If completed but expired and not claimed, also skip
+        if (isExpired && challengeWithProgress['isCompleted'] == true &&
+            challengeWithProgress['isClaimed'] != true) {
+          continue;
+        }
+
         // Only include challenges that are either:
-        // 1. Not completed (active)
-        // 2. Completed but not claimed (ready to claim)
+        // 1. Not completed and not expired (active)
+        // 2. Completed but not claimed and not expired (ready to claim)
         if (challengeWithProgress['isCompleted'] == true &&
             challengeWithProgress['isClaimed'] == true) {
           continue; // These will appear in CompletedChallengesPage
         } else if (challengeWithProgress['isCompleted'] == true &&
-            challengeWithProgress['isClaimed'] != true) {
-          completed.add(challengeWithProgress); // Ready to claim
-        } else {
-          active.add(challengeWithProgress); // Active (not completed)
+            challengeWithProgress['isClaimed'] != true && !isExpired) {
+          completed.add(challengeWithProgress); // Ready to claim (not expired)
+        } else if (!isExpired) {
+          active.add(challengeWithProgress); // Active (not completed and not expired)
         }
       }
 
@@ -176,6 +193,66 @@ class _GamificationPageState extends State<GamificationPage> {
     } catch (e) {
       print('Error auto-assigning challenge: $e');
     }
+  }
+
+  bool _isChallengeExpired(Map<String, dynamic> challenge) {
+    // If challenge is already completed and claimed, it shouldn't show here anyway
+    if (challenge['isCompleted'] == true && challenge['isClaimed'] == true) {
+      return true;
+    }
+
+    // If there's no assignedAt timestamp, consider it not expired
+    if (challenge['assignedAt'] == null) {
+      return false;
+    }
+
+    final now = DateTime.now();
+    final challengeType = challenge['type'] ?? '';
+
+    DateTime expiryDate;
+
+    if (challengeType == 'consecutive_days') {
+      // For consecutive days, expiry is always end of current day
+      expiryDate = DateTime(now.year, now.month, now.day, 23, 59, 59);
+    } else {
+      // For other challenges, calculate based on assignedAt
+      final assignedAt = (challenge['assignedAt'] as Timestamp).toDate();
+      final period = challenge['period'] ?? 'monthly';
+
+      switch (period) {
+        case 'daily':
+          expiryDate = DateTime(
+              assignedAt.year,
+              assignedAt.month,
+              assignedAt.day,
+              23, 59, 59
+          );
+          break;
+        case 'weekly':
+          expiryDate = assignedAt.add(const Duration(days: 7));
+          break;
+        case 'monthly':
+        // Calculate proper month end
+          final nextMonth = DateTime(
+            assignedAt.month == 12 ? assignedAt.year + 1 : assignedAt.year,
+            assignedAt.month == 12 ? 1 : assignedAt.month + 1,
+            assignedAt.day,
+          );
+
+          // Handle month end edge cases
+          final lastDayOfMonth = DateTime(nextMonth.year, nextMonth.month + 1, 0).day;
+          if (assignedAt.day > lastDayOfMonth) {
+            expiryDate = DateTime(nextMonth.year, nextMonth.month, lastDayOfMonth, 23, 59, 59);
+          } else {
+            expiryDate = DateTime(nextMonth.year, nextMonth.month, assignedAt.day, 23, 59, 59);
+          }
+          break;
+        default:
+          expiryDate = assignedAt.add(const Duration(days: 30));
+      }
+    }
+
+    return now.isAfter(expiryDate);
   }
 
   Future<void> _checkChallengeCompletion() async {
@@ -256,7 +333,132 @@ class _GamificationPageState extends State<GamificationPage> {
     final target = challenge['targetValue'] ?? 1;
     final isCompleted = challenge['isCompleted'] ?? false;
     final isClaimed = challenge['isClaimed'] ?? false;
-    final progressPercentage = (progress / target).clamp(0.0, 1.0);
+    final challengeType = challenge['type'];
+    final comparisonType = challenge['comparisonType'] ?? 'greater_equal';
+
+    // Get current spending/savings for display
+    final currentSpending = _toDouble(challenge['currentSpending']);
+    final currentSavings = _toDouble(challenge['currentSavings']);
+
+    // Calculate progress percentage and display values based on challenge type
+    double displayProgress = _toDouble(progress);
+    double progressPercentage;
+
+
+    String progressText;
+
+    switch (challengeType) {
+      case 'spending_limit':
+        displayProgress = currentSpending;
+        progressPercentage = (displayProgress / _toDouble(target)).clamp(0.0, 1.0);
+        progressText = 'RM${displayProgress.toStringAsFixed(2)} / RM${_toDouble(target).toStringAsFixed(2)}';
+        break;
+
+      case 'category_spending':
+        displayProgress = currentSpending;
+        progressPercentage = (displayProgress / _toDouble(target)).clamp(0.0, 1.0);
+        progressText = 'RM${displayProgress.toStringAsFixed(2)} / RM${_toDouble(target).toStringAsFixed(2)}';
+        break;
+
+      case 'savings_goal':
+        displayProgress = currentSavings;
+        progressPercentage = (displayProgress / _toDouble(target)).clamp(0.0, 1.0);
+        progressText = 'RM${displayProgress.toStringAsFixed(2)} / RM${_toDouble(target).toStringAsFixed(2)}';
+        break;
+
+      default:
+        progressPercentage = (displayProgress / _toDouble(target)).clamp(0.0, 1.0);
+        progressText = '${displayProgress.toInt()}/${_toDouble(target).toInt()}';
+    }
+
+    // Check if this is a period-based challenge for special handling
+    final bool isPeriodBased = ['spending_limit', 'category_spending', 'savings_goal'].contains(challengeType);
+    final bool periodNotComplete = challenge['periodNotComplete'] ?? false;
+
+    // Calculate time remaining for ALL challenges (not just period-based)
+    String? timeRemainingText;
+    Color timerColor = Colors.blue;
+    IconData timerIcon = Icons.timer;
+
+// Special handling for consecutive days - show days left instead of time
+    String? daysLeftText;
+    Color daysLeftColor = Colors.blue;
+
+    if (challengeType == 'consecutive_days' && !isCompleted) {
+      final targetDays = _toDouble(target).toInt();
+      final currentProgress = displayProgress.toInt();
+      final daysLeft = targetDays - currentProgress;
+
+      if (daysLeft > 0) {
+        daysLeftText = '$daysLeft day${daysLeft == 1 ? '' : 's'} to go';
+        if (daysLeft == 1) {
+          daysLeftColor = Colors.orange;
+        } else if (daysLeft <= 3) {
+          daysLeftColor = Colors.yellow;
+        } else {
+          daysLeftColor = Colors.blue;
+        }
+      }
+    } else if (challenge['assignedAt'] != null && !isCompleted && challengeType != 'consecutive_days') {
+      // Original timer logic for non-consecutive days challenges
+      final assignedAt = (challenge['assignedAt'] as Timestamp).toDate();
+      final now = DateTime.now();
+      final period = challenge['period'] ?? 'monthly';
+
+      DateTime periodEnd;
+      switch (period) {
+        case 'daily':
+          periodEnd = DateTime(assignedAt.year, assignedAt.month, assignedAt.day, 23, 59, 59);
+          break;
+        case 'weekly':
+          periodEnd = assignedAt.add(const Duration(days: 7));
+          break;
+        case 'monthly':
+          final nextMonth = DateTime(
+            assignedAt.month == 12 ? assignedAt.year + 1 : assignedAt.year,
+            assignedAt.month == 12 ? 1 : assignedAt.month + 1,
+            assignedAt.day,
+          );
+          final lastDayOfNextMonth = DateTime(nextMonth.year, nextMonth.month + 1, 0).day;
+          if (assignedAt.day > lastDayOfNextMonth) {
+            periodEnd = DateTime(nextMonth.year, nextMonth.month, lastDayOfNextMonth, 23, 59, 59);
+          } else {
+            periodEnd = DateTime(nextMonth.year, nextMonth.month, nextMonth.day, 23, 59, 59);
+          }
+          break;
+        default:
+          periodEnd = assignedAt.add(const Duration(days: 30));
+      }
+
+      final remaining = periodEnd.difference(now);
+
+      // Set color and icon based on time remaining
+      if (remaining.inHours <= 1) {
+        timerColor = Colors.red;
+        timerIcon = Icons.timer_off;
+      } else if (remaining.inHours <= 6) {
+        timerColor = Colors.orange;
+        timerIcon = Icons.timer_off;
+      } else if (remaining.inHours <= 24) {
+        timerColor = Colors.yellow;
+      }
+
+      if (remaining.isNegative) {
+        timeRemainingText = 'Expired';
+        timerColor = Colors.red;
+        timerIcon = Icons.block;
+      } else if (remaining.inDays > 0) {
+        timeRemainingText = '${remaining.inDays} day${remaining.inDays == 1 ? '' : 's'} remaining';
+      } else if (remaining.inHours > 0) {
+        timeRemainingText = '${remaining.inHours} hour${remaining.inHours == 1 ? '' : 's'} remaining';
+      } else if (remaining.inMinutes > 0) {
+        timeRemainingText = '${remaining.inMinutes} minute${remaining.inMinutes == 1 ? '' : 's'} remaining';
+      } else {
+        timeRemainingText = 'Less than 1 minute remaining';
+        timerColor = Colors.red;
+        timerIcon = Icons.timer_off;
+      }
+    }
 
     return Card(
       color: const Color.fromRGBO(33, 35, 34, 1),
@@ -300,6 +502,86 @@ class _GamificationPageState extends State<GamificationPage> {
             ),
             const SizedBox(height: 16),
 
+            // Show timer for ALL challenges when not completed
+            if (daysLeftText != null && challengeType == 'consecutive_days' && !isCompleted) ...[
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: daysLeftColor.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(
+                    color: daysLeftColor.withOpacity(0.3),
+                  ),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.calendar_today,
+                      color: daysLeftColor,
+                      size: 16,
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      daysLeftText,
+                      style: TextStyle(
+                        color: daysLeftColor,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 8),
+            ],
+
+// Show timer for non-consecutive days challenges only
+            if (timeRemainingText != null && challengeType != 'consecutive_days' && !isCompleted) ...[
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: timerColor.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(
+                    color: timerColor.withOpacity(0.3),
+                  ),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      timerIcon,
+                      color: timerColor,
+                      size: 16,
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      timeRemainingText,
+                      style: TextStyle(
+                        color: timerColor,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 8),
+
+              // Additional message for period-based challenges
+              if (isPeriodBased && periodNotComplete && comparisonType == 'less_equal')
+                Text(
+                  _getPeriodStatusMessage(challengeType, challenge['period']),
+                  style: TextStyle(
+                    color: Colors.grey[400],
+                    fontSize: 12,
+                    fontStyle: FontStyle.italic,
+                  ),
+                ),
+              const SizedBox(height: 12),
+            ],
+
             // Progress bar
             Container(
               width: double.infinity,
@@ -313,27 +595,52 @@ class _GamificationPageState extends State<GamificationPage> {
                 widthFactor: progressPercentage,
                 child: Container(
                   decoration: BoxDecoration(
-                    color: isCompleted ? Colors.green : Colors.teal,
+                    color: isCompleted
+                        ? Colors.green
+                        : (periodNotComplete && comparisonType == 'less_equal' ? Colors.orange : Colors.teal),
                     borderRadius: BorderRadius.circular(4),
                   ),
                 ),
               ),
             ),
             const SizedBox(height: 8),
-
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
-                  '${progress.toInt()}/${target.toInt()}',
+                  progressText,
                   style: const TextStyle(color: Colors.white, fontSize: 14),
                 ),
-                Text(
-                  '${(progressPercentage * 100).toInt()}%',
-                  style: const TextStyle(color: Colors.white, fontSize: 14),
-                ),
+                if (!(isPeriodBased && periodNotComplete && comparisonType == 'less_equal'))
+                  Text(
+                    '${(progressPercentage * 100).toInt()}%',
+                    style: const TextStyle(color: Colors.white, fontSize: 14),
+                  ),
               ],
             ),
+
+            // Show additional info for savings challenges
+            if (challengeType == 'savings_goal' && currentSavings != null) ...[
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.blue.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(color: Colors.blue.withOpacity(0.3)),
+                ),
+                child: Text(
+                  currentSavings >= 0
+                      ? 'Current savings: RM${currentSavings.toStringAsFixed(2)}'
+                      : 'Current deficit: RM${currentSavings.abs().toStringAsFixed(2)}',
+                  style: TextStyle(
+                    color: currentSavings >= 0 ? Colors.green : Colors.red,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+            ],
 
             const SizedBox(height: 16),
 
@@ -379,6 +686,38 @@ class _GamificationPageState extends State<GamificationPage> {
         ),
       ),
     );
+  }
+
+  // method to safely convert values to double
+  double _toDouble(dynamic value) {
+    if (value == null) return 0.0;
+    if (value is double) return value;
+    if (value is int) return value.toDouble();
+    if (value is String) return double.tryParse(value) ?? 0.0;
+    return 0.0;
+  }
+
+  String _formatProgressValue(double value, String? type) {
+    if (type == 'spending_limit' || type == 'category_spending' || type == 'savings_goal') {
+      return 'RM${value.toStringAsFixed(2)}';
+    }
+    return value.toInt().toString();
+  }
+
+// Helper method to get period status message
+  String _getPeriodStatusMessage(String? type, String? period) {
+    final periodText = period ?? 'period';
+
+    switch (type) {
+      case 'spending_limit':
+        return 'Challenge evaluates at the end of the $periodText';
+      case 'category_spending':
+        return 'Category spending tracked until end of $periodText';
+      case 'savings_goal':
+        return 'Net savings calculated at end of $periodText';
+      default:
+        return 'Waiting for period to complete';
+    }
   }
 
   @override

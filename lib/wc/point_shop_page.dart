@@ -58,28 +58,51 @@ class _PointShopPageState extends State<PointShopPage> {
       }
 
       final shopSnapshot = await query.orderBy('price').get();
+      final now = DateTime.now();
 
       setState(() {
         _userPoints = userData?['points'] ?? 0;
         _ownedBadgeIds = ownedBadgeIds;
         _shopItems = shopSnapshot.docs.map((doc) {
           final data = doc.data() as Map<String, dynamic>;
+
+          // Check if seasonal badge is within availability period
+          if (data['isSeasonal'] == true) {
+            final startDate = data['seasonalStartDate'] != null
+                ? (data['seasonalStartDate'] as Timestamp).toDate()
+                : null;
+            final endDate = data['seasonalEndDate'] != null
+                ? (data['seasonalEndDate'] as Timestamp).toDate()
+                : null;
+
+            // Only include if within seasonal period or if showing all items
+            if (startDate != null && endDate != null) {
+              final isWithinPeriod = now.isAfter(startDate) && now.isBefore(endDate);
+              if (!isWithinPeriod && _selectedCategory != 'all') {
+                return null; // Filter out items not in season
+              }
+              data['isSeasonallyAvailable'] = isWithinPeriod;
+            }
+          }
+
           return {
             'id': doc.id,
             ...data,
           };
-        }).toList();
+        }).where((item) => item != null).cast<Map<String, dynamic>>().toList();
         _isLoading = false;
       });
-
-      print('User points: $_userPoints');
-      print('Shop items loaded: ${_shopItems.length}');
-      print('Owned badges: ${_ownedBadgeIds.length}');
     } catch (e) {
-      print('Error loading shop data: $e');
+      // Handle errors
       setState(() {
         _isLoading = false;
       });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error loading shop data: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
     }
   }
 
@@ -313,6 +336,35 @@ class _PointShopPageState extends State<PointShopPage> {
     final isLimited = item['limitedStock'] == true;
     final rarity = item['rarity'] ?? 'common';
 
+    // ADD SEASONAL CHECK
+    bool isSeasonallyAvailable = true;
+    String seasonalMessage = '';
+    if (item['isSeasonal'] == true) {
+      final now = DateTime.now();
+      final startDate = item['seasonalStartDate'] != null
+          ? (item['seasonalStartDate'] as Timestamp).toDate()
+          : null;
+      final endDate = item['seasonalEndDate'] != null
+          ? (item['seasonalEndDate'] as Timestamp).toDate()
+          : null;
+
+      if (startDate != null && endDate != null) {
+        isSeasonallyAvailable = now.isAfter(startDate) && now.isBefore(endDate);
+
+        if (!isSeasonallyAvailable) {
+          if (now.isBefore(startDate)) {
+            final daysUntilStart = startDate.difference(now).inDays;
+            seasonalMessage = 'Available in ${daysUntilStart} days';
+          } else {
+            seasonalMessage = 'Season ended';
+          }
+        } else {
+          final daysRemaining = endDate.difference(now).inDays;
+          seasonalMessage = '${daysRemaining} days left';
+        }
+      }
+    }
+
     Color rarityColor;
     switch (rarity.toLowerCase()) {
       case 'legendary':
@@ -449,6 +501,39 @@ class _PointShopPageState extends State<PointShopPage> {
                             ],
                           ],
                         ),
+
+                        // ADD SEASONAL INDICATOR
+                        if (item['isSeasonal'] == true && seasonalMessage.isNotEmpty) ...[
+                          const SizedBox(height: 4),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: isSeasonallyAvailable
+                                  ? Colors.orange.withOpacity(0.2)
+                                  : Colors.grey.withOpacity(0.2),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  Icons.calendar_today,
+                                  size: 12,
+                                  color: isSeasonallyAvailable ? Colors.orange : Colors.grey,
+                                ),
+                                const SizedBox(width: 4),
+                                Text(
+                                  seasonalMessage,
+                                  style: TextStyle(
+                                    color: isSeasonallyAvailable ? Colors.orange : Colors.grey,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
                       ],
                     ),
                   ),
@@ -461,7 +546,7 @@ class _PointShopPageState extends State<PointShopPage> {
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton(
-                  onPressed: isOwned || (isLimited && stock == 0) || !canAfford
+                  onPressed: isOwned || (isLimited && stock == 0) || !canAfford || !isSeasonallyAvailable
                       ? null
                       : () => _purchaseBadge(item),
                   style: ElevatedButton.styleFrom(
@@ -476,6 +561,8 @@ class _PointShopPageState extends State<PointShopPage> {
                   child: Text(
                     isOwned
                         ? 'Owned'
+                        : !isSeasonallyAvailable
+                        ? 'Out of Season'
                         : (isLimited && stock == 0)
                         ? 'Sold Out'
                         : !canAfford

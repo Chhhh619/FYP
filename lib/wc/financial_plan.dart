@@ -5,10 +5,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:google_generative_ai/google_generative_ai.dart';
-import 'package:fyp/ch/goal_progress.dart';
 import 'package:fyp/bottom_nav_bar.dart';
-import 'package:fyp/ch/goal.dart';
-import 'package:fyp/ch/goal_type.dart';
+import 'package:fyp/ch/persistent_add_button.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -19,57 +17,46 @@ void main() async {
 class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      home: FinancialPlanPage(),
-    );
+    return MaterialApp(home: FinancialPlanPage());
   }
 }
 
-class FinancialPlan {
+class FinancialAdvice {
   final String id;
   final String title;
   final String description;
-  final double targetAmount;
-  final String category;
   final DateTime createdAt;
-  final DateTime targetDate;
-  final List<String> actionItems;
-  final Map<String, double> budgetAllocation;
-  final double progressPercentage;
-  final bool isActive;
-  final Map<String, double>? monthlyTargets;
+  final List<String> recommendations;
+  final Map<String, double> spendingInsights;
+  final String aiAnalysis;
+  final double monthlySavingsTarget;
+  final Map<String, String> categoryAdvice;
 
-  FinancialPlan({
+  FinancialAdvice({
     required this.id,
     required this.title,
     required this.description,
-    required this.targetAmount,
-    required this.category,
     required this.createdAt,
-    required this.targetDate,
-    required this.actionItems,
-    required this.budgetAllocation,
-    this.progressPercentage = 0.0,
-    this.isActive = true,
-    this.monthlyTargets,
+    required this.recommendations,
+    required this.spendingInsights,
+    required this.aiAnalysis,
+    required this.monthlySavingsTarget,
+    required this.categoryAdvice,
   });
 
-  factory FinancialPlan.fromMap(Map<String, dynamic> data, String id) {
-    return FinancialPlan(
+  factory FinancialAdvice.fromMap(Map<String, dynamic> data, String id) {
+    return FinancialAdvice(
       id: id,
       title: data['title'] ?? '',
       description: data['description'] ?? '',
-      targetAmount: (data['targetAmount'] ?? 0.0).toDouble(),
-      category: data['category'] ?? '',
       createdAt: (data['createdAt'] as Timestamp).toDate(),
-      targetDate: (data['targetDate'] as Timestamp).toDate(),
-      actionItems: List<String>.from(data['actionItems'] ?? []),
-      budgetAllocation: Map<String, double>.from(data['budgetAllocation'] ?? {}),
-      progressPercentage: (data['progressPercentage'] ?? 0.0).toDouble(),
-      isActive: data['isActive'] ?? true,
-      monthlyTargets: data['monthlyTargets'] != null
-          ? Map<String, double>.from(data['monthlyTargets'])
-          : null,
+      recommendations: List<String>.from(data['recommendations'] ?? []),
+      spendingInsights: Map<String, double>.from(
+        data['spendingInsights'] ?? {},
+      ),
+      aiAnalysis: data['aiAnalysis'] ?? '',
+      monthlySavingsTarget: (data['monthlySavingsTarget'] ?? 0.0).toDouble(),
+      categoryAdvice: Map<String, String>.from(data['categoryAdvice'] ?? {}),
     );
   }
 
@@ -77,15 +64,12 @@ class FinancialPlan {
     return {
       'title': title,
       'description': description,
-      'targetAmount': targetAmount,
-      'category': category,
       'createdAt': Timestamp.fromDate(createdAt),
-      'targetDate': Timestamp.fromDate(targetDate),
-      'actionItems': actionItems,
-      'budgetAllocation': budgetAllocation,
-      'progressPercentage': progressPercentage,
-      'isActive': isActive,
-      'monthlyTargets': monthlyTargets,
+      'recommendations': recommendations,
+      'spendingInsights': spendingInsights,
+      'aiAnalysis': aiAnalysis,
+      'monthlySavingsTarget': monthlySavingsTarget,
+      'categoryAdvice': categoryAdvice,
     };
   }
 }
@@ -97,337 +81,449 @@ class FinancialPlanPage extends StatefulWidget {
   _FinancialPlanPageState createState() => _FinancialPlanPageState();
 }
 
-class _FinancialPlanPageState extends State<FinancialPlanPage> with TickerProviderStateMixin {
+class _FinancialPlanPageState extends State<FinancialPlanPage>
+    with TickerProviderStateMixin {
   final _firestore = FirebaseFirestore.instance;
   final _auth = FirebaseAuth.instance;
   GenerativeModel? _model;
   TabController? _tabController;
   bool _isLoading = false;
+  bool _isGeneratingAdvice = false;
   int _selectedIndex = 2;
+  final ScrollController _scrollController = ScrollController();
 
   static const String _apiKey = 'AIzaSyAo8tGXkOuvO6ZmJkZJu1bzpgoGnUWxqnk';
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
+    _tabController = TabController(length: 2, vsync: this);
+  }
+
+  @override
+  void dispose() {
+    _tabController?.dispose();
+    _scrollController.dispose();
+    super.dispose();
   }
 
   Future<GenerativeModel> _getGenerativeModel() async {
     if (_model == null) {
-      _model = GenerativeModel(
-        model: 'gemini-1.5-flash',
-        apiKey: 'AIzaSyAo8tGXkOuvO6ZmJkZJu1bzpgoGnUWxqnk',
-      );
+      _model = GenerativeModel(model: 'gemini-1.5-flash', apiKey: _apiKey);
     }
     return _model!;
   }
 
-  // Fixed data fetching with better error handling
   Future<Map<String, dynamic>> _fetchFinancialData(String userId) async {
     try {
       final now = DateTime.now();
       final startOfMonth = DateTime(now.year, now.month, 1);
       final endOfMonth = DateTime(now.year, now.month + 1, 1);
+      final lastMonth = DateTime(now.year, now.month - 1, 1);
+      final endOfLastMonth = DateTime(now.year, now.month, 1);
+      final last3Months = DateTime(now.year, now.month - 3, 1);
 
-      // Get current month transactions
-      final transactionsSnapshot = await _firestore
+      // Fetch current month transactions
+      final currentMonthSnapshot = await _firestore
           .collection('transactions')
           .where('userId', isEqualTo: userId)
-          .where('timestamp', isGreaterThanOrEqualTo: Timestamp.fromDate(startOfMonth))
+          .where(
+            'timestamp',
+            isGreaterThanOrEqualTo: Timestamp.fromDate(startOfMonth),
+          )
           .where('timestamp', isLessThan: Timestamp.fromDate(endOfMonth))
           .get();
 
-      double monthlyIncome = 0;
-      double monthlyExpenses = 0;
-      Map<String, double> categorySpending = {};
+      // Fetch last month transactions
+      final lastMonthSnapshot = await _firestore
+          .collection('transactions')
+          .where('userId', isEqualTo: userId)
+          .where(
+            'timestamp',
+            isGreaterThanOrEqualTo: Timestamp.fromDate(lastMonth),
+          )
+          .where('timestamp', isLessThan: Timestamp.fromDate(endOfLastMonth))
+          .get();
 
-      for (var doc in transactionsSnapshot.docs) {
+      // Fetch last 3 months for trend analysis
+      final last3MonthsSnapshot = await _firestore
+          .collection('transactions')
+          .where('userId', isEqualTo: userId)
+          .where(
+            'timestamp',
+            isGreaterThanOrEqualTo: Timestamp.fromDate(last3Months),
+          )
+          .where('timestamp', isLessThan: Timestamp.fromDate(endOfMonth))
+          .get();
+
+      double currentIncome = 0, currentExpenses = 0;
+      double lastMonthIncome = 0, lastMonthExpenses = 0;
+      Map<String, double> categorySpending = {};
+      Map<String, int> transactionCounts = {};
+      Map<String, double> monthlyTrends = {};
+      List<Map<String, dynamic>> recentTransactions = [];
+
+      // Process current month
+      for (var doc in currentMonthSnapshot.docs) {
         final data = doc.data();
         final amount = (data['amount'] ?? 0.0).toDouble();
         final type = data['type'] ?? '';
+        final timestamp = (data['timestamp'] as Timestamp).toDate();
 
         if (type == 'income') {
-          monthlyIncome += amount;
+          currentIncome += amount;
         } else if (type == 'expense') {
-          monthlyExpenses += amount;
+          currentExpenses += amount;
 
-          // Get category name
           final categoryRef = data['category'] as DocumentReference?;
           if (categoryRef != null) {
             try {
               final categoryDoc = await categoryRef.get();
               if (categoryDoc.exists) {
-                final categoryName = (categoryDoc.data() as Map<String, dynamic>)?['name'] ?? 'Other';
+                final categoryName =
+                    (categoryDoc.data() as Map<String, dynamic>)?['name'] ??
+                    'Other';
                 categorySpending[categoryName] =
                     (categorySpending[categoryName] ?? 0) + amount;
+                transactionCounts[categoryName] =
+                    (transactionCounts[categoryName] ?? 0) + 1;
               }
             } catch (e) {
-              print('Error fetching category: $e');
+              categorySpending['Other'] =
+                  (categorySpending['Other'] ?? 0) + amount;
             }
           }
         }
+
+        recentTransactions.add({
+          'amount': amount,
+          'type': type,
+          'timestamp': timestamp,
+          'category': data['category'],
+        });
       }
 
-      // Calculate savings rate
-      final savingsRate = monthlyIncome > 0
-          ? ((monthlyIncome - monthlyExpenses) / monthlyIncome)
+      // Process last month
+      for (var doc in lastMonthSnapshot.docs) {
+        final data = doc.data();
+        final amount = (data['amount'] ?? 0.0).toDouble();
+        final type = data['type'] ?? '';
+
+        if (type == 'income') {
+          lastMonthIncome += amount;
+        } else if (type == 'expense') {
+          lastMonthExpenses += amount;
+        }
+      }
+
+      // Process 3-month trend
+      Map<String, double> monthlyExpensesByMonth = {};
+      for (var doc in last3MonthsSnapshot.docs) {
+        final data = doc.data();
+        final amount = (data['amount'] ?? 0.0).toDouble();
+        final type = data['type'] ?? '';
+        final timestamp = (data['timestamp'] as Timestamp).toDate();
+        final monthKey = DateFormat('yyyy-MM').format(timestamp);
+
+        if (type == 'expense') {
+          monthlyExpensesByMonth[monthKey] =
+              (monthlyExpensesByMonth[monthKey] ?? 0) + amount;
+        }
+      }
+
+      // Sort recent transactions by date
+      recentTransactions.sort(
+        (a, b) =>
+            (b['timestamp'] as DateTime).compareTo(a['timestamp'] as DateTime),
+      );
+      recentTransactions = recentTransactions.take(20).toList();
+
+      final savingsRate = currentIncome > 0
+          ? ((currentIncome - currentExpenses) / currentIncome)
           : 0.0;
+      final spendingTrend = currentExpenses - lastMonthExpenses;
 
       return {
-        'monthlyIncome': monthlyIncome,
-        'monthlyExpenses': monthlyExpenses,
+        'currentIncome': currentIncome,
+        'currentExpenses': currentExpenses,
+        'lastMonthIncome': lastMonthIncome,
+        'lastMonthExpenses': lastMonthExpenses,
         'savingsRate': savingsRate,
         'categorySpending': categorySpending,
-        'monthlySavings': monthlyIncome - monthlyExpenses,
+        'transactionCounts': transactionCounts,
+        'spendingTrend': spendingTrend,
+        'monthlySavings': currentIncome - currentExpenses,
+        'recentTransactions': recentTransactions,
+        'monthlyTrends': monthlyExpensesByMonth,
+        'averageDailySpending': currentExpenses / DateTime.now().day,
       };
     } catch (e) {
       print('Error fetching financial data: $e');
       return {
-        'monthlyIncome': 0.0,
-        'monthlyExpenses': 0.0,
+        'currentIncome': 0.0,
+        'currentExpenses': 0.0,
+        'lastMonthIncome': 0.0,
+        'lastMonthExpenses': 0.0,
         'savingsRate': 0.0,
         'categorySpending': <String, double>{},
+        'transactionCounts': <String, int>{},
+        'spendingTrend': 0.0,
         'monthlySavings': 0.0,
+        'recentTransactions': [],
+        'monthlyTrends': <String, double>{},
+        'averageDailySpending': 0.0,
       };
     }
   }
 
-  // SIMPLIFIED AI plan generation
-  Future<FinancialPlan> _generatePersonalizedFinancialPlan(String userId) async {
-    setState(() => _isLoading = true);
+  Future<FinancialAdvice> _generateFinancialAdvice(String userId) async {
+    setState(() => _isGeneratingAdvice = true);
 
     try {
       final model = await _getGenerativeModel();
       final financialData = await _fetchFinancialData(userId);
 
-      // Get user's goals - FIXED QUERY
-      final goalsSnapshot = await _firestore
-          .collection('goals')
-          .where('userId', isEqualTo: userId)
-          .where('status', whereIn: ['active', 'in_progress'])
-          .get();
-
-      // Also check goals without status field (default to active)
-      final allGoalsSnapshot = await _firestore
-          .collection('goals')
-          .where('userId', isEqualTo: userId)
-          .get();
-
-      // Combine and filter goals
-      final allGoals = allGoalsSnapshot.docs.where((doc) {
-        final data = doc.data();
-        final status = data['status'] ?? 'active'; // Default to active if no status
-        return status != 'completed';
-      }).toList();
-
-      final goals = allGoals.map((doc) {
-        final data = doc.data();
-        return {
-          'id': doc.id,
-          'name': data['name'] ?? 'Unnamed Goal',
-          'targetAmount': (data['totalAmount'] ?? 0).toDouble(),
-          'depositedAmount': (data['depositedAmount'] ?? 0).toDouble(),
-          'type': data['type'] ?? 'regular',
-          'progress': _calculateGoalProgress(data),
-        };
-      }).toList();
-
-      final monthlyIncome = financialData['monthlyIncome'] as double;
-      final monthlyExpenses = financialData['monthlyExpenses'] as double;
+      final currentIncome = financialData['currentIncome'] as double;
+      final currentExpenses = financialData['currentExpenses'] as double;
       final savingsRate = financialData['savingsRate'] as double;
-      final categorySpending = financialData['categorySpending'] as Map<String, double>;
+      final categorySpending =
+          financialData['categorySpending'] as Map<String, double>;
+      final spendingTrend = financialData['spendingTrend'] as double;
       final monthlySavings = financialData['monthlySavings'] as double;
+      final averageDailySpending =
+          financialData['averageDailySpending'] as double;
+      final transactionCounts =
+          financialData['transactionCounts'] as Map<String, int>;
 
-      // SIMPLIFIED AI PROMPT
-      final prompt = '''
-        Create a simple financial plan for this month based on:
-        
-        MONEY SITUATION:
-        - Income: RM${monthlyIncome.toStringAsFixed(0)}
-        - Expenses: RM${monthlyExpenses.toStringAsFixed(0)}
-        - Left over: RM${monthlySavings.toStringAsFixed(0)}
-        
-        GOALS (${goals.length} active):
-        ${goals.map((g) => '- ${g['name']}: Need RM${(g['targetAmount'] - g['depositedAmount']).toStringAsFixed(0)} more').join('\n')}
-        
-        TOP SPENDING:
-        ${categorySpending.entries.take(3).map((e) => '- ${e.key}: RM${e.value.toStringAsFixed(0)}').join('\n')}
-        
-        Give me:
-        1. One realistic monthly savings goal in RM
-        2. 3-5 simple action steps
-        3. Which goal to focus on first
-        
-        Keep it simple and easy to understand!
+      // Create detailed prompt for AI analysis
+      final prompt =
+          '''
+      You are a professional financial advisor analyzing a user's spending patterns. Provide personalized financial advice based on their actual transaction data.
+
+      CURRENT FINANCIAL SNAPSHOT:
+      - Monthly Income: RM${currentIncome.toStringAsFixed(2)}
+      - Monthly Expenses: RM${currentExpenses.toStringAsFixed(2)}
+      - Net Savings: RM${monthlySavings.toStringAsFixed(2)}
+      - Savings Rate: ${(savingsRate * 100).toStringAsFixed(1)}%
+      - Average Daily Spending: RM${averageDailySpending.toStringAsFixed(2)}
+      - Spending Trend: ${spendingTrend > 0 ? 'Increased by RM${spendingTrend.abs().toStringAsFixed(2)}' : 'Decreased by RM${spendingTrend.abs().toStringAsFixed(2)}'} vs last month
+
+      DETAILED SPENDING BREAKDOWN:
+      ${categorySpending.entries.map((e) => '- ${e.key}: RM${e.value.toStringAsFixed(2)} (${transactionCounts[e.key] ?? 0} transactions)').join('\n')}
+
+      MALAYSIAN CONTEXT:
+      - Consider local cost of living and salary standards
+      - Factor in EPF contributions and Malaysian savings culture
+      - Include Malaysian-specific financial products (ASB, unit trusts, etc.)
+      - Consider seasonal factors (CNY, Raya, school holidays)
+
+      PROVIDE A COMPREHENSIVE ANALYSIS INCLUDING:
+      1. Overall financial health assessment with Malaysian benchmarks
+      2. Top 3 areas for improvement with specific RM amounts to cut
+      3. Realistic monthly savings target considering Malaysian living costs
+      4. Category-specific advice for the biggest spending areas
+      5. Emergency fund recommendations (3-6 months expenses)
+      6. Investment suggestions appropriate for Malaysian market
+
+      FORMAT YOUR RESPONSE EXACTLY AS FOLLOWS:
+
+      ANALYSIS: [Your detailed analysis incorporating Malaysian financial context - 3-4 sentences]
+
+      SAVINGS_TARGET: [Specific monthly savings amount in RM, just the number]
+
+      RECOMMENDATION_1: [Specific actionable advice with RM amounts and Malaysian context]
+      RECOMMENDATION_2: [Specific actionable advice with RM amounts and local relevance]  
+      RECOMMENDATION_3: [Specific actionable advice with RM amounts]
+      RECOMMENDATION_4: [Malaysian-specific savings/investment advice]
+      RECOMMENDATION_5: [Long-term financial planning advice for Malaysia]
+
+      EMERGENCY_FUND: [Recommended emergency fund target in RM]
+
+      CATEGORY_ADVICE_START:
+      ${categorySpending.entries.take(4).map((e) => '${e.key}: [Specific advice with Malaysian context for this category]').join('\n')}
+      CATEGORY_ADVICE_END:
+
+      INVESTMENT_IDEAS: [2-3 Malaysian investment options suitable for their income level]
+
+      Be specific with amounts and percentages. Focus on practical, culturally relevant advice for Malaysian users.
       ''';
 
       final response = await model.generateContent([Content.text(prompt)]);
       final aiResponse = response.text ?? '';
 
-      // SIMPLIFIED parsing
-      List<String> actionItems = _parseSimpleActionItems(aiResponse, goals, categorySpending, monthlyIncome);
-      double monthlyTarget = _calculateRealisticTarget(monthlyIncome, monthlyExpenses, goals);
-      Map<String, double> budgetAllocation = _createSimpleBudget(monthlyIncome, monthlyExpenses);
+      // Parse AI response
+      final lines = aiResponse
+          .split('\n')
+          .where((line) => line.trim().isNotEmpty)
+          .toList();
 
-      final plan = FinancialPlan(
+      String analysis = '';
+      double savingsTarget = currentIncome * 0.15;
+      List<String> recommendations = [];
+      Map<String, String> categoryAdvice = {};
+
+      bool inCategoryAdvice = false;
+
+      for (var line in lines) {
+        if (line.startsWith('ANALYSIS:')) {
+          analysis = line.split('ANALYSIS:').last.trim();
+        } else if (line.startsWith('SAVINGS_TARGET:')) {
+          final targetStr = line.split('SAVINGS_TARGET:').last.trim();
+          final match = RegExp(r'[\d,]+\.?\d*').firstMatch(targetStr);
+          if (match != null) {
+            savingsTarget =
+                double.tryParse(match.group(0)!.replaceAll(',', '')) ??
+                savingsTarget;
+          }
+        } else if (line.startsWith('RECOMMENDATION_')) {
+          recommendations.add(line.split(':').last.trim());
+        } else if (line.contains('CATEGORY_ADVICE_START:')) {
+          inCategoryAdvice = true;
+        } else if (line.contains('CATEGORY_ADVICE_END:')) {
+          inCategoryAdvice = false;
+        } else if (inCategoryAdvice && line.contains(':')) {
+          final parts = line.split(':');
+          if (parts.length >= 2) {
+            categoryAdvice[parts[0].trim()] = parts.sublist(1).join(':').trim();
+          }
+        }
+      }
+
+      // Ensure we have fallback recommendations
+      if (recommendations.isEmpty) {
+        recommendations = _generateFallbackRecommendations(
+          categorySpending,
+          currentIncome,
+        );
+      }
+
+      // Ensure we have fallback analysis
+      if (analysis.isEmpty) {
+        analysis = _generateFallbackAnalysis(
+          savingsRate,
+          spendingTrend,
+          categorySpending,
+        );
+      }
+
+      final advice = FinancialAdvice(
         id: DateTime.now().millisecondsSinceEpoch.toString(),
-        title: 'Your Money Plan - ${DateFormat('MMM yyyy').format(DateTime.now())}',
-        description: goals.isNotEmpty
-            ? 'Focus on ${goals.first['name']} and save RM${monthlyTarget.toStringAsFixed(0)} this month'
-            : 'Build your emergency fund and start saving RM${monthlyTarget.toStringAsFixed(0)} monthly',
-        targetAmount: monthlyTarget,
-        category: 'savings',
+        title:
+            'AI Financial Analysis - ${DateFormat('MMM yyyy').format(DateTime.now())}',
+        description:
+            'Personalized financial advice based on your spending patterns',
         createdAt: DateTime.now(),
-        targetDate: DateTime.now().add(const Duration(days: 30)),
-        actionItems: actionItems,
-        budgetAllocation: budgetAllocation,
-        monthlyTargets: {
-          'savings': monthlyTarget,
-          'goal_focus': goals.isNotEmpty ? monthlyTarget * 0.6 : 0,
-          'emergency': monthlyTarget * 0.4,
-        },
+        recommendations: recommendations.take(5).toList(),
+        spendingInsights: categorySpending,
+        aiAnalysis: analysis,
+        monthlySavingsTarget: savingsTarget,
+        categoryAdvice: categoryAdvice,
       );
 
-      // Save plan to Firestore
-      await _firestore.collection('financial_plans').doc(plan.id).set({
-        ...plan.toMap(),
+      // Save to Firestore
+      await _firestore.collection('financial_advice').doc(advice.id).set({
+        ...advice.toMap(),
         'userId': userId,
       });
 
-      return plan;
+      return advice;
     } catch (e) {
-      print('Error generating plan: $e');
-      return _createSimpleFallbackPlan(userId);
+      print('Error generating advice: $e');
+      return _createFallbackAdvice(userId);
     } finally {
-      setState(() => _isLoading = false);
+      setState(() => _isGeneratingAdvice = false);
     }
   }
 
-  // SIMPLIFIED action items parsing
-  List<String> _parseSimpleActionItems(
-      String aiResponse,
-      List<Map<String, dynamic>> goals,
-      Map<String, double> categorySpending,
-      double monthlyIncome
-      ) {
-    List<String> actionItems = [];
+  List<String> _generateFallbackRecommendations(
+    Map<String, double> categorySpending,
+    double income,
+  ) {
+    List<String> recommendations = [];
 
-    // Priority 1: Address top spending category
     if (categorySpending.isNotEmpty) {
-      final topCategory = categorySpending.entries.first;
+      var sortedSpending = categorySpending.entries.toList()
+        ..sort((a, b) => b.value.compareTo(a.value));
+
+      final topCategory = sortedSpending.first;
       final reduction = (topCategory.value * 0.15).toStringAsFixed(0);
-      actionItems.add('Cut ${topCategory.key} spending by RM$reduction this month');
+      recommendations.add(
+        'Reduce ${topCategory.key} spending by RM$reduction (15% reduction)',
+      );
+
+      if (sortedSpending.length > 1) {
+        final secondCategory = sortedSpending[1];
+        recommendations.add(
+          'Review ${secondCategory.key} expenses for potential RM50-100 savings',
+        );
+      }
     }
 
-    // Priority 2: Focus on main goal
-    if (goals.isNotEmpty) {
-      final mainGoal = goals.first;
-      final needed = (mainGoal['targetAmount'] - mainGoal['depositedAmount']).toDouble();
-      final monthlyGoalAmount = (needed / 6).clamp(50, monthlyIncome * 0.3);
-      actionItems.add('Save RM${monthlyGoalAmount.toStringAsFixed(0)} for ${mainGoal['name']}');
-    }
+    recommendations.addAll([
+      'Set up automatic savings of RM${(income * 0.1).toStringAsFixed(0)} monthly',
+      'Track daily expenses using the spending limit of RM${(income * 0.03).toStringAsFixed(0)}',
+      'Review and cancel unused subscriptions to save RM50-150/month',
+    ]);
 
-    // Priority 3: Build emergency fund
-    actionItems.add('Set aside RM${(monthlyIncome * 0.1).toStringAsFixed(0)} for emergencies');
-
-    // Priority 4: Track spending
-    actionItems.add('Check your expenses every 3 days using the app');
-
-    // Priority 5: Review subscriptions
-    actionItems.add('Cancel unused subscriptions (target: save RM50-100)');
-
-    return actionItems;
+    return recommendations;
   }
 
-  double _calculateRealisticTarget(
-      double income,
-      double expenses,
-      List<Map<String, dynamic>> goals
-      ) {
-    // Start with 15% of income as baseline
-    double baseTarget = income * 0.15;
+  String _generateFallbackAnalysis(
+    double savingsRate,
+    double spendingTrend,
+    Map<String, double> categorySpending,
+  ) {
+    String trendText = spendingTrend > 0 ? 'increased' : 'decreased';
+    String savingsAssessment = savingsRate > 0.2
+        ? 'excellent'
+        : (savingsRate > 0.1 ? 'good' : 'needs improvement');
 
-    // If spending more than earning, reduce target
-    if (expenses > income) {
-      baseTarget = income * 0.05; // Just 5% to start
-    }
-
-    // If have goals, consider them
-    if (goals.isNotEmpty) {
-      final totalNeeded = goals.fold(0.0, (sum, goal) =>
-      sum + (goal['targetAmount'] - goal['depositedAmount']));
-      final monthlyGoalNeed = totalNeeded / 12; // Spread over a year
-
-      // Use the higher of base target or goal need, but cap at 30% of income
-      baseTarget = (baseTarget + monthlyGoalNeed * 0.5).clamp(50, income * 0.3);
-    }
-
-    return baseTarget.clamp(50, income * 0.4);
+    return 'Your savings rate of ${(savingsRate * 100).toStringAsFixed(1)}% is $savingsAssessment. '
+        'Your spending has $trendText compared to last month. '
+        'Focus on optimizing your largest expense categories for better financial health.';
   }
 
-  Map<String, double> _createSimpleBudget(double income, double expenses) {
-    final expenseRatio = (expenses / income).clamp(0.4, 0.8);
-    final savingsRatio = 0.2;
-    final remainingRatio = 1.0 - expenseRatio - savingsRatio;
-
-    return {
-      'needs': expenseRatio,
-      'savings': savingsRatio,
-      'wants': remainingRatio.clamp(0.05, 0.3),
-    };
-  }
-
-  double _calculateGoalProgress(Map<String, dynamic> goalData) {
-    final total = (goalData['totalAmount'] ?? 1).toDouble();
-    final deposited = (goalData['depositedAmount'] ?? 0).toDouble();
-    return (deposited / total * 100).clamp(0, 100);
-  }
-
-  // Simple fallback plan
-  FinancialPlan _createSimpleFallbackPlan(String userId) {
-    return FinancialPlan(
+  FinancialAdvice _createFallbackAdvice(String userId) {
+    return FinancialAdvice(
       id: DateTime.now().millisecondsSinceEpoch.toString(),
-      title: 'Your Starter Money Plan',
-      description: 'Simple steps to improve your finances',
-      targetAmount: 300.0,
-      category: 'savings',
+      title: 'Basic Financial Advice',
+      description: 'Start tracking your expenses for personalized advice',
       createdAt: DateTime.now(),
-      targetDate: DateTime.now().add(const Duration(days: 30)),
-      actionItems: [
-        'Save RM300 this month (RM10 per day)',
-        'Track all your spending for one week',
-        'Find one subscription to cancel',
-        'Cook at home 3 times this week',
-        'Set up automatic savings of RM100',
+      recommendations: [
+        'Track all your expenses for better insights',
+        'Aim to save at least 20% of your income',
+        'Review your subscriptions monthly',
+        'Set a daily spending limit',
+        'Build an emergency fund gradually',
       ],
-      budgetAllocation: {
-        'needs': 0.6,
-        'savings': 0.2,
-        'wants': 0.2,
-      },
+      spendingInsights: {},
+      aiAnalysis:
+          'Start recording your transactions to get personalized financial advice based on your spending patterns.',
+      monthlySavingsTarget: 500.0,
+      categoryAdvice: {},
     );
   }
 
   Widget _buildOverviewTab(String userId) {
     return SingleChildScrollView(
+      controller: _scrollController,
       padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _buildMonthlyOverview(userId),
+          _buildFinancialSummary(userId),
+          const SizedBox(height: 20),
+          _buildSpendingBreakdown(userId),
           const SizedBox(height: 20),
           _buildQuickActions(userId),
           const SizedBox(height: 20),
-          _buildGoalsProgress(userId),
-          const SizedBox(height: 20),
-          _buildCurrentPlanSummary(userId),
+          _buildLatestAdvice(userId),
         ],
       ),
     );
   }
 
-  Widget _buildMonthlyOverview(String userId) {
+  Widget _buildFinancialSummary(String userId) {
     return FutureBuilder<Map<String, dynamic>>(
       future: _fetchFinancialData(userId),
       builder: (context, snapshot) {
@@ -436,8 +532,8 @@ class _FinancialPlanPageState extends State<FinancialPlanPage> with TickerProvid
         }
 
         final data = snapshot.data!;
-        final income = data['monthlyIncome'] as double;
-        final expenses = data['monthlyExpenses'] as double;
+        final income = data['currentIncome'] as double;
+        final expenses = data['currentExpenses'] as double;
         final savings = data['monthlySavings'] as double;
         final savingsRate = data['savingsRate'] as double;
 
@@ -455,7 +551,7 @@ class _FinancialPlanPageState extends State<FinancialPlanPage> with TickerProvid
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const Text(
-                'This Month',
+                'This Month\'s Summary',
                 style: TextStyle(
                   color: Colors.white,
                   fontSize: 18,
@@ -466,9 +562,21 @@ class _FinancialPlanPageState extends State<FinancialPlanPage> with TickerProvid
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  _buildOverviewItem('Income', 'RM${income.toStringAsFixed(0)}', Icons.arrow_upward),
-                  _buildOverviewItem('Expenses', 'RM${expenses.toStringAsFixed(0)}', Icons.arrow_downward),
-                  _buildOverviewItem('Saved', 'RM${savings.toStringAsFixed(0)}', Icons.savings),
+                  _buildSummaryItem(
+                    'Income',
+                    'RM${income.toStringAsFixed(0)}',
+                    Icons.arrow_upward,
+                  ),
+                  _buildSummaryItem(
+                    'Expenses',
+                    'RM${expenses.toStringAsFixed(0)}',
+                    Icons.arrow_downward,
+                  ),
+                  _buildSummaryItem(
+                    'Savings',
+                    'RM${savings.toStringAsFixed(0)}',
+                    Icons.savings,
+                  ),
                 ],
               ),
               const SizedBox(height: 16),
@@ -495,7 +603,7 @@ class _FinancialPlanPageState extends State<FinancialPlanPage> with TickerProvid
     );
   }
 
-  Widget _buildOverviewItem(String label, String value, IconData icon) {
+  Widget _buildSummaryItem(String label, String value, IconData icon) {
     return Column(
       children: [
         Icon(icon, color: Colors.white.withOpacity(0.9), size: 24),
@@ -510,12 +618,107 @@ class _FinancialPlanPageState extends State<FinancialPlanPage> with TickerProvid
         ),
         Text(
           label,
-          style: TextStyle(
-            color: Colors.white.withOpacity(0.8),
-            fontSize: 12,
-          ),
+          style: TextStyle(color: Colors.white.withOpacity(0.8), fontSize: 12),
         ),
       ],
+    );
+  }
+
+  Widget _buildSpendingBreakdown(String userId) {
+    return FutureBuilder<Map<String, dynamic>>(
+      future: _fetchFinancialData(userId),
+      builder: (context, snapshot) {
+        if (!snapshot.hasData) {
+          return const Center(child: CircularProgressIndicator());
+        }
+
+        final categorySpending =
+            snapshot.data!['categorySpending'] as Map<String, double>;
+
+        if (categorySpending.isEmpty) {
+          return Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: Colors.grey[900],
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: const Center(
+              child: Text(
+                'No spending data available.\nStart recording transactions to see insights.',
+                style: TextStyle(color: Colors.white70),
+                textAlign: TextAlign.center,
+              ),
+            ),
+          );
+        }
+
+        var sortedSpending = categorySpending.entries.toList()
+          ..sort((a, b) => b.value.compareTo(a.value));
+
+        return Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Colors.grey[900],
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Spending Breakdown',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 16),
+              ...sortedSpending.take(5).map((entry) {
+                final total = categorySpending.values.fold(
+                  0.0,
+                  (sum, amount) => sum + amount,
+                );
+                final percentage = total > 0 ? (entry.value / total) : 0.0;
+
+                return Container(
+                  margin: const EdgeInsets.only(bottom: 12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            entry.key,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 14,
+                            ),
+                          ),
+                          Text(
+                            'RM${entry.value.toStringAsFixed(0)} (${(percentage * 100).toStringAsFixed(0)}%)',
+                            style: const TextStyle(
+                              color: Colors.white70,
+                              fontSize: 14,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      LinearProgressIndicator(
+                        value: percentage,
+                        backgroundColor: Colors.grey[800],
+                        color: Colors.teal,
+                        minHeight: 4,
+                      ),
+                    ],
+                  ),
+                );
+              }).toList(),
+            ],
+          ),
+        );
+      },
     );
   }
 
@@ -525,7 +728,6 @@ class _FinancialPlanPageState extends State<FinancialPlanPage> with TickerProvid
       decoration: BoxDecoration(
         color: Colors.grey[900],
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.grey[700]!),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -538,36 +740,23 @@ class _FinancialPlanPageState extends State<FinancialPlanPage> with TickerProvid
               fontWeight: FontWeight.bold,
             ),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 16),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceAround,
             children: [
               _buildActionButton(
-                'New Plan',
-                Icons.add_chart,
-                Colors.teal,
-                    () => _generateNewPlan(userId),
-              ),
-              _buildActionButton(
-                'Add Goal',
-                Icons.flag,
+                'Get AI Advice',
+                Icons.auto_awesome,
                 Colors.purple,
-                    () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => const GoalTypeSelectionPage()),
-                  );
-                },
+                () => _generateNewAdvice(userId),
               ),
+
               _buildActionButton(
-                'View Goals',
-                Icons.list_alt,
+                'View History',
+                Icons.history,
                 Colors.blue,
-                    () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => const GoalPage()),
-                  );
+                () {
+                  _tabController?.animateTo(1);
                 },
               ),
             ],
@@ -577,189 +766,40 @@ class _FinancialPlanPageState extends State<FinancialPlanPage> with TickerProvid
     );
   }
 
-  Widget _buildActionButton(String label, IconData icon, Color color, VoidCallback onTap) {
+  Widget _buildActionButton(
+    String label,
+    IconData icon,
+    Color color,
+    VoidCallback onTap,
+  ) {
     return GestureDetector(
       onTap: onTap,
       child: Column(
         children: [
           Container(
-            padding: const EdgeInsets.all(12),
+            padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
               color: color.withOpacity(0.2),
               borderRadius: BorderRadius.circular(12),
             ),
             child: Icon(icon, color: color, size: 24),
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 8),
           Text(
             label,
-            style: const TextStyle(
-              color: Colors.white70,
-              fontSize: 12,
-            ),
+            style: const TextStyle(color: Colors.white70, fontSize: 12),
+            textAlign: TextAlign.center,
           ),
         ],
       ),
     );
   }
 
-  // FIXED Goals Progress Widget
-  Widget _buildGoalsProgress(String userId) {
+  Widget _buildLatestAdvice(String userId) {
     return StreamBuilder<QuerySnapshot>(
       stream: _firestore
-          .collection('goals')
+          .collection('financial_advice')
           .where('userId', isEqualTo: userId)
-          .snapshots(),
-      builder: (context, snapshot) {
-        if (!snapshot.hasData) {
-          return const Center(child: CircularProgressIndicator());
-        }
-
-        // Filter out completed goals
-        final activeGoals = snapshot.data!.docs.where((doc) {
-          final data = doc.data() as Map<String, dynamic>;
-          final status = data['status'] ?? 'active'; // Default to active
-          return status != 'completed';
-        }).toList();
-
-        if (activeGoals.isEmpty) {
-          return Container(
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              color: Colors.grey[900],
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Center(
-              child: Column(
-                children: [
-                  const Icon(Icons.flag, color: Colors.grey, size: 40),
-                  const SizedBox(height: 8),
-                  const Text(
-                    'No active goals',
-                    style: TextStyle(color: Colors.white70),
-                  ),
-                  const SizedBox(height: 12),
-                  ElevatedButton(
-                    onPressed: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(builder: (_) => const GoalTypeSelectionPage()),
-                      );
-                    },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.teal,
-                    ),
-                    child: const Text('Create Goal', style: TextStyle(color: Colors.white)),
-                  ),
-                ],
-              ),
-            ),
-          );
-        }
-
-        return Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: Colors.grey[900],
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: Colors.grey[700]!),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text(
-                    'Active Goals',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  Text(
-                    '${activeGoals.length} active',
-                    style: const TextStyle(
-                      color: Colors.teal,
-                      fontSize: 14,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              ...activeGoals.take(3).map((doc) {
-                final data = doc.data() as Map<String, dynamic>;
-                final name = data['name'] ?? 'Unnamed Goal';
-                final totalAmount = (data['totalAmount'] ?? 1).toDouble();
-                final depositedAmount = (data['depositedAmount'] ?? 0).toDouble();
-                final progress = (depositedAmount / totalAmount).clamp(0.0, 1.0);
-
-                return GestureDetector(
-                  onTap: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => GoalProgressPage(goalId: doc.id),
-                      ),
-                    );
-                  },
-                  child: Container(
-                    margin: const EdgeInsets.only(bottom: 12),
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: Colors.grey[800],
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Expanded(
-                              child: Text(
-                                name,
-                                style: const TextStyle(color: Colors.white, fontSize: 14),
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                            Text(
-                              '${(progress * 100).toStringAsFixed(0)}%',
-                              style: const TextStyle(color: Colors.teal, fontSize: 14),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-                        LinearProgressIndicator(
-                          value: progress,
-                          backgroundColor: Colors.grey[700],
-                          color: Colors.teal,
-                          minHeight: 4,
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          'RM${depositedAmount.toStringAsFixed(0)} of RM${totalAmount.toStringAsFixed(0)}',
-                          style: const TextStyle(color: Colors.white54, fontSize: 12),
-                        ),
-                      ],
-                    ),
-                  ),
-                );
-              }).toList(),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _buildCurrentPlanSummary(String userId) {
-    return StreamBuilder<QuerySnapshot>(
-      stream: _firestore
-          .collection('financial_plans')
-          .where('userId', isEqualTo: userId)
-          .where('isActive', isEqualTo: true)
           .orderBy('createdAt', descending: true)
           .limit(1)
           .snapshots(),
@@ -771,33 +811,38 @@ class _FinancialPlanPageState extends State<FinancialPlanPage> with TickerProvid
               color: Colors.grey[900],
               borderRadius: BorderRadius.circular(12),
             ),
-            child: Center(
-              child: Column(
-                children: [
-                  const Icon(Icons.analytics, color: Colors.grey, size: 40),
-                  const SizedBox(height: 8),
-                  const Text(
-                    'No active plan',
-                    style: TextStyle(color: Colors.white70),
+            child: Column(
+              children: [
+                const Icon(
+                  Icons.lightbulb_outline,
+                  color: Colors.grey,
+                  size: 40,
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'No AI advice yet',
+                  style: TextStyle(color: Colors.white70),
+                ),
+                const SizedBox(height: 12),
+                ElevatedButton(
+                  onPressed: () => _generateNewAdvice(userId),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.purple,
                   ),
-                  const SizedBox(height: 12),
-                  ElevatedButton(
-                    onPressed: () => _generateNewPlan(userId),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.teal,
-                    ),
-                    child: const Text('Generate Plan', style: TextStyle(color: Colors.white)),
+                  child: const Text(
+                    'Get AI Advice',
+                    style: TextStyle(color: Colors.white),
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
           );
         }
 
-        final planDoc = snapshot.data!.docs.first;
-        final plan = FinancialPlan.fromMap(
-          planDoc.data() as Map<String, dynamic>,
-          planDoc.id,
+        final adviceDoc = snapshot.data!.docs.first;
+        final advice = FinancialAdvice.fromMap(
+          adviceDoc.data() as Map<String, dynamic>,
+          adviceDoc.id,
         );
 
         return Container(
@@ -805,68 +850,60 @@ class _FinancialPlanPageState extends State<FinancialPlanPage> with TickerProvid
           decoration: BoxDecoration(
             color: Colors.grey[900],
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: Colors.grey[700]!),
+            border: Border.all(color: Colors.purple.withOpacity(0.3)),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
+                  const Icon(
+                    Icons.auto_awesome,
+                    color: Colors.purple,
+                    size: 20,
+                  ),
+                  const SizedBox(width: 8),
                   const Text(
-                    'Current Plan',
+                    'Latest AI Advice',
                     style: TextStyle(
                       color: Colors.white,
                       fontSize: 16,
                       fontWeight: FontWeight.bold,
                     ),
                   ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: Colors.teal.withOpacity(0.2),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Text(
-                      '${plan.progressPercentage.toStringAsFixed(0)}%',
-                      style: const TextStyle(
-                        color: Colors.teal,
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
+                  const Spacer(),
+                  Text(
+                    _getTimeAgo(advice.createdAt),
+                    style: const TextStyle(color: Colors.white54, fontSize: 12),
                   ),
                 ],
               ),
               const SizedBox(height: 12),
-              Text(
-                plan.description,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 14,
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.purple.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  advice.aiAnalysis,
+                  style: const TextStyle(color: Colors.white, fontSize: 13),
                 ),
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 12),
               Row(
                 children: [
-                  Icon(Icons.track_changes, color: Colors.teal, size: 16),
+                  const Icon(Icons.savings, color: Colors.teal, size: 16),
                   const SizedBox(width: 4),
                   Text(
-                    'Target: RM${plan.targetAmount.toStringAsFixed(0)}/month',
-                    style: const TextStyle(color: Colors.white70, fontSize: 12),
+                    'Savings Target: RM${advice.monthlySavingsTarget.toStringAsFixed(0)}/month',
+                    style: const TextStyle(color: Colors.teal, fontSize: 12),
                   ),
                 ],
               ),
               const SizedBox(height: 8),
-              LinearProgressIndicator(
-                value: plan.progressPercentage / 100,
-                backgroundColor: Colors.grey[800],
-                color: Colors.teal,
-                minHeight: 6,
-              ),
-              const SizedBox(height: 12),
               const Text(
-                'Top Actions:',
+                'Top Recommendations:',
                 style: TextStyle(
                   color: Colors.white,
                   fontSize: 12,
@@ -874,32 +911,39 @@ class _FinancialPlanPageState extends State<FinancialPlanPage> with TickerProvid
                 ),
               ),
               const SizedBox(height: 4),
-              ...plan.actionItems.take(2).map((item) => Padding(
-                padding: const EdgeInsets.only(bottom: 4),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Icon(Icons.check_circle_outline, color: Colors.white54, size: 14),
-                    const SizedBox(width: 4),
-                    Expanded(
-                      child: Text(
-                        item,
-                        style: const TextStyle(color: Colors.white70, fontSize: 11),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
+              ...advice.recommendations
+                  .take(2)
+                  .map(
+                    (rec) => Padding(
+                      padding: const EdgeInsets.only(bottom: 4),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            '• ',
+                            style: TextStyle(color: Colors.white70),
+                          ),
+                          Expanded(
+                            child: Text(
+                              rec,
+                              style: const TextStyle(
+                                color: Colors.white70,
+                                fontSize: 11,
+                              ),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
-                  ],
-                ),
-              )),
+                  ),
               const SizedBox(height: 8),
               TextButton(
-                onPressed: () {
-                  _tabController?.animateTo(1);
-                },
+                onPressed: () => _tabController?.animateTo(1),
                 child: const Text(
-                  'View Full Plan →',
-                  style: TextStyle(color: Colors.teal, fontSize: 12),
+                  'View Full Analysis →',
+                  style: TextStyle(color: Colors.purple, fontSize: 12),
                 ),
               ),
             ],
@@ -909,8 +953,7 @@ class _FinancialPlanPageState extends State<FinancialPlanPage> with TickerProvid
     );
   }
 
-  // SIMPLIFIED Plans Tab
-  Widget _buildPlansTab(String userId) {
+  Widget _buildAdviceTab(String userId) {
     return Column(
       children: [
         Padding(
@@ -919,7 +962,7 @@ class _FinancialPlanPageState extends State<FinancialPlanPage> with TickerProvid
             children: [
               const Expanded(
                 child: Text(
-                  'Your Money Plans',
+                  'AI Financial Advice',
                   style: TextStyle(
                     fontSize: 20,
                     fontWeight: FontWeight.bold,
@@ -928,33 +971,43 @@ class _FinancialPlanPageState extends State<FinancialPlanPage> with TickerProvid
                 ),
               ),
               ElevatedButton.icon(
-                onPressed: _isLoading ? null : () => _generateNewPlan(userId),
-                icon: _isLoading
+                onPressed: _isGeneratingAdvice
+                    ? null
+                    : () => _generateNewAdvice(userId),
+                icon: _isGeneratingAdvice
                     ? const SizedBox(
-                  width: 16,
-                  height: 16,
-                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                )
-                    : const Icon(Icons.auto_awesome, color: Colors.white, size: 18),
-                label: Text(_isLoading ? 'Creating...' : 'New Plan'),
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : const Icon(
+                        Icons.auto_awesome,
+                        color: Colors.white,
+                        size: 18,
+                      ),
+                label: Text(
+                  _isGeneratingAdvice ? 'Analyzing...' : 'New Analysis',
+                ),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.teal,
+                  backgroundColor: Colors.purple,
                   foregroundColor: Colors.white,
                 ),
               ),
             ],
           ),
         ),
-        Expanded(child: _buildPlansList(userId)),
+        Expanded(child: _buildAdviceList(userId)),
       ],
     );
   }
 
-  // SIMPLIFIED Plans List
-  Widget _buildPlansList(String userId) {
+  Widget _buildAdviceList(String userId) {
     return StreamBuilder<QuerySnapshot>(
       stream: _firestore
-          .collection('financial_plans')
+          .collection('financial_advice')
           .where('userId', isEqualTo: userId)
           .orderBy('createdAt', descending: true)
           .snapshots(),
@@ -978,27 +1031,41 @@ class _FinancialPlanPageState extends State<FinancialPlanPage> with TickerProvid
                   ),
                   child: Column(
                     children: [
-                      const Icon(Icons.lightbulb_outline, color: Colors.teal, size: 48),
+                      const Icon(
+                        Icons.psychology,
+                        color: Colors.purple,
+                        size: 48,
+                      ),
                       const SizedBox(height: 16),
                       const Text(
-                        'No Money Plans Yet',
-                        style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+                        'No AI Analysis Yet',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
                       const SizedBox(height: 8),
                       const Text(
-                        'Get personalized advice based on your spending and goals',
+                        'Get personalized financial advice based on your spending patterns',
                         style: TextStyle(color: Colors.white70),
                         textAlign: TextAlign.center,
                       ),
                       const SizedBox(height: 20),
                       ElevatedButton.icon(
-                        onPressed: () => _generateNewPlan(userId),
-                        icon: const Icon(Icons.auto_awesome, color: Colors.white),
-                        label: const Text('Create My First Plan'),
+                        onPressed: () => _generateNewAdvice(userId),
+                        icon: const Icon(
+                          Icons.auto_awesome,
+                          color: Colors.white,
+                        ),
+                        label: const Text('Get AI Advice'),
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.teal,
+                          backgroundColor: Colors.purple,
                           foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 32,
+                            vertical: 12,
+                          ),
                         ),
                       ),
                     ],
@@ -1009,14 +1076,15 @@ class _FinancialPlanPageState extends State<FinancialPlanPage> with TickerProvid
           );
         }
 
-        final plans = snapshot.data!.docs;
+        final adviceList = snapshot.data!.docs;
 
         return ListView.builder(
+          controller: _scrollController,
           padding: const EdgeInsets.symmetric(horizontal: 16),
-          itemCount: plans.length,
+          itemCount: adviceList.length,
           itemBuilder: (context, index) {
-            final doc = plans[index];
-            final plan = FinancialPlan.fromMap(
+            final doc = adviceList[index];
+            final advice = FinancialAdvice.fromMap(
               doc.data() as Map<String, dynamic>,
               doc.id,
             );
@@ -1026,202 +1094,293 @@ class _FinancialPlanPageState extends State<FinancialPlanPage> with TickerProvid
               decoration: BoxDecoration(
                 color: Colors.grey[900],
                 borderRadius: BorderRadius.circular(16),
-                border: Border.all(
-                  color: plan.isActive ? Colors.teal.withOpacity(0.3) : Colors.grey[700]!,
-                ),
+                border: Border.all(color: Colors.purple.withOpacity(0.3)),
               ),
               child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Simple Plan Header
+                  // Header
                   Container(
                     padding: const EdgeInsets.all(16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                    child: Row(
                       children: [
-                        Row(
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.all(8),
-                              decoration: BoxDecoration(
-                                color: plan.isActive ? Colors.teal.withOpacity(0.2) : Colors.grey[800],
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              child: Icon(
-                                Icons.lightbulb,
-                                color: plan.isActive ? Colors.teal : Colors.white54,
-                                size: 20,
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    plan.title,
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    plan.description,
-                                    style: const TextStyle(
-                                      color: Colors.white70,
-                                      fontSize: 13,
-                                    ),
-                                    maxLines: 2,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ],
-                              ),
-                            ),
-                            if (plan.isActive)
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                decoration: BoxDecoration(
-                                  color: Colors.teal,
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                                child: const Text(
-                                  'ACTIVE',
-                                  style: TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ),
-                          ],
-                        ),
-                        const SizedBox(height: 16),
-
-                        // Simple Target Display
                         Container(
-                          padding: const EdgeInsets.all(12),
+                          padding: const EdgeInsets.all(8),
                           decoration: BoxDecoration(
-                            color: Colors.grey[800],
+                            color: Colors.purple.withOpacity(0.2),
                             borderRadius: BorderRadius.circular(8),
                           ),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          child: const Icon(
+                            Icons.psychology,
+                            color: Colors.purple,
+                            size: 20,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              const Text(
-                                'Monthly Target',
-                                style: TextStyle(color: Colors.white70, fontSize: 14),
-                              ),
                               Text(
-                                'RM${plan.targetAmount.toStringAsFixed(0)}',
+                                advice.title,
                                 style: const TextStyle(
-                                  color: Colors.teal,
+                                  color: Colors.white,
                                   fontSize: 16,
                                   fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                'Generated ${_getTimeAgo(advice.createdAt)}',
+                                style: const TextStyle(
+                                  color: Colors.white70,
+                                  fontSize: 12,
                                 ),
                               ),
                             ],
                           ),
                         ),
+                        PopupMenuButton<String>(
+                          icon: const Icon(
+                            Icons.more_vert,
+                            color: Colors.white54,
+                          ),
+                          color: Colors.grey[850],
+                          onSelected: (value) {
+                            if (value == 'delete') {
+                              _confirmDeleteAdvice(advice);
+                            }
+                          },
+                          itemBuilder: (context) => [
+                            const PopupMenuItem(
+                              value: 'delete',
+                              child: Row(
+                                children: [
+                                  Icon(
+                                    Icons.delete,
+                                    color: Colors.red,
+                                    size: 20,
+                                  ),
+                                  SizedBox(width: 12),
+                                  Text(
+                                    'Delete',
+                                    style: TextStyle(color: Colors.red),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
                       ],
                     ),
                   ),
 
-                  // Simple Action Items
-                  if (plan.actionItems.isNotEmpty)
-                    Container(
+                  // AI Analysis
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.purple.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                          color: Colors.purple.withOpacity(0.3),
+                        ),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              const Icon(
+                                Icons.auto_awesome,
+                                color: Colors.purple,
+                                size: 16,
+                              ),
+                              const SizedBox(width: 8),
+                              const Text(
+                                'AI Analysis',
+                                style: TextStyle(
+                                  color: Colors.purple,
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            advice.aiAnalysis,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+
+                  const SizedBox(height: 16),
+
+                  // Savings Target
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.teal.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.teal.withOpacity(0.3)),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.savings, color: Colors.teal),
+                          const SizedBox(width: 12),
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                'Recommended Monthly Savings',
+                                style: TextStyle(
+                                  color: Colors.white70,
+                                  fontSize: 12,
+                                ),
+                              ),
+                              Text(
+                                'RM${advice.monthlySavingsTarget.toStringAsFixed(0)}',
+                                style: const TextStyle(
+                                  color: Colors.teal,
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+
+                  const SizedBox(height: 16),
+
+                  // Recommendations
+                  if (advice.recommendations.isNotEmpty)
+                    Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 16),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           const Text(
-                            'Your Action Steps',
+                            'AI Recommendations',
                             style: TextStyle(
                               color: Colors.white,
                               fontSize: 14,
                               fontWeight: FontWeight.bold,
                             ),
                           ),
-                          const SizedBox(height: 8),
-                          ...plan.actionItems.take(3).map((item) => Container(
-                            margin: const EdgeInsets.only(bottom: 8),
-                            padding: const EdgeInsets.all(12),
-                            decoration: BoxDecoration(
-                              color: Colors.grey[800],
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: Row(
-                              children: [
-                                Container(
-                                  width: 6,
-                                  height: 6,
-                                  decoration: const BoxDecoration(
-                                    color: Colors.teal,
-                                    shape: BoxShape.circle,
-                                  ),
-                                ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: Text(
-                                    item,
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 13,
+                          const SizedBox(height: 12),
+                          ...advice.recommendations.asMap().entries.map(
+                            (entry) => Container(
+                              margin: const EdgeInsets.only(bottom: 8),
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: Colors.grey[800],
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Container(
+                                    width: 24,
+                                    height: 24,
+                                    decoration: BoxDecoration(
+                                      color: Colors.purple,
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    child: Center(
+                                      child: Text(
+                                        '${entry.key + 1}',
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
                                     ),
                                   ),
-                                ),
-                              ],
-                            ),
-                          )),
-                          if (plan.actionItems.length > 3)
-                            Padding(
-                              padding: const EdgeInsets.only(bottom: 8),
-                              child: Text(
-                                '+${plan.actionItems.length - 3} more steps',
-                                style: const TextStyle(
-                                  color: Colors.teal,
-                                  fontSize: 12,
-                                ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Text(
+                                      entry.value,
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 13,
+                                      ),
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
+                          ),
                         ],
                       ),
                     ),
 
-                  // Simple Action Buttons
-                  Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: OutlinedButton(
-                            onPressed: () => _showSimplePlanDetails(plan),
-                            style: OutlinedButton.styleFrom(
-                              side: const BorderSide(color: Colors.teal),
-                            ),
-                            child: const Text(
-                              'View Full Plan',
-                              style: TextStyle(color: Colors.teal),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        if (plan.isActive)
-                          Expanded(
-                            child: ElevatedButton(
-                              onPressed: () => _showProgressHelp(plan),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.teal,
-                              ),
-                              child: const Text(
-                                'How Am I Doing?',
-                                style: TextStyle(color: Colors.white),
-                              ),
+                  // Category Advice
+                  if (advice.categoryAdvice.isNotEmpty) ...[
+                    const SizedBox(height: 16),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Category-Specific Advice',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 14,
+                              fontWeight: FontWeight.bold,
                             ),
                           ),
-                      ],
+                          const SizedBox(height: 12),
+                          ...advice.categoryAdvice.entries.map(
+                            (entry) => Container(
+                              margin: const EdgeInsets.only(bottom: 8),
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: Colors.grey[850],
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    entry.key,
+                                    style: const TextStyle(
+                                      color: Colors.orange,
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    entry.value,
+                                    style: const TextStyle(
+                                      color: Colors.white70,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
+                  ],
+
+                  const SizedBox(height: 16),
                 ],
               ),
             );
@@ -1231,224 +1390,122 @@ class _FinancialPlanPageState extends State<FinancialPlanPage> with TickerProvid
     );
   }
 
-  Widget _buildGoalsTab(String userId) {
-    return const GoalPage();
+  List<PieChartSectionData> _buildPieChartSections(
+    Map<String, double> spendingData,
+  ) {
+    final total = spendingData.values.fold(0.0, (sum, amount) => sum + amount);
+    final colors = [
+      Colors.teal,
+      Colors.purple,
+      Colors.orange,
+      Colors.blue,
+      Colors.red,
+      Colors.green,
+      Colors.pink,
+    ];
+
+    return spendingData.entries.take(7).map((entry) {
+      final index = spendingData.keys.toList().indexOf(entry.key);
+      final percentage = total > 0 ? (entry.value / total * 100) : 0.0;
+
+      return PieChartSectionData(
+        color: colors[index % colors.length],
+        value: entry.value,
+        title: '${percentage.toStringAsFixed(0)}%',
+        titleStyle: const TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.bold,
+          color: Colors.white,
+        ),
+        radius: 60,
+      );
+    }).toList();
   }
 
-  Future<void> _generateNewPlan(String userId) async {
+  String _getTimeAgo(DateTime dateTime) {
+    final now = DateTime.now();
+    final difference = now.difference(dateTime);
+
+    if (difference.inDays > 0) {
+      return '${difference.inDays}d ago';
+    } else if (difference.inHours > 0) {
+      return '${difference.inHours}h ago';
+    } else if (difference.inMinutes > 0) {
+      return '${difference.inMinutes}m ago';
+    } else {
+      return 'just now';
+    }
+  }
+
+  Future<void> _generateNewAdvice(String userId) async {
     try {
-      await _generatePersonalizedFinancialPlan(userId);
+      await _generateFinancialAdvice(userId);
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Your new money plan is ready! 🎉'),
-          backgroundColor: Colors.teal,
+          content: Text('Your AI financial analysis is ready! 🎉'),
+          backgroundColor: Colors.purple,
         ),
       );
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Oops! Couldn\'t create plan: ${e.toString()}'),
+          content: Text('Failed to generate advice: ${e.toString()}'),
           backgroundColor: Colors.red,
         ),
       );
     }
   }
 
-  // SIMPLIFIED plan details dialog
-  void _showSimplePlanDetails(FinancialPlan plan) {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.grey[900],
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (context) => DraggableScrollableSheet(
-        initialChildSize: 0.6,
-        maxChildSize: 0.8,
-        minChildSize: 0.4,
-        expand: false,
-        builder: (context, scrollController) => Container(
-          padding: const EdgeInsets.all(24),
-          child: SingleChildScrollView(
-            controller: scrollController,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Center(
-                  child: Container(
-                    width: 40,
-                    height: 4,
-                    margin: const EdgeInsets.only(bottom: 20),
-                    decoration: BoxDecoration(
-                      color: Colors.white30,
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                  ),
-                ),
-
-                // Simple Plan Title
-                Text(
-                  plan.title,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  plan.description,
-                  style: const TextStyle(color: Colors.white70, fontSize: 14),
-                ),
-                const SizedBox(height: 24),
-
-                // Monthly Goal
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: Colors.teal.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.teal.withOpacity(0.3)),
-                  ),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.track_changes, color: Colors.teal),
-                      const SizedBox(width: 12),
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            'Your Monthly Goal',
-                            style: TextStyle(color: Colors.white70, fontSize: 12),
-                          ),
-                          Text(
-                            'Save RM${plan.targetAmount.toStringAsFixed(0)}',
-                            style: const TextStyle(
-                              color: Colors.teal,
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 20),
-
-                // Action Steps
-                const Text(
-                  'Your Action Steps',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                ...plan.actionItems.asMap().entries.map((entry) => Container(
-                  margin: const EdgeInsets.only(bottom: 12),
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: Colors.grey[800],
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Container(
-                        width: 28,
-                        height: 28,
-                        decoration: BoxDecoration(
-                          color: Colors.teal,
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                        child: Center(
-                          child: Text(
-                            '${entry.key + 1}',
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 14,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Text(
-                          entry.value,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 14,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                )),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  // SIMPLIFIED progress help
-  void _showProgressHelp(FinancialPlan plan) {
+  void _confirmDeleteAdvice(FinancialAdvice advice) {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
         backgroundColor: Colors.grey[900],
         title: const Text(
-          'How Am I Doing?',
+          'Delete Advice?',
           style: TextStyle(color: Colors.white),
         ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Your goal: Save RM${plan.targetAmount.toStringAsFixed(0)} this month',
-              style: const TextStyle(color: Colors.white70, fontSize: 16),
-            ),
-            const SizedBox(height: 16),
-            const Text(
-              'To track your progress:',
-              style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              '• Record all your spending in the app\n'
-                  '• Check your savings rate regularly\n'
-                  '• Follow your action steps\n'
-                  '• Update your goal deposits',
-              style: TextStyle(color: Colors.white70),
-            ),
-            const SizedBox(height: 16),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.teal.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: const Text(
-                '💡 Tip: Small consistent steps work better than big changes!',
-                style: TextStyle(color: Colors.teal, fontSize: 12),
-              ),
-            ),
-          ],
+        content: Text(
+          'Are you sure you want to delete this financial advice?',
+          style: const TextStyle(color: Colors.white70),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Got it!', style: TextStyle(color: Colors.teal)),
+            child: const Text(
+              'Cancel',
+              style: TextStyle(color: Colors.white70),
+            ),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _deleteAdvice(advice);
+            },
+            child: const Text('Delete', style: TextStyle(color: Colors.red)),
           ),
         ],
       ),
     );
+  }
+
+  Future<void> _deleteAdvice(FinancialAdvice advice) async {
+    try {
+      await _firestore.collection('financial_advice').doc(advice.id).delete();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Financial advice deleted'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to delete advice: ${e.toString()}'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
   }
 
   void _handleNavigation(int index) {
@@ -1474,7 +1531,7 @@ class _FinancialPlanPageState extends State<FinancialPlanPage> with TickerProvid
     final userId = _auth.currentUser?.uid;
     if (userId == null) {
       return Scaffold(
-        backgroundColor: const Color(0xFF1C1C1C),
+        backgroundColor: const Color.fromRGBO(28, 28, 28, 1),
         body: const Center(
           child: Text(
             'Please log in to access Financial Planning',
@@ -1489,41 +1546,62 @@ class _FinancialPlanPageState extends State<FinancialPlanPage> with TickerProvid
     }
 
     return Scaffold(
-      backgroundColor: const Color(0xFF1C1C1C),
+      backgroundColor: const Color.fromRGBO(28, 28, 28, 1),
       appBar: AppBar(
-        title: const Text('Money Advisor', style: TextStyle(color: Colors.white)),
-        backgroundColor: Colors.black,
-        iconTheme: const IconThemeData(color: Colors.white),
-        bottom: TabBar(
-          controller: _tabController,
-          tabs: const [
-            Tab(text: 'Overview'),
-            Tab(text: 'Plans'),
-            Tab(text: 'Goals'),
+        backgroundColor: const Color.fromRGBO(28, 28, 28, 1),
+        elevation: 0,
+        automaticallyImplyLeading: false,
+        title: const Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(
+              'AI Financial Advisor',
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+                color: Colors.white,
+              ),
+            ),
+            Text(
+              'Smart insights from your spending',
+              style: TextStyle(fontSize: 12, color: Colors.white70),
+            ),
           ],
-          labelColor: Colors.teal,
-          unselectedLabelColor: Colors.white54,
-          indicatorColor: Colors.teal,
         ),
+        centerTitle: true,
       ),
-      body: TabBarView(
-        controller: _tabController,
+      body: Column(
         children: [
-          _buildOverviewTab(userId),
-          _buildPlansTab(userId),
-          _buildGoalsTab(userId),
+          Container(
+            color: const Color.fromRGBO(28, 28, 28, 1),
+            child: TabBar(
+              controller: _tabController,
+              tabs: const [
+                Tab(text: 'Overview'),
+                Tab(text: 'AI Advice'),
+              ],
+              labelColor: Colors.purple,
+              unselectedLabelColor: Colors.white54,
+              indicatorColor: Colors.purple,
+              indicatorWeight: 3,
+            ),
+          ),
+          Expanded(
+            child: TabBarView(
+              controller: _tabController,
+              children: [_buildOverviewTab(userId), _buildAdviceTab(userId)],
+            ),
+          ),
         ],
       ),
+      floatingActionButton: PersistentAddButton(
+        scrollController: _scrollController,
+      ),
+      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
       bottomNavigationBar: BottomNavBar(
         currentIndex: _selectedIndex,
         onTap: _handleNavigation,
       ),
     );
-  }
-
-  @override
-  void dispose() {
-    _tabController?.dispose();
-    super.dispose();
   }
 }

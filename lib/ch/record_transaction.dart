@@ -6,6 +6,7 @@ import 'package:smooth_page_indicator/smooth_page_indicator.dart';
 import 'categories_list.dart';
 import 'category_grid.dart';
 import 'select_card_popup.dart';
+import 'package:fyp/wc/gamification_service.dart';
 
 class RecordTransactionPage extends StatefulWidget {
   const RecordTransactionPage({super.key});
@@ -30,6 +31,7 @@ class _RecordTransactionPageState extends State<RecordTransactionPage> {
 
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final FirebaseAuth _auth = FirebaseAuth.instance;
+  final GamificationService _gamificationService = GamificationService();
 
   late List<Map<String, dynamic>> _categories = [];
 
@@ -218,6 +220,24 @@ class _RecordTransactionPageState extends State<RecordTransactionPage> {
                 (_selectedCard!['balance'] ?? 0.0) - calculatorResult;
           }
         });
+      }
+
+      // UPDATE CHALLENGES AFTER SUCCESSFUL TRANSACTION
+      try {
+        // Force an immediate check and update
+        await _gamificationService.checkAndUpdateChallenges();
+        print('Challenges updated after transaction');
+
+        // For consecutive days challenges, do an extra check
+        final userId = _auth.currentUser?.uid;
+        if (userId != null) {
+          // This ensures consecutive days are properly counted
+          await Future.delayed(const Duration(milliseconds: 500));
+          await _gamificationService.checkAndUpdateChallenges();
+        }
+      } catch (e) {
+        print('Error updating challenges: $e');
+        // Don't fail the transaction if challenge update fails
       }
 
       // FIXED NAVIGATION - Instead of popUntil, use proper navigation

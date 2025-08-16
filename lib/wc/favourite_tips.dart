@@ -16,7 +16,7 @@ class FavoriteTipsScreen extends StatefulWidget {
 class _FavoriteTipsScreenState extends State<FavoriteTipsScreen> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final FirebaseAuth _auth = FirebaseAuth.instance;
-  int _selectedIndex = 2; // Align with "Favorites" tab
+
 
   Future<void> _unlikeTip(String tipId) async {
     final userId = _auth.currentUser?.uid;
@@ -164,32 +164,7 @@ class _FavoriteTipsScreenState extends State<FavoriteTipsScreen> {
           );
         },
       ),
-      bottomNavigationBar: BottomNavBar(
-        currentIndex: _selectedIndex,
-        onTap: (index) {
-          setState(() {
-            _selectedIndex = index;
-          });
-          if (index == 0) {
-            Navigator.pushReplacement(
-              context,
-              MaterialPageRoute(builder: (context) => const HomePage()),
-            );
-          } else if (index == 1) {
-            Navigator.pushReplacement(
-              context,
-              MaterialPageRoute(builder: (context) => const FinancialTipsScreen()),
-            );
-          } else if (index == 2) {
-            // Stay on FavoriteTipsScreen
-          } else if (index == 3) {
-            Navigator.pushReplacement(
-              context,
-              MaterialPageRoute(builder: (context) => const SettingsPage()),
-            );
-          }
-        },
-      ),
+
     );
   }
 

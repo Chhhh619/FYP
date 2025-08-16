@@ -39,8 +39,7 @@ class GamificationService {
           continue;
         }
 
-        // Get user's assignment date (when they were assigned this challenge)
-        // If no assignment date exists, use challenge creation date
+        // Get user's assignment date
         DateTime trackingStartDate = challengeCreatedAt.toDate();
 
         if (progressDoc.exists) {
@@ -52,8 +51,9 @@ class GamificationService {
 
         print('DEBUG: Tracking progress for challenge $challengeId from $trackingStartDate');
 
-        // Calculate progress based on challenge type, but only from the tracking start date
+        // Calculate progress based on challenge type
         double progress = 0;
+        Map<String, dynamic> additionalData = {};
 
         switch (challenge['type']) {
           case 'transaction_count':
@@ -61,12 +61,22 @@ class GamificationService {
             break;
           case 'spending_limit':
             progress = await _getSpendingAmount(userId, challenge['period'], trackingStartDate);
+            if (progress >= 0) {
+              additionalData['currentSpending'] = progress;
+            }
             break;
           case 'category_spending':
-            progress = await _getCategorySpending(userId, challenge['categoryName'], challenge['period'], trackingStartDate);
+            progress = await _getCategorySpending(userId, challenge['categoryName'], challenge['period'], challenge['comparisonType'], trackingStartDate);
+            if (progress >= 0) {
+              additionalData['currentSpending'] = progress;
+            }
             break;
           case 'savings_goal':
-            progress = await _getSavingsAmount(userId, challenge['period'], trackingStartDate);
+            final savingsData = await _getSavingsProgress(userId, challenge['period'], trackingStartDate);
+            progress = savingsData['isPeriodComplete'] ? savingsData['currentSavings'] : -1;
+            additionalData['currentSavings'] = savingsData['currentSavings'];
+            additionalData['totalIncome'] = savingsData['totalIncome'];
+            additionalData['totalExpenses'] = savingsData['totalExpenses'];
             break;
           case 'consecutive_days':
             progress = await _getConsecutiveDays(userId, trackingStartDate);
@@ -81,40 +91,34 @@ class GamificationService {
         // Update user's progress
         final isCompleted = _checkIfCompleted(progress, challenge);
 
+        // For display purposes, if progress is -1 (period not complete), show as 0
+        final displayProgress = progress == -1 ? 0.0 : progress;
+
+        // Prepare the update data
+        Map<String, dynamic> updateData = {
+          'progress': displayProgress, // Ensure this is always double
+          'isCompleted': isCompleted,
+          'lastUpdated': FieldValue.serverTimestamp(),
+          'trackingStartDate': Timestamp.fromDate(trackingStartDate),
+          'periodNotComplete': progress == -1, // Add flag to indicate waiting for period
+          ...additionalData, // Include currentSpending/currentSavings as double
+        };
+
+        if (isCompleted && (!progressDoc.exists || progressDoc.data()?['isCompleted'] != true)) {
+          updateData['completedAt'] = FieldValue.serverTimestamp();
+        }
+
         await _firestore
             .collection('users')
             .doc(userId)
             .collection('challengeProgress')
             .doc(challengeId)
-            .set({
-          'progress': progress,
-          'isCompleted': isCompleted,
-          'lastUpdated': FieldValue.serverTimestamp(),
-          'trackingStartDate': Timestamp.fromDate(trackingStartDate),
-          if (isCompleted && (!progressDoc.exists || progressDoc.data()?['isCompleted'] != true))
-            'completedAt': FieldValue.serverTimestamp(),
-        }, SetOptions(merge: true));
+            .set(updateData, SetOptions(merge: true));
 
-        print('Updated challenge $challengeId: progress=$progress, completed=$isCompleted');
+        print('Updated challenge $challengeId: progress=$displayProgress, completed=$isCompleted, periodNotComplete=${progress == -1}');
       }
     } catch (e) {
       print('Error updating challenges: $e');
-    }
-  }
-
-  bool _checkIfCompleted(double progress, Map<String, dynamic> challenge) {
-    final targetValue = challenge['targetValue'] ?? 1;
-    final comparisonType = challenge['comparisonType'] ?? 'greater_equal';
-
-    switch (comparisonType) {
-      case 'greater_equal':
-        return progress >= targetValue;
-      case 'less_equal':
-        return progress <= targetValue;
-      case 'equal':
-        return progress == targetValue;
-      default:
-        return progress >= targetValue;
     }
   }
 
@@ -132,8 +136,93 @@ class GamificationService {
     return transactionsSnapshot.docs.length.toDouble();
   }
 
+  bool _shouldEvaluateChallenge(String challengeType, String period, DateTime trackingStartDate, String? comparisonType) {
+    final now = DateTime.now();
+    final daysSinceStart = now.difference(trackingStartDate).inDays;
+
+    // For spending and savings challenges, check comparison type
+    if (challengeType == 'spending_limit' ||
+        challengeType == 'savings_goal') {
+      // These always require period completion
+      switch (period) {
+        case 'daily':
+          final endOfDay = DateTime(
+              trackingStartDate.year,
+              trackingStartDate.month,
+              trackingStartDate.day,
+              23, 59, 59
+          );
+          return now.isAfter(endOfDay);
+
+        case 'weekly':
+          final endOfWeek = trackingStartDate.add(const Duration(days: 7));
+          return now.isAfter(endOfWeek);
+
+        case 'monthly':
+          final nextMonth = DateTime(
+            trackingStartDate.year,
+            trackingStartDate.month + 1,
+            1,
+          );
+          final endOfMonth = nextMonth.subtract(const Duration(seconds: 1));
+          return now.isAfter(endOfMonth);
+
+        default:
+          return daysSinceStart >= 1;
+      }
+    }
+
+    // For category spending, check comparison type
+    if (challengeType == 'category_spending') {
+      // If it's "at least" (greater_equal), evaluate immediately
+      if (comparisonType == 'greater_equal') {
+        return true; // Always evaluate for "at least" challenges
+      }
+
+      // If it's "at most" (less_equal), require period completion
+      if (comparisonType == 'less_equal') {
+        switch (period) {
+          case 'daily':
+            final endOfDay = DateTime(
+                trackingStartDate.year,
+                trackingStartDate.month,
+                trackingStartDate.day,
+                23, 59, 59
+            );
+            return now.isAfter(endOfDay);
+
+          case 'weekly':
+            final endOfWeek = trackingStartDate.add(const Duration(days: 7));
+            return now.isAfter(endOfWeek);
+
+          case 'monthly':
+            final nextMonth = DateTime(
+              trackingStartDate.year,
+              trackingStartDate.month + 1,
+              1,
+            );
+            final endOfMonth = nextMonth.subtract(const Duration(seconds: 1));
+            return now.isAfter(endOfMonth);
+
+          default:
+            return daysSinceStart >= 1;
+        }
+      }
+    }
+
+    // For other challenge types, evaluate immediately
+    return true;
+  }
+
   Future<double> _getSpendingAmount(String userId, String period, DateTime trackingStartDate) async {
     final dateRange = _getDateRangeFromStartDate(period, trackingStartDate);
+    final now = DateTime.now();
+
+    // For spending limit challenges, check if period is complete
+    if (!_shouldEvaluateChallenge('spending_limit', period, trackingStartDate, null)) {
+      print('DEBUG: Spending limit period not complete. Period: $period, Start: $trackingStartDate');
+      return -1;
+    }
 
     final transactionsSnapshot = await _firestore
         .collection('transactions')
@@ -162,14 +251,25 @@ class GamificationService {
       }
     }
 
-    print('DEBUG: Total spending for period $period from ${dateRange['start']} to ${dateRange['end']}: $totalSpending');
+    print('DEBUG: Total spending for completed period $period: $totalSpending');
     return totalSpending;
   }
 
-  Future<double> _getCategorySpending(String userId, String categoryName, String period, DateTime trackingStartDate) async {
+  Future<double> _getCategorySpending(String userId, String categoryName, String period, String? comparisonType, DateTime trackingStartDate) async {
     final dateRange = _getDateRangeFromStartDate(period, trackingStartDate);
+    final now = DateTime.now();
 
-    print('DEBUG: Searching for category "$categoryName" spending from ${dateRange['start']} to ${dateRange['end']}');
+    // Check if we should evaluate this challenge based on comparison type
+    if (!_shouldEvaluateChallenge('category_spending', period, trackingStartDate, comparisonType)) {
+      print('DEBUG: Category spending period not complete. Period: $period, Category: $categoryName, Comparison: $comparisonType');
+      return -1; // Indicate period not complete (only for "at most" challenges)
+    }
+
+    // For "at least" challenges, use current time instead of period end
+    // For "at most" challenges that passed the evaluation check, use period end
+    final endTime = (comparisonType == 'greater_equal') ? now : dateRange['end']!;
+
+    print('DEBUG: Searching for category "$categoryName" spending from ${dateRange['start']} to $endTime (comparison: $comparisonType)');
 
     // Try multiple approaches to find the category
     QuerySnapshot categoryQuery;
@@ -192,7 +292,7 @@ class GamificationService {
           .get();
     }
 
-    // If still no results, try case-insensitive search for global or user-specific categories
+    // If still no results, try case-insensitive search
     if (categoryQuery.docs.isEmpty) {
       final allCategoriesSnapshot = await _firestore
           .collection('categories')
@@ -214,17 +314,16 @@ class GamificationService {
       final categoryDoc = filteredDocs.first;
       final DocumentReference categoryRef = _firestore.collection('categories').doc(categoryDoc.id);
 
-      // Query transactions for the category within the tracking period
+      // Query transactions for the category
       final transactionsSnapshot = await _firestore
           .collection('transactions')
           .where('userId', isEqualTo: userId)
           .where('category', isEqualTo: categoryRef)
           .where('timestamp', isGreaterThanOrEqualTo: Timestamp.fromDate(dateRange['start']!))
-          .where('timestamp', isLessThanOrEqualTo: Timestamp.fromDate(dateRange['end']!))
+          .where('timestamp', isLessThanOrEqualTo: Timestamp.fromDate(endTime))
           .get();
 
       double totalSpending = 0;
-
       for (var doc in transactionsSnapshot.docs) {
         final data = doc.data();
         final amount = data['amount'] is int
@@ -233,24 +332,22 @@ class GamificationService {
         totalSpending += amount.abs();
       }
 
-      print('DEBUG: Category $categoryName spending from tracking start: $totalSpending');
+      print('DEBUG: Category $categoryName spending: $totalSpending (comparison: $comparisonType)');
       return totalSpending;
     }
 
     final categoryDoc = categoryQuery.docs.first;
     final DocumentReference categoryRef = _firestore.collection('categories').doc(categoryDoc.id);
 
-    // Query transactions for the category within the tracking period
     final transactionsSnapshot = await _firestore
         .collection('transactions')
         .where('userId', isEqualTo: userId)
         .where('category', isEqualTo: categoryRef)
         .where('timestamp', isGreaterThanOrEqualTo: Timestamp.fromDate(dateRange['start']!))
-        .where('timestamp', isLessThanOrEqualTo: Timestamp.fromDate(dateRange['end']!))
+        .where('timestamp', isLessThanOrEqualTo: Timestamp.fromDate(endTime))
         .get();
 
     double totalSpending = 0;
-
     for (var doc in transactionsSnapshot.docs) {
       final data = doc.data();
       final amount = data['amount'] is int
@@ -259,13 +356,21 @@ class GamificationService {
       totalSpending += amount.abs();
     }
 
-    print('DEBUG: Category $categoryName spending from tracking start: $totalSpending');
+    print('DEBUG: Category $categoryName spending: $totalSpending (comparison: $comparisonType)');
     return totalSpending;
   }
 
+  // Replace the _getSavingsAmount method with this updated version
   Future<double> _getSavingsAmount(String userId, String period, DateTime trackingStartDate) async {
     final dateRange = _getDateRangeFromStartDate(period, trackingStartDate);
 
+    // Check if period is complete for savings goals
+    if (!_shouldEvaluateChallenge('savings_goal', period, trackingStartDate, null)) {
+      print('DEBUG: Savings period not complete. Period: $period');
+      return -1; // Indicate period not complete
+    }
+
+    // Only calculate actual savings if the period is complete
     final transactionsSnapshot = await _firestore
         .collection('transactions')
         .where('userId', isEqualTo: userId)
@@ -298,27 +403,126 @@ class GamificationService {
     }
 
     final savings = totalIncome - totalExpenses;
-    print('DEBUG: Savings from tracking start: Income=$totalIncome, Expenses=$totalExpenses, Net=$savings');
-    return savings; // Net savings
+    print('DEBUG: Savings (period complete): Income=$totalIncome, Expenses=$totalExpenses, Net=$savings');
+    return savings;
+  }
+
+  bool _checkIfCompleted(double progress, Map<String, dynamic> challenge) {
+    final targetValue = challenge['targetValue'] ?? 1;
+    final comparisonType = challenge['comparisonType'] ?? 'greater_equal';
+    final challengeType = challenge['type'] ?? '';
+
+    // If progress is -1, it means the period is not complete
+    // Don't mark as complete regardless of comparison type
+    if (progress == -1) {
+      return false;
+    }
+
+    // For spending and savings challenges, additional validation
+    if (challengeType == 'spending_limit' ||
+        challengeType == 'savings_goal') {
+      // If the progress indicates period not complete, don't mark as complete
+      if (progress < 0) {
+        return false;
+      }
+    }
+
+    // For category spending with "at least" comparison, complete when target is reached
+    if (challengeType == 'category_spending' && comparisonType == 'greater_equal') {
+      return progress >= targetValue;
+    }
+
+    switch (comparisonType) {
+      case 'greater_equal':
+        return progress >= targetValue;
+      case 'less_equal':
+        return progress <= targetValue;
+      case 'equal':
+        return progress == targetValue;
+      default:
+        return progress >= targetValue;
+    }
+  }
+
+  Future<Map<String, dynamic>> _getSavingsProgress(String userId, String period, DateTime trackingStartDate) async {
+    final dateRange = _getDateRangeFromStartDate(period, trackingStartDate);
+    final now = DateTime.now();
+
+    // Calculate how much of the period has passed
+    final totalPeriodDuration = dateRange['end']!.difference(dateRange['start']!).inSeconds;
+    final elapsedDuration = now.difference(dateRange['start']!).inSeconds;
+    final periodProgress = (elapsedDuration / totalPeriodDuration).clamp(0.0, 1.0);
+
+    // Get current transactions
+    final transactionsSnapshot = await _firestore
+        .collection('transactions')
+        .where('userId', isEqualTo: userId)
+        .where('timestamp', isGreaterThanOrEqualTo: Timestamp.fromDate(dateRange['start']!))
+        .where('timestamp', isLessThanOrEqualTo: Timestamp.fromDate(now)) // Use current time instead of period end
+        .get();
+
+    double totalIncome = 0;
+    double totalExpenses = 0;
+
+    for (var doc in transactionsSnapshot.docs) {
+      final data = doc.data();
+      final categoryRef = data['category'] as DocumentReference?;
+
+      if (categoryRef != null) {
+        final categoryDoc = await categoryRef.get();
+        if (categoryDoc.exists && categoryDoc.data() != null) {
+          final categoryData = categoryDoc.data() as Map<String, dynamic>;
+          final amount = data['amount'] is int
+              ? (data['amount'] as int).toDouble()
+              : (data['amount'] as double? ?? 0.0);
+
+          if (categoryData['type'] == 'income') {
+            totalIncome += amount;
+          } else if (categoryData['type'] == 'expense') {
+            totalExpenses += amount.abs();
+          }
+        }
+      }
+    }
+
+    final currentSavings = totalIncome - totalExpenses;
+
+    return {
+      'currentSavings': currentSavings,
+      'periodProgress': periodProgress,
+      'isPeriodComplete': periodProgress >= 1.0,
+      'totalIncome': totalIncome,
+      'totalExpenses': totalExpenses,
+      'daysRemaining': dateRange['end']!.difference(now).inDays,
+    };
   }
 
   Future<double> _getConsecutiveDays(String userId, DateTime trackingStartDate) async {
     final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
 
-    // Only look at transactions from the tracking start date forward
-    final searchStartDate = trackingStartDate.isAfter(now.subtract(const Duration(days: 30)))
+    // Get all transactions from tracking start date
+    final startSearchDate = trackingStartDate.isAfter(today.subtract(const Duration(days: 365)))
         ? trackingStartDate
-        : now.subtract(const Duration(days: 30));
+        : today.subtract(const Duration(days: 365));
+
+    print('DEBUG: Checking consecutive days from $startSearchDate to $now');
 
     final transactionsSnapshot = await _firestore
         .collection('transactions')
         .where('userId', isEqualTo: userId)
-        .where('timestamp', isGreaterThanOrEqualTo: Timestamp.fromDate(searchStartDate))
+        .where('timestamp', isGreaterThanOrEqualTo: Timestamp.fromDate(startSearchDate))
         .where('timestamp', isLessThanOrEqualTo: Timestamp.fromDate(now))
         .orderBy('timestamp', descending: true)
         .get();
 
-    Set<String> daysWithTransactions = {};
+    if (transactionsSnapshot.docs.isEmpty) {
+      print('DEBUG: No transactions found for consecutive days');
+      return 0;
+    }
+
+    // Create a set of dates with transactions (normalized to start of day)
+    Set<DateTime> datesWithTransactions = {};
 
     for (var doc in transactionsSnapshot.docs) {
       final timestamp = doc.data()['timestamp'] as Timestamp?;
@@ -326,34 +530,57 @@ class GamificationService {
         final date = timestamp.toDate();
         // Only count days from tracking start date forward
         if (date.isAfter(trackingStartDate.subtract(const Duration(days: 1)))) {
-          final dayKey = '${date.year}-${date.month}-${date.day}';
-          daysWithTransactions.add(dayKey);
+          final normalizedDate = DateTime(date.year, date.month, date.day);
+          datesWithTransactions.add(normalizedDate);
         }
       }
     }
 
-    // Count consecutive days from today backwards, but only from tracking start date
-    int consecutiveDays = 0;
-    DateTime checkDate = DateTime(now.year, now.month, now.day);
-    final trackingStartDayKey = '${trackingStartDate.year}-${trackingStartDate.month}-${trackingStartDate.day}';
+    if (datesWithTransactions.isEmpty) {
+      print('DEBUG: No valid transaction dates found');
+      return 0;
+    }
 
-    while (consecutiveDays < 30) {
-      final dayKey = '${checkDate.year}-${checkDate.month}-${checkDate.day}';
+    // Sort dates in descending order (most recent first)
+    final sortedDates = datesWithTransactions.toList()
+      ..sort((a, b) => b.compareTo(a));
+
+    print('DEBUG: Dates with transactions: ${sortedDates.map((d) => '${d.year}-${d.month}-${d.day}').toList()}');
+
+    // Count consecutive days starting from today or the most recent transaction
+    int consecutiveDays = 0;
+    DateTime checkDate = today;
+
+    // If there's no transaction today, check if there was one yesterday
+    if (!datesWithTransactions.contains(today)) {
+      final yesterday = today.subtract(const Duration(days: 1));
+      if (datesWithTransactions.contains(yesterday)) {
+        // Start counting from yesterday if there's a transaction there
+        checkDate = yesterday;
+      } else {
+        // No transaction today or yesterday - streak is broken
+        print('DEBUG: No transaction today or yesterday - streak broken');
+        return 0;
+      }
+    }
+
+    // Count consecutive days going backwards
+    while (datesWithTransactions.contains(checkDate)) {
+      consecutiveDays++;
+      checkDate = checkDate.subtract(const Duration(days: 1));
 
       // Don't count days before tracking started
-      if (checkDate.isBefore(trackingStartDate)) {
+      if (checkDate.isBefore(trackingStartDate.subtract(const Duration(days: 1)))) {
         break;
       }
 
-      if (daysWithTransactions.contains(dayKey)) {
-        consecutiveDays++;
-        checkDate = checkDate.subtract(const Duration(days: 1));
-      } else {
+      // Limit to reasonable maximum (e.g., 365 days)
+      if (consecutiveDays >= 365) {
         break;
       }
     }
 
-    print('DEBUG: Consecutive days from tracking start ($trackingStartDate): $consecutiveDays');
+    print('DEBUG: Consecutive days count: $consecutiveDays');
     return consecutiveDays.toDouble();
   }
 
@@ -423,7 +650,7 @@ class GamificationService {
       {
         'title': 'Transaction Master',
         'description': 'Record 10 transactions this month',
-        'icon': '📝',
+        'icon': '📊',
         'type': 'transaction_count',
         'period': 'monthly',
         'targetValue': 10,
@@ -433,7 +660,7 @@ class GamificationService {
           'id': 'transaction_master',
           'name': 'Transaction Master',
           'description': 'Recorded 10 transactions in a month',
-          'icon': '📝',
+          'icon': '📊',
         },
         'isActive': true,
         'createdAt': FieldValue.serverTimestamp(),

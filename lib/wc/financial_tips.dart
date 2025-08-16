@@ -186,7 +186,7 @@ class _FinancialTipsScreenState extends State<FinancialTipsScreen> {
   final TipService _tipService = TipService();
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-  int _selectedIndex = 1; // Align with "Trending" tab
+
   int _totalTips = 0;
   int _engagedTips = 0;
   Set<String> _currentTipIds = {};
@@ -597,32 +597,7 @@ class _FinancialTipsScreenState extends State<FinancialTipsScreen> {
           ),
         ],
       ),
-      bottomNavigationBar: BottomNavBar(
-        currentIndex: _selectedIndex,
-        onTap: (index) {
-          setState(() {
-            _selectedIndex = index;
-          });
-          if (index == 0) {
-            Navigator.pushReplacement(
-              context,
-              MaterialPageRoute(builder: (context) => const HomePage()),
-            );
-          } else if (index == 1) {
-            // Stay on FinancialTipsScreen
-          } else if (index == 2) {
-            Navigator.pushReplacement(
-              context,
-              MaterialPageRoute(builder: (context) => const FavoriteTipsScreen()),
-            );
-          } else if (index == 3) {
-            Navigator.pushReplacement(
-              context,
-              MaterialPageRoute(builder: (context) => const SettingsPage()),
-            );
-          }
-        },
-      ),
+
     );
   }
 
