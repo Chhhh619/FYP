@@ -295,7 +295,7 @@ class _FinancialPlanPageState extends State<FinancialPlanPage>
       final transactionCounts =
           financialData['transactionCounts'] as Map<String, int>;
 
-      // Create detailed prompt for AI analysis
+
       final prompt =
           '''
       You are a professional financial advisor analyzing a user's spending patterns. Provide personalized financial advice based on their actual transaction data.
