@@ -520,7 +520,7 @@ class _SettingsPageState extends State<SettingsPage> {
                   },
                 ),
                 _buildListTile(
-                  leadingIcon: Icons.currency_exchange,
+                  leadingIcon: Icons.attach_money, // Changed from currency_exchange
                   title: 'Income Management',
                   trailing: const Icon(
                     Icons.chevron_right,
@@ -536,7 +536,7 @@ class _SettingsPageState extends State<SettingsPage> {
                   },
                 ),
                 _buildListTile(
-                  leadingIcon: Icons.currency_exchange,
+                  leadingIcon: Icons.file_download, // Changed from currency_exchange
                   title: 'Export Report',
                   trailing: const Icon(
                     Icons.chevron_right,
