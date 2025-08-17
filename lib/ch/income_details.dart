@@ -201,7 +201,16 @@ class _IncomeDetailsPageState extends State<IncomeDetailsPage> {
         'lastGenerated': null, // Will be set when first transaction is generated
       };
 
+      bool isNewIncome = _existingIncomeId == null;
+      bool wasEnabledBefore = false;
+
       if (_existingIncomeId != null) {
+        // Check if it was enabled before this update
+        final existingDoc = await _firestore.collection('incomes').doc(_existingIncomeId).get();
+        if (existingDoc.exists) {
+          wasEnabledBefore = existingDoc.data()?['isEnabled'] ?? false;
+        }
+
         // Update existing income
         await _firestore.collection('incomes').doc(_existingIncomeId).update(incomeData);
       } else {
@@ -210,15 +219,19 @@ class _IncomeDetailsPageState extends State<IncomeDetailsPage> {
         _existingIncomeId = docRef.id;
       }
 
-      // If enabled and start date is today or past, generate first transaction immediately
-      if (_isEnabled && !_startDate.isAfter(DateTime.now())) {
+      bool shouldGenerateTransaction = _isEnabled && !_startDate.isAfter(DateTime.now()) &&
+          (isNewIncome || (!wasEnabledBefore && _isEnabled));
+
+      if (shouldGenerateTransaction) {
         await _generateImmediateTransaction();
       }
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(_isEnabled
-              ? 'Automated income setup successfully!'
+              ? (shouldGenerateTransaction
+              ? 'Automated income setup successfully and first transaction generated!'
+              : 'Automated income updated successfully!')
               : 'Income saved. Enable automation to start recording.'),
           backgroundColor: _isEnabled ? Colors.green : Colors.orange,
         ),
@@ -237,51 +250,86 @@ class _IncomeDetailsPageState extends State<IncomeDetailsPage> {
     try {
       final amount = double.tryParse(_amountController.text.trim()) ?? 0;
 
-      // Always create a new transaction (don't check for existing ones for testing)
-      await _firestore.collection('transactions').add({
+      // Create transaction data with proper type field and current date/time
+      final transactionData = {
         'userId': userId,
         'amount': amount,
-        'timestamp': Timestamp.now(), // Use current time for testing
+        'timestamp': Timestamp.fromDate(_startDate),
         'category': _firestore.collection('categories').doc(widget.categoryId),
-        'incomeId': _existingIncomeId, // Add this to track which income generated this transaction
-      });
+        'incomeId': _existingIncomeId,
+        'type': 'income', // Ensure it's marked as income type
+        'description': 'Manual income: ${widget.category['name']}',
+      };
 
-      // Update card balance if specified
+      // Add card info if specified
       if (_toCard != null) {
-        final cardRef = _firestore
-            .collection('users')
-            .doc(userId)
-            .collection('cards')
-            .doc(_toCard!['id']);
-
-        await _firestore.runTransaction((transaction) async {
-          final cardDoc = await transaction.get(cardRef);
-          if (cardDoc.exists) {
-            final currentBalance = (cardDoc.data()!['balance'] ?? 0.0).toDouble();
-            final newBalance = currentBalance + amount;
-            transaction.update(cardRef, {'balance': newBalance});
-
-            // Update local state
-            setState(() {
-              _toCard!['balance'] = newBalance;
-            });
-          }
-        });
+        transactionData['toCardId'] = _toCard!['id'];
+        transactionData['toCardName'] = _toCard!['name']; // Add card name for display
       }
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Test transaction generated successfully!'),
-          backgroundColor: Colors.green,
-        ),
-      );
+      // Use Firestore transaction for atomicity - READ FIRST, THEN WRITE
+      await _firestore.runTransaction((transaction) async {
+        DocumentSnapshot? cardDoc;
 
-      print('Test income transaction generated');
+        // PERFORM ALL READS FIRST
+        if (_toCard != null) {
+          final cardRef = _firestore
+              .collection('users')
+              .doc(userId)
+              .collection('cards')
+              .doc(_toCard!['id']);
+          cardDoc = await transaction.get(cardRef);
+        }
+
+        // NOW PERFORM ALL WRITES
+        final txRef = _firestore.collection('transactions').doc();
+        transaction.set(txRef, transactionData);
+
+        // Update card balance if specified and card exists
+        if (_toCard != null && cardDoc != null && cardDoc.exists) {
+          final cardRef = _firestore
+              .collection('users')
+              .doc(userId)
+              .collection('cards')
+              .doc(_toCard!['id']);
+
+          final currentBalance = (cardDoc.data()! as Map<String, dynamic>)['balance'] ?? 0.0;
+          final newBalance = (currentBalance as num).toDouble() + amount;
+          transaction.update(cardRef, {'balance': newBalance});
+
+          // Update local state (this runs after transaction completes successfully)
+          Future.delayed(Duration.zero, () {
+            if (mounted) {
+              setState(() {
+                _toCard!['balance'] = newBalance;
+              });
+            }
+          });
+        }
+      });
+
+      // Update the lastGenerated date for the income automation
+      await _firestore.collection('incomes').doc(_existingIncomeId).update({
+        'lastGenerated': Timestamp.fromDate(DateTime.now()),
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Income transaction generated successfully!'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+
+      print('Manual income transaction generated for category: ${widget.category['name']}');
     } catch (e) {
-      print('Error generating test transaction: $e');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to generate transaction: $e')),
-      );
+      print('Error generating manual transaction: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to generate transaction: $e')),
+        );
+      }
     }
   }
 
@@ -592,6 +640,7 @@ class _IncomeDetailsPageState extends State<IncomeDetailsPage> {
       ),
     );
   }
+
 
   @override
   void dispose() {

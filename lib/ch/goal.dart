@@ -15,6 +15,82 @@ class GoalPage extends StatefulWidget {
 class _GoalPageState extends State<GoalPage> {
   final String userId = FirebaseAuth.instance.currentUser!.uid;
 
+  // Helper method to calculate completion date for regular goals
+  DateTime? _calculateCompletionDate(Map<String, dynamic> goal) {
+    final type = goal['type'] ?? 'regular';
+    final totalAmount = (goal['totalAmount'] ?? 1).toDouble();
+    final intervalsDeposited = Map<String, dynamic>.from(goal['intervalsDeposited'] ?? {});
+
+    if (type == 'flexible') {
+      // For flexible goals, use the completedDate from Firestore
+      if (goal['completedDate'] != null) {
+        return (goal['completedDate'] as Timestamp).toDate();
+      }
+      return null;
+    } else {
+      // For regular goals, find the interval where the goal was completed
+      final startDate = (goal['startDate'] as Timestamp).toDate();
+      final repeatType = goal['repeat'] ?? 'Monthly';
+      final repeatCount = (goal['repeatCount'] ?? 1).toInt();
+      final amountPerInterval = totalAmount / repeatCount;
+
+      double runningTotal = 0.0;
+
+      // Sort intervals by index to process in order
+      final sortedIntervals = intervalsDeposited.entries.toList()
+        ..sort((a, b) => int.parse(a.key).compareTo(int.parse(b.key)));
+
+      for (final entry in sortedIntervals) {
+        final intervalIndex = int.parse(entry.key);
+        final intervalData = entry.value;
+
+        double depositAmount = 0.0;
+        if (intervalData is Map<String, dynamic>) {
+          depositAmount = (intervalData['amount'] as num?)?.toDouble() ?? 0.0;
+        } else if (intervalData is num) {
+          depositAmount = intervalData.toDouble();
+        }
+
+        runningTotal += depositAmount;
+
+        // If this deposit completed the goal, return the interval date
+        if (runningTotal >= totalAmount) {
+          return _calculateIntervalDate(startDate, repeatType, intervalIndex);
+        }
+      }
+    }
+
+    return null;
+  }
+
+  // Helper method to calculate interval date
+  DateTime _calculateIntervalDate(DateTime startDate, String repeatType, int intervalIndex) {
+    switch (repeatType.toLowerCase()) {
+      case 'daily':
+        return startDate.add(Duration(days: intervalIndex));
+      case 'weekly':
+        return startDate.add(Duration(days: intervalIndex * 7));
+      case 'monthly':
+        return DateTime(
+          startDate.year,
+          startDate.month + intervalIndex,
+          startDate.day,
+        );
+      case 'yearly':
+        return DateTime(
+          startDate.year + intervalIndex,
+          startDate.month,
+          startDate.day,
+        );
+      default:
+        return DateTime(
+          startDate.year,
+          startDate.month + intervalIndex,
+          startDate.day,
+        );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -171,6 +247,9 @@ class _GoalPageState extends State<GoalPage> {
                       final formatter = NumberFormat.currency(symbol: 'RM');
                       bool isCompleted = status == 'completed' && depositedAmount >= totalAmount;
 
+                      // Get completion date
+                      final completionDate = isCompleted ? _calculateCompletionDate(goal) : null;
+
                       // Enhanced colors and styling based on completion status
                       final backgroundColor = isCompleted ? Colors.teal.withOpacity(0.15) : Colors.grey[850];
                       final borderColor = isCompleted ? Colors.tealAccent.withOpacity(0.5) : Colors.grey[700];
@@ -255,21 +334,37 @@ class _GoalPageState extends State<GoalPage> {
                                             fontWeight: FontWeight.bold)),
                                   ),
                                   if (isCompleted)
-                                    Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                                      decoration: BoxDecoration(
-                                        color: Colors.tealAccent.withOpacity(0.2),
-                                        borderRadius: BorderRadius.circular(20),
-                                        border: Border.all(color: Colors.tealAccent, width: 1),
-                                      ),
-                                      child: const Text(
-                                        'COMPLETED',
-                                        style: TextStyle(
-                                          color: Colors.tealAccent,
-                                          fontSize: 10,
-                                          fontWeight: FontWeight.bold,
+                                    Column(
+                                      crossAxisAlignment: CrossAxisAlignment.end,
+                                      children: [
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                          decoration: BoxDecoration(
+                                            color: Colors.tealAccent.withOpacity(0.2),
+                                            borderRadius: BorderRadius.circular(20),
+                                            border: Border.all(color: Colors.tealAccent, width: 1),
+                                          ),
+                                          child: const Text(
+                                            'COMPLETED',
+                                            style: TextStyle(
+                                              color: Colors.tealAccent,
+                                              fontSize: 10,
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                          ),
                                         ),
-                                      ),
+                                        if (completionDate != null) ...[
+                                          const SizedBox(height: 4),
+                                          Text(
+                                            DateFormat('dd MMM yyyy').format(completionDate),
+                                            style: const TextStyle(
+                                              color: Colors.tealAccent,
+                                              fontSize: 11,
+                                              fontWeight: FontWeight.w500,
+                                            ),
+                                          ),
+                                        ],
+                                      ],
                                     ),
                                 ],
                               ),
