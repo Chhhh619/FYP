@@ -267,7 +267,7 @@ class _AdminChallengesPageState extends State<AdminChallengesPage> {
       if (_selectedType != 'consecutive_days') {
         challengeData['comparisonType'] = _selectedComparison;
       } else {
-        // For consecutive days, always use greater_equal (reach at least X days)
+        // For consecutive days, always use greater_equal
         challengeData['comparisonType'] = 'greater_equal';
       }
 
@@ -322,7 +322,7 @@ class _AdminChallengesPageState extends State<AdminChallengesPage> {
     }
   }
 
-  // New method to assign a single challenge to all users
+  // Assign challenge to all users
   Future<void> _assignChallengeToAllUsers(String challengeId) async {
     try {
       final usersSnapshot = await _firestore.collection('users').get();
@@ -430,6 +430,7 @@ class _AdminChallengesPageState extends State<AdminChallengesPage> {
     });
   }
 
+  // active|deactive challenges
   Future<void> _toggleChallengeStatus(String challengeId, bool currentStatus) async {
     try {
       await _firestore.collection('challenges').doc(challengeId).update({
@@ -500,7 +501,7 @@ class _AdminChallengesPageState extends State<AdminChallengesPage> {
     }
   }
 
-  // New method to delete selected challenges
+  // method to delete selected challenges
   Future<void> _deleteSelectedChallenges() async {
     if (_selectedChallengeIds.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(

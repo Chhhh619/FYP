@@ -25,14 +25,8 @@ class _TrendingPageState extends State<TrendingPage> {
     try {
       print('Fetching data for user: $userId, month: ${DateFormat('yyyy-MM').format(month)}');
 
-      // Fix date calculations
       final monthStart = DateTime(month.year, month.month, 1);
-      DateTime monthEnd;
-      if (month.month == 12) {
-        monthEnd = DateTime(month.year + 1, 1, 1);
-      } else {
-        monthEnd = DateTime(month.year, month.month + 1, 1);
-      }
+      DateTime monthEnd = month.month == 12 ? DateTime(month.year + 1, 1, 1) : DateTime(month.year, month.month + 1, 1);
 
       print('Date range: $monthStart to $monthEnd');
 
@@ -49,8 +43,6 @@ class _TrendingPageState extends State<TrendingPage> {
       double totalIncome = 0.0;
       int transactionCount = 0;
       Map<String, double> categoryTotals = {};
-
-      // Fix daily expenses array size
       final daysInMonth = DateTime(month.year, month.month + 1, 0).day;
       List<double> dailyExpenses = List.filled(daysInMonth, 0.0);
 
@@ -59,56 +51,47 @@ class _TrendingPageState extends State<TrendingPage> {
           final data = doc.data();
           final amount = (data['amount'] as num?)?.toDouble() ?? 0.0;
           final timestamp = data['timestamp'] as Timestamp?;
-          final categoryRef = data['category'] as DocumentReference?;
-
           String transactionType = data['type'] ?? data['categoryType'] ?? '';
+          String categoryName = 'Unknown';
 
-          // If type is not directly available, fetch from category
-          if (transactionType.isEmpty && categoryRef != null) {
+          // Handle category field
+          final categoryField = data['category'];
+          if (categoryField is DocumentReference) {
             try {
-              final categoryDoc = await categoryRef.get();
+              final categoryDoc = await categoryField.get();
               if (categoryDoc.exists) {
                 final categoryData = categoryDoc.data() as Map<String, dynamic>?;
-                transactionType = categoryData?['type'] ?? '';
+                categoryName = categoryData?['name'] ?? 'Unknown';
+                if (transactionType.isEmpty) {
+                  transactionType = categoryData?['type'] ?? '';
+                }
               }
             } catch (e) {
-              print('Error fetching category type: $e');
-              continue; // Skip this transaction
+              print('Error fetching category data for ${doc.id}: $e');
+              categoryName = 'Unknown';
             }
+          } else if (categoryField is String) {
+            categoryName = categoryField;
+          } else {
+            print('Unexpected category field type for ${doc.id}: ${categoryField.runtimeType}');
           }
 
           transactionCount++;
 
           if (transactionType == 'expense') {
             totalExpenses += amount.abs();
-
-            // Add to daily expenses for chart
             if (timestamp != null) {
               final day = timestamp.toDate().day - 1;
               if (day >= 0 && day < dailyExpenses.length) {
                 dailyExpenses[day] += amount.abs();
               }
             }
-
-            // Get category name for breakdown
-            if (categoryRef != null) {
-              try {
-                final categoryDoc = await categoryRef.get();
-                if (categoryDoc.exists) {
-                  final categoryData = categoryDoc.data() as Map<String, dynamic>?;
-                  final categoryName = categoryData?['name'] ?? 'Unknown';
-                  categoryTotals[categoryName] = (categoryTotals[categoryName] ?? 0.0) + amount.abs();
-                }
-              } catch (e) {
-                print('Error fetching category data: $e');
-                categoryTotals['Unknown'] = (categoryTotals['Unknown'] ?? 0.0) + amount.abs();
-              }
-            }
+            categoryTotals[categoryName] = (categoryTotals[categoryName] ?? 0.0) + amount.abs();
           } else if (transactionType == 'income') {
             totalIncome += amount.abs();
           }
         } catch (e) {
-          print('Error processing transaction ${doc.id}: $e');
+          print('Error processing transaction ${doc.id}: $e, Data: ${doc.data()}');
           continue;
         }
       }
@@ -188,6 +171,248 @@ class _TrendingPageState extends State<TrendingPage> {
       print('Error in _fetchComparisonData: $e');
       rethrow;
     }
+  }
+
+  void _showComparisonDetails(String title, double current, double comparison, {bool showAverage = false}) {
+    final difference = current - comparison;
+    final percentageChange = comparison > 0 ? ((difference / comparison) * 100) : 0.0;
+
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          backgroundColor: Colors.grey[900],
+          title: Text(
+            title,
+            style: const TextStyle(color: Colors.white, fontSize: 18),
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildDetailRow('Current Expenses', 'RM${current.toStringAsFixed(2)}'),
+              const SizedBox(height: 12),
+              _buildDetailRow(
+                  showAverage ? 'Average Expenses' : 'Previous Expenses',
+                  'RM${comparison.toStringAsFixed(2)}'
+              ),
+              const Divider(color: Colors.grey),
+              const SizedBox(height: 12),
+              _buildDetailRow('Difference',
+                  'RM${difference.abs().toStringAsFixed(2)}',
+                  color: difference > 0 ? Colors.red : Colors.green
+              ),
+              const SizedBox(height: 12),
+              _buildDetailRow('Change',
+                  '${difference >= 0 ? '+' : ''}${percentageChange.toStringAsFixed(1)}%',
+                  color: difference > 0 ? Colors.red : Colors.green
+              ),
+              const SizedBox(height: 12),
+              _buildDetailRow('Status',
+                  difference > 0 ? 'Spending increased' : 'Spending decreased',
+                  color: difference > 0 ? Colors.orange : Colors.green
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Close', style: TextStyle(color: Colors.teal)),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _showCategoryDetails(Map<String, double> categoryTotals) {
+    final total = categoryTotals.values.fold(0.0, (sum, item) => sum + item);
+    final sortedCategories = categoryTotals.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          backgroundColor: Colors.grey[900],
+          title: const Text(
+            'Expenses Distribution Details',
+            style: TextStyle(color: Colors.white, fontSize: 18),
+          ),
+          content: Container(
+            width: double.maxFinite,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _buildDetailRow('Total Expenses', 'RM${total.toStringAsFixed(2)}'),
+                const Divider(color: Colors.grey),
+                const SizedBox(height: 12),
+                Flexible(
+                  child: SingleChildScrollView(
+                    child: Column(
+                      children: sortedCategories.map((entry) {
+                        final percentage = total > 0 ? (entry.value / total * 100) : 0.0;
+                        return Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 8.0),
+                          child: Row(
+                            children: [
+                              Icon(
+                                _getCategoryIcon(entry.key),
+                                color: _getCategoryColor(entry.key),
+                                size: 20,
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      entry.key,
+                                      style: const TextStyle(color: Colors.white, fontSize: 14),
+                                    ),
+                                    Text(
+                                      '${percentage.toStringAsFixed(1)}% of total',
+                                      style: const TextStyle(color: Colors.white54, fontSize: 12),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              Text(
+                                'RM${entry.value.toStringAsFixed(2)}',
+                                style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.bold
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Close', style: TextStyle(color: Colors.teal)),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _showDailySpendingDetails(List<double> dailyExpenses) {
+    final total = dailyExpenses.fold(0.0, (sum, item) => sum + item);
+    final average = dailyExpenses.isEmpty ? 0.0 : total / dailyExpenses.length;
+    final maxSpending = dailyExpenses.isEmpty ? 0.0 : dailyExpenses.reduce((a, b) => a > b ? a : b);
+    final minSpending = dailyExpenses.isEmpty ? 0.0 : dailyExpenses.reduce((a, b) => a < b ? a : b);
+
+    // Find highest spending day
+    int highestDay = 0;
+    double highestAmount = 0.0;
+    for (int i = 0; i < dailyExpenses.length; i++) {
+      if (dailyExpenses[i] > highestAmount) {
+        highestAmount = dailyExpenses[i];
+        highestDay = i + 1;
+      }
+    }
+
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          backgroundColor: Colors.grey[900],
+          title: const Text(
+            'Daily Spending Details',
+            style: TextStyle(color: Colors.white, fontSize: 18),
+          ),
+          content: Container(
+            width: double.maxFinite,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _buildDetailRow('Total Monthly Spending', 'RM${total.toStringAsFixed(2)}'),
+                const SizedBox(height: 12),
+                _buildDetailRow('Daily Average', 'RM${average.toStringAsFixed(2)}'),
+                const SizedBox(height: 12),
+                _buildDetailRow('Highest Daily Spending', 'RM${maxSpending.toStringAsFixed(2)}'),
+                const SizedBox(height: 8),
+                _buildDetailRow('On Day', '${highestDay} ${DateFormat('MMM').format(_selectedMonth)}',
+                    color: Colors.orange),
+                const SizedBox(height: 12),
+                _buildDetailRow('Lowest Daily Spending', 'RM${minSpending.toStringAsFixed(2)}'),
+                const Divider(color: Colors.grey),
+                const SizedBox(height: 12),
+                Flexible(
+                  child: Container(
+                    height: 200,
+                    child: SingleChildScrollView(
+                      child: Column(
+                        children: List.generate(dailyExpenses.length, (index) {
+                          if (dailyExpenses[index] > 0) {
+                            return Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 4.0),
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Text(
+                                    'Day ${index + 1}',
+                                    style: TextStyle(
+                                        color: index == DateTime.now().day - 1 ? Colors.teal : Colors.white70,
+                                        fontSize: 14
+                                    ),
+                                  ),
+                                  Text(
+                                    'RM${dailyExpenses[index].toStringAsFixed(2)}',
+                                    style: const TextStyle(color: Colors.white, fontSize: 14),
+                                  ),
+                                ],
+                              ),
+                            );
+                          }
+                          return const SizedBox.shrink();
+                        }),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Close', style: TextStyle(color: Colors.teal)),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildDetailRow(String label, String value, {Color? color}) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(color: Colors.white70, fontSize: 14),
+        ),
+        Text(
+          value,
+          style: TextStyle(
+              color: color ?? Colors.white,
+              fontSize: 14,
+              fontWeight: FontWeight.bold
+          ),
+        ),
+      ],
+    );
   }
 
   @override
@@ -357,7 +582,7 @@ class _TrendingPageState extends State<TrendingPage> {
     );
   }
 
-  // Replace the _buildDailySpendingChart with this:
+
   Widget _buildDailySpendingChart(List<double> dailyExpenses) {
     // Find max expense for scaling
     double maxExpense = dailyExpenses.isEmpty ? 100 : dailyExpenses.reduce((a, b) => a > b ? a : b);
@@ -386,7 +611,12 @@ class _TrendingPageState extends State<TrendingPage> {
                   color: Colors.white54,
                 ),
               ),
-              const Icon(Icons.more_vert, color: Colors.white54, size: 20),
+              IconButton(
+                icon: const Icon(Icons.more_vert, color: Colors.white54, size: 20),
+                onPressed: () => _showDailySpendingDetails(dailyExpenses),
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
+              ),
             ],
           ),
           const SizedBox(height: 16),
@@ -466,7 +696,7 @@ class _TrendingPageState extends State<TrendingPage> {
     );
   }
 
-// Replace the _buildPredictionsSection with this:
+
   Widget _buildPredictionsSection(String userId) {
     return FutureBuilder<Map<String, dynamic>>(
       future: _fetchComprehensiveFinancialData(userId),
@@ -594,7 +824,12 @@ class _TrendingPageState extends State<TrendingPage> {
                   color: Colors.white54,
                 ),
               ),
-              const Icon(Icons.more_vert, color: Colors.white54, size: 20),
+              IconButton(
+                icon: const Icon(Icons.more_vert, color: Colors.white54, size: 20),
+                onPressed: () => _showCategoryDetails(categoryTotals),
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
+              ),
             ],
           ),
           const SizedBox(height: 16),
@@ -796,7 +1031,12 @@ class _TrendingPageState extends State<TrendingPage> {
                   ),
                 ),
               ),
-              const Icon(Icons.more_vert, color: Colors.white54, size: 20),
+              IconButton(
+                icon: const Icon(Icons.more_vert, color: Colors.white54, size: 20),
+                onPressed: () => _showComparisonDetails(title, current, comparison, showAverage: showAverage),
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
+              ),
             ],
           ),
           const SizedBox(height: 16),
@@ -896,106 +1136,6 @@ class _TrendingPageState extends State<TrendingPage> {
     }
   }
 
-  Widget _buildAIPredictions(String userId, Map<String, dynamic> currentData) {
-    return FutureBuilder<Map<String, dynamic>>(
-      future: _fetchComprehensiveFinancialData(userId),
-      builder: (context, snapshot) {
-        if (!snapshot.hasData) {
-          return const Center(child: CircularProgressIndicator());
-        }
-
-        final data = snapshot.data!;
-        final monthlySpending = data['monthlySpending'] as List<double>;
-        final monthlyIncome = data['monthlyIncome'] as List<double>;
-        final avgSpending = data['avgMonthlySpending'] as double;
-        final savingsRate = data['savingsRate'] as List<double>;
-        final latestSavingsRate = savingsRate.isNotEmpty ? savingsRate.last : 0.0;
-
-        return Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: Colors.grey[900],
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: Colors.grey[700]!),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'Predictions',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.white,
-                ),
-              ),
-              const SizedBox(height: 16),
-              FutureBuilder<double>(
-                future: _predictNextMonthSpending(userId),
-                builder: (context, predSnapshot) {
-                  if (!predSnapshot.hasData) {
-                    return const Center(child: CircularProgressIndicator());
-                  }
-                  final predictedSpending = predSnapshot.data!;
-                  final currentIncome = monthlyIncome.isNotEmpty ? monthlyIncome.last : 0.0;
-                  final predictedSavings = currentIncome - predictedSpending;
-                  final advice = predictedSavings < 0
-                      ? 'Consider reducing expenses to avoid a deficit next month.'
-                      : 'You\'re on track! Aim to save RM${(predictedSavings * 0.2).toStringAsFixed(2)} more.';
-
-                  return Column(
-                    children: [
-                      _buildPredictionRow(
-                        'Predicted Spending (${DateFormat('MMM yyyy').format(DateTime.now().add(Duration(days: 30)))})',
-                        'RM${predictedSpending.toStringAsFixed(2)}',
-                        Icons.trending_up,
-                        Colors.orange,
-                      ),
-                      const SizedBox(height: 12),
-                      _buildPredictionRow(
-                        'Predicted Savings',
-                        'RM${predictedSavings.toStringAsFixed(2)}',
-                        Icons.savings,
-                        predictedSavings < 0 ? Colors.red : Colors.green,
-                      ),
-                      const SizedBox(height: 12),
-                      _buildPredictionRow(
-                        'Current Savings Rate',
-                        '${(latestSavingsRate * 100).toStringAsFixed(1)}%',
-                        Icons.percent,
-                        latestSavingsRate >= 0.2 ? Colors.green : Colors.yellow,
-                      ),
-                      const SizedBox(height: 16),
-                      Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: Colors.blue.withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: Colors.blue.withOpacity(0.3)),
-                        ),
-                        child: Row(
-                          children: [
-                            Icon(Icons.lightbulb_outline, color: Colors.blue, size: 20),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                advice,
-                                style: const TextStyle(color: Colors.white70, fontSize: 14),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  );
-                },
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
 
   Widget _buildPredictionRow(String title, String value, IconData icon, Color color) {
     return Row(
@@ -1141,12 +1281,12 @@ class _TrendingPageState extends State<TrendingPage> {
       final financialData = await _fetchComprehensiveFinancialData(userId);
       final spendingData = financialData['monthlySpending'] as List<double>;
 
-      // Debug: Verify fetched data
-      print('Spending data: $spendingData'); // Should show [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3907, 4229]
+
+      print('Spending data: $spendingData');
 
       // Use the most recent non-zero months
-      final recentSpending = spendingData.reversed.take(3).toList(); // Take last 3 months (Aug, Jul, Jun)
-      print('Recent spending: $recentSpending'); // Should show [4229, 3907, 0]
+      final recentSpending = spendingData.reversed.take(3).toList(); // Take last 3 months
+      print('Recent spending: $recentSpending');
 
       // Define weights for up to 3 months
       final weights = [0.5, 0.3, 0.2];
@@ -1174,7 +1314,7 @@ class _TrendingPageState extends State<TrendingPage> {
       // Apply seasonality factor for the next month
       final nextMonth = DateTime.now().month + 1;
       final seasonalityFactor = _getSeasonalityFactor(nextMonth);
-      print('Seasonality factor: $seasonalityFactor'); // Should be 1.08 for September
+      print('Seasonality factor: $seasonalityFactor');
 
       double predictedSpending = weightedAverage * seasonalityFactor;
       print('Predicted spending: $predictedSpending');
@@ -1187,31 +1327,31 @@ class _TrendingPageState extends State<TrendingPage> {
   }
 
   double _getSeasonalityFactor(int month) {
-    // Simple seasonality factors (can be customized based on historical data)
+
     switch (month) {
-      case 1: // January - New Year, more spending
+      case 1: // January - new year
         return 1.15;
-      case 2: // February - Valentine's Day
+      case 2: // February - valentine
         return 1.1;
-      case 3: // March - Normal
+      case 3: // March - biasa
         return 1.0;
-      case 4: // April - Normal
+      case 4: // April - biasa
         return 1.0;
-      case 5: // May - Normal
+      case 5: // May - biasa
         return 1.0;
-      case 6: // June - Mid-year
-        return 1.05;
-      case 7: // July - Summer
-        return 1.1;
-      case 8: // August - Normal
+      case 6: // June - biasa
         return 1.0;
-      case 9: // September - Back to school
-        return 1.08;
-      case 10: // October - Normal
+      case 7: // July - biasa
         return 1.0;
-      case 11: // November - Pre-holiday
-        return 1.12;
-      case 12: // December - Holidays, more spending
+      case 8: // August - Merdeka
+        return 1.10;
+      case 9: // September - biasa
+        return 1.0;
+      case 10: // October - biasa
+        return 1.0;
+      case 11: // November - Holiday
+        return 1.15;
+      case 12: // December - Christmas
         return 1.2;
       default:
         return 1.0;
@@ -1236,4 +1376,3 @@ class _TrendingPageState extends State<TrendingPage> {
     super.dispose();
   }
 }
-

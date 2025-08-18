@@ -82,9 +82,9 @@ class _GamificationPageState extends State<GamificationPage> {
         final challengeId = doc.id;
         final progress = userProgress[challengeId];
 
-        // Only show challenges that have been assigned to the user
+        // show challenges that have been assigned to the user
         if (progress == null) {
-          // Check if this is a new challenge that should be auto-assigned
+          // Check if new challenge
           final challengeCreatedAt = challengeData['createdAt'] as Timestamp?;
           if (challengeCreatedAt != null) {
             // Auto-assign new active challenges to users who don't have them yet
@@ -131,7 +131,7 @@ class _GamificationPageState extends State<GamificationPage> {
         // Check if challenge period has expired
         final isExpired = _isChallengeExpired(challengeWithProgress);
 
-        // If expired and not completed, skip it (don't show on main screen)
+        // If expired and not completed, dont show it
         if (isExpired && challengeWithProgress['isCompleted'] != true) {
           continue;
         }
@@ -142,9 +142,7 @@ class _GamificationPageState extends State<GamificationPage> {
           continue;
         }
 
-        // Only include challenges that are either:
-        // 1. Not completed and not expired (active)
-        // 2. Completed but not claimed and not expired (ready to claim)
+        // Only include challenges that are either active and ready to claim
         if (challengeWithProgress['isCompleted'] == true &&
             challengeWithProgress['isClaimed'] == true) {
           continue; // These will appear in CompletedChallengesPage
@@ -169,7 +167,7 @@ class _GamificationPageState extends State<GamificationPage> {
     }
   }
 
-  // Helper method to auto-assign a challenge to a user
+  //method to auto-assign a challenge to a user
   Future<void> _autoAssignChallenge(String challengeId, String userId) async {
     try {
       final progressRef = _firestore
@@ -196,7 +194,7 @@ class _GamificationPageState extends State<GamificationPage> {
   }
 
   bool _isChallengeExpired(Map<String, dynamic> challenge) {
-    // If challenge is already completed and claimed, it shouldn't show here anyway
+    // If challenge is already completed and claimed, it shouldn't be shown
     if (challenge['isCompleted'] == true && challenge['isClaimed'] == true) {
       return true;
     }
@@ -288,7 +286,7 @@ class _GamificationPageState extends State<GamificationPage> {
         'progress': challenge['targetValue'],
       }, SetOptions(merge: true));
 
-      // Add badge if challenge has one
+      // Add badge if available
       if (challenge['rewardBadge'] != null) {
         final badgeRef = _firestore
             .collection('users')
@@ -375,12 +373,12 @@ class _GamificationPageState extends State<GamificationPage> {
     final bool isPeriodBased = ['spending_limit', 'category_spending', 'savings_goal'].contains(challengeType);
     final bool periodNotComplete = challenge['periodNotComplete'] ?? false;
 
-    // Calculate time remaining for ALL challenges (not just period-based)
+    // Calculate time remaining for ALL challenges
     String? timeRemainingText;
     Color timerColor = Colors.blue;
     IconData timerIcon = Icons.timer;
 
-// Special handling for consecutive days - show days left instead of time
+    // consecutive days - show days left instead of time
     String? daysLeftText;
     Color daysLeftColor = Colors.blue;
 
@@ -536,7 +534,7 @@ class _GamificationPageState extends State<GamificationPage> {
               const SizedBox(height: 8),
             ],
 
-// Show timer for non-consecutive days challenges only
+            // Show timer for non-consecutive days challenges
             if (timeRemainingText != null && challengeType != 'consecutive_days' && !isCompleted) ...[
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
@@ -688,7 +686,7 @@ class _GamificationPageState extends State<GamificationPage> {
     );
   }
 
-  // method to safely convert values to double
+  //  convert values to double
   double _toDouble(dynamic value) {
     if (value == null) return 0.0;
     if (value is double) return value;
@@ -697,14 +695,9 @@ class _GamificationPageState extends State<GamificationPage> {
     return 0.0;
   }
 
-  String _formatProgressValue(double value, String? type) {
-    if (type == 'spending_limit' || type == 'category_spending' || type == 'savings_goal') {
-      return 'RM${value.toStringAsFixed(2)}';
-    }
-    return value.toInt().toString();
-  }
 
-// Helper method to get period status message
+
+  //get period status message
   String _getPeriodStatusMessage(String? type, String? period) {
     final periodText = period ?? 'period';
 

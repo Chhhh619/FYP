@@ -122,6 +122,7 @@ class GamificationService {
     }
   }
 
+  // Counts how many transactions a user has made within a specific time period.
   Future<double> _getTransactionCount(String userId, String period, DateTime trackingStartDate) async {
     final dateRange = _getDateRangeFromStartDate(period, trackingStartDate);
 
@@ -214,6 +215,7 @@ class GamificationService {
     return true;
   }
 
+  //Calculates total spending (expenses only) within a period.
   Future<double> _getSpendingAmount(String userId, String period, DateTime trackingStartDate) async {
     final dateRange = _getDateRangeFromStartDate(period, trackingStartDate);
     final now = DateTime.now();
@@ -444,6 +446,7 @@ class GamificationService {
     }
   }
 
+  //Calculates net savings (income - expenses) and period completion status.
   Future<Map<String, dynamic>> _getSavingsProgress(String userId, String period, DateTime trackingStartDate) async {
     final dateRange = _getDateRangeFromStartDate(period, trackingStartDate);
     final now = DateTime.now();
@@ -497,6 +500,7 @@ class GamificationService {
     };
   }
 
+  // Tracks streak of consecutive days with transactions.
   Future<double> _getConsecutiveDays(String userId, DateTime trackingStartDate) async {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
@@ -588,7 +592,7 @@ class GamificationService {
     // This is a simplified budget adherence check
     final spending = await _getSpendingAmount(userId, period, trackingStartDate);
 
-    // For now, let's assume a simple budget of 1000 per month
+    // assume a simple budget of 1000 per month
     final budget = 1000.0;
     final adherencePercentage = ((budget - spending) / budget * 100).clamp(0.0, 100.0);
 
@@ -596,7 +600,7 @@ class GamificationService {
     return adherencePercentage;
   }
 
-  // New method that calculates date range considering the tracking start date
+  // calculates date range considering the tracking start date
   Map<String, DateTime> _getDateRangeFromStartDate(String period, DateTime trackingStartDate) {
     final now = DateTime.now();
     final standardRange = _getDateRange(period);
@@ -644,7 +648,7 @@ class GamificationService {
     await checkAndUpdateChallenges();
   }
 
-  // Method to create sample challenges (for testing)
+  // Method to create sample challenges
   Future<void> createSampleChallenges() async {
     final sampleChallenges = [
       {

@@ -5,7 +5,6 @@ import 'package:intl/intl.dart';
 import 'banned_users_page.dart';
 import 'admin_challenges_page.dart';
 import 'financial_tips.dart';
-import 'package:fyp/ch/categories_list.dart';
 import 'admin_point_shop.dart';
 
 class AdminPage extends StatefulWidget {

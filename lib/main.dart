@@ -10,16 +10,14 @@ import 'wc/login.dart';
 import 'wc/register.dart';
 import 'wc/currencyconverter.dart';
 import 'wc/splash.dart';
-import 'wc/home.dart';
+
 import 'ch/homepage.dart';
 import 'wc/financial_plan.dart';
 import 'wc/financial_tips.dart';
 import 'wc/bill/bill_payment_screen.dart';
 import 'wc/Onboard/Onboarding.dart';
 import 'wc/bill/payment_history_screen.dart';
-import 'wc/financial_plan.dart';
 
-import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:fyp/wc/bill/notification_service.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'dart:developer' as developer;

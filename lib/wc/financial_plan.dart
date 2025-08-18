@@ -175,24 +175,30 @@ class _FinancialPlanPageState extends State<FinancialPlanPage>
         } else if (type == 'expense') {
           currentExpenses += amount;
 
-          final categoryRef = data['category'] as DocumentReference?;
-          if (categoryRef != null) {
+          final categoryRef = data['category'];
+          String categoryName = 'Other';
+
+          if (categoryRef is DocumentReference) {
             try {
               final categoryDoc = await categoryRef.get();
               if (categoryDoc.exists) {
-                final categoryName =
-                    (categoryDoc.data() as Map<String, dynamic>)?['name'] ??
-                    'Other';
-                categorySpending[categoryName] =
-                    (categorySpending[categoryName] ?? 0) + amount;
-                transactionCounts[categoryName] =
-                    (transactionCounts[categoryName] ?? 0) + 1;
+                categoryName = (categoryDoc.data() as Map<String, dynamic>)?['name'] ?? 'Other';
               }
             } catch (e) {
-              categorySpending['Other'] =
-                  (categorySpending['Other'] ?? 0) + amount;
+              print('Error processing category reference: $e');
+              categoryName = 'Other';
             }
+          } else if (categoryRef is String) {
+            // Handle case where category is stored as a string directly
+            categoryName = categoryRef.isNotEmpty ? categoryRef : 'Other';
+          } else if (categoryRef == null) {
+            // Handle null case
+            categoryName = 'Other';
           }
+
+          // Update spending and transaction counts
+          categorySpending[categoryName] = (categorySpending[categoryName] ?? 0) + amount;
+          transactionCounts[categoryName] = (transactionCounts[categoryName] ?? 0) + 1;
         }
 
         recentTransactions.add({
@@ -280,8 +286,8 @@ class _FinancialPlanPageState extends State<FinancialPlanPage>
     setState(() => _isGeneratingAdvice = true);
 
     try {
-      final model = await _getGenerativeModel();
-      final financialData = await _fetchFinancialData(userId);
+      final model = await _getGenerativeModel(); // get ai
+      final financialData = await _fetchFinancialData(userId); // get user data
 
       final currentIncome = financialData['currentIncome'] as double;
       final currentExpenses = financialData['currentExpenses'] as double;
@@ -295,7 +301,7 @@ class _FinancialPlanPageState extends State<FinancialPlanPage>
       final transactionCounts =
           financialData['transactionCounts'] as Map<String, int>;
 
-
+      //ai prompt
       final prompt =
           '''
       You are a professional financial advisor analyzing a user's spending patterns. Provide personalized financial advice based on their actual transaction data.
@@ -311,6 +317,7 @@ class _FinancialPlanPageState extends State<FinancialPlanPage>
       DETAILED SPENDING BREAKDOWN:
       ${categorySpending.entries.map((e) => '- ${e.key}: RM${e.value.toStringAsFixed(2)} (${transactionCounts[e.key] ?? 0} transactions)').join('\n')}
 
+      
       MALAYSIAN CONTEXT:
       - Consider local cost of living and salary standards
       - Factor in EPF contributions and Malaysian savings culture
@@ -348,6 +355,7 @@ class _FinancialPlanPageState extends State<FinancialPlanPage>
       Be specific with amounts and percentages. Focus on practical, culturally relevant advice for Malaysian users.
       ''';
 
+      //get AI response
       final response = await model.generateContent([Content.text(prompt)]);
       final aiResponse = response.text ?? '';
 
@@ -358,7 +366,7 @@ class _FinancialPlanPageState extends State<FinancialPlanPage>
           .toList();
 
       String analysis = '';
-      double savingsTarget = currentIncome * 0.15;
+      double savingsTarget = currentIncome * 0.15; // Default 15% savings rate
       List<String> recommendations = [];
       Map<String, String> categoryAdvice = {};
 
@@ -389,7 +397,7 @@ class _FinancialPlanPageState extends State<FinancialPlanPage>
         }
       }
 
-      // Ensure we have fallback recommendations
+      // fallback recommendations
       if (recommendations.isEmpty) {
         recommendations = _generateFallbackRecommendations(
           categorySpending,
@@ -397,7 +405,7 @@ class _FinancialPlanPageState extends State<FinancialPlanPage>
         );
       }
 
-      // Ensure we have fallback analysis
+      // fallback analysis
       if (analysis.isEmpty) {
         analysis = _generateFallbackAnalysis(
           savingsRate,
@@ -420,7 +428,7 @@ class _FinancialPlanPageState extends State<FinancialPlanPage>
         categoryAdvice: categoryAdvice,
       );
 
-      // Save to Firestore
+
       await _firestore.collection('financial_advice').doc(advice.id).set({
         ...advice.toMap(),
         'userId': userId,
@@ -435,7 +443,7 @@ class _FinancialPlanPageState extends State<FinancialPlanPage>
     }
   }
 
-  // Add this method to your _FinancialPlanPageState class
+
 
   Future<void> _refreshLatestAdvice(String userId) async {
     setState(() => _isGeneratingAdvice = true);
@@ -493,14 +501,14 @@ class _FinancialPlanPageState extends State<FinancialPlanPage>
       final response = await model.generateContent([Content.text(prompt)]);
       final aiResponse = response.text ?? '';
 
-      // Parse the response (same parsing logic)
+      // Parse AI response
       final lines = aiResponse.split('\n').where((line) => line.trim().isNotEmpty).toList();
       String analysis = '';
       double savingsTarget = currentIncome * 0.15;
       List<String> recommendations = [];
       Map<String, String> categoryAdvice = {};
 
-      // [Your existing parsing logic here...]
+
       bool inCategoryAdvice = false;
       for (var line in lines) {
         if (line.startsWith('ANALYSIS:')) {
@@ -525,7 +533,7 @@ class _FinancialPlanPageState extends State<FinancialPlanPage>
         }
       }
 
-      // Ensure we have fallback recommendations
+      // Efallback recommendations
       if (recommendations.isEmpty) {
         recommendations = _generateFallbackRecommendations(categorySpending, currentIncome);
       }
@@ -534,7 +542,7 @@ class _FinancialPlanPageState extends State<FinancialPlanPage>
         analysis = _generateFallbackAnalysis(savingsRate, spendingTrend, categorySpending);
       }
 
-      // UPDATE the existing document instead of creating new one
+      // UPDATE the existing document
       await _firestore.collection('financial_advice').doc(adviceId).update({
         'title': 'AI Financial Analysis - ${DateFormat('MMM yyyy').format(DateTime.now())} (Refreshed)',
         'description': 'Updated analysis based on latest transactions',
@@ -880,7 +888,7 @@ class _FinancialPlanPageState extends State<FinancialPlanPage>
               _buildActionButton(
                 'New Advice',
                 Icons.auto_awesome,
-                Colors.purple,
+                Colors.cyan,
                     () => _generateNewAdvice(userId),
               ),
               _buildActionButton(
@@ -892,7 +900,7 @@ class _FinancialPlanPageState extends State<FinancialPlanPage>
               _buildActionButton(
                 'History',
                 Icons.history,
-                Colors.blue,
+                Colors.purple,
                     () {
                   _tabController?.animateTo(1);
                 },
@@ -965,7 +973,7 @@ class _FinancialPlanPageState extends State<FinancialPlanPage>
                 ElevatedButton(
                   onPressed: () => _generateNewAdvice(userId),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.purple,
+                    backgroundColor: Colors.teal,
                   ),
                   child: const Text(
                     'Get AI Advice',
@@ -990,7 +998,7 @@ class _FinancialPlanPageState extends State<FinancialPlanPage>
           decoration: BoxDecoration(
             color: Colors.grey[900],
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: Colors.purple.withOpacity(0.3)),
+            border: Border.all(color: Colors.teal.withOpacity(0.3)),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -999,7 +1007,7 @@ class _FinancialPlanPageState extends State<FinancialPlanPage>
           children: [
           const Icon(
           Icons.auto_awesome,
-            color: Colors.purple,
+            color: Colors.teal,
             size: 20,
           ),
           const SizedBox(width: 8),
@@ -1031,7 +1039,7 @@ class _FinancialPlanPageState extends State<FinancialPlanPage>
             height: 32,
             width: 32,
             decoration: BoxDecoration(
-              color: Colors.purple.withOpacity(0.2),
+              color: Colors.teal.withOpacity(0.2),
               borderRadius: BorderRadius.circular(8),
             ),
             child: IconButton(
@@ -1045,12 +1053,12 @@ class _FinancialPlanPageState extends State<FinancialPlanPage>
                 height: 16,
                 child: CircularProgressIndicator(
                   strokeWidth: 2,
-                  color: Colors.purple,
+                  color: Colors.teal,
                 ),
               )
                   : const Icon(
                 Icons.refresh,
-                color: Colors.purple,
+                color: Colors.teal,
                 size: 18,
               ),
               tooltip: 'Refresh analysis with latest data',
@@ -1069,7 +1077,7 @@ class _FinancialPlanPageState extends State<FinancialPlanPage>
         Container(
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-        color: Colors.purple.withOpacity(0.1),
+        color: Colors.teal.withOpacity(0.1),
         borderRadius: BorderRadius.circular(8),
         ),
         child: Text(
@@ -1150,7 +1158,7 @@ class _FinancialPlanPageState extends State<FinancialPlanPage>
                 onPressed: () => _tabController?.animateTo(1),
                 child: const Text(
                   'View Full Analysis →',
-                  style: TextStyle(color: Colors.purple, fontSize: 12),
+                  style: TextStyle(color: Colors.teal, fontSize: 12),
                 ),
               ),
             ],
@@ -1195,11 +1203,9 @@ class _FinancialPlanPageState extends State<FinancialPlanPage>
                 tooltip: 'Refresh Latest',
               ),
               const SizedBox(width: 8),
-              // Existing New Analysis button
+
               ElevatedButton.icon(
-                onPressed: _isGeneratingAdvice
-                    ? null
-                    : () => _generateNewAdvice(userId),
+                onPressed: _isGeneratingAdvice ? null : () => _generateNewAdvice(userId),
                 icon: _isGeneratingAdvice
                     ? const SizedBox(
                   width: 22,
@@ -1209,13 +1215,17 @@ class _FinancialPlanPageState extends State<FinancialPlanPage>
                     color: Colors.white,
                   ),
                 )
-                    : const Icon(Icons.auto_awesome, color: Colors.white, size: 12),
+                    : const Icon(Icons.auto_awesome, color: Colors.white, size: 16), // Increased icon size slightly
                 label: Text(_isGeneratingAdvice ? 'Analyzing...' : 'New Analysis'),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.purple,
+                  backgroundColor: Colors.teal,
                   foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16), // Added padding to make the button bigger and less tight
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12), // Optional: Softer corners for better feel
+                  ),
                 ),
-              ),
+              )
             ],
           ),
         ),
@@ -1253,7 +1263,7 @@ class _FinancialPlanPageState extends State<FinancialPlanPage>
                     children: [
                       const Icon(
                         Icons.psychology,
-                        color: Colors.purple,
+                        color: Colors.teal,
                         size: 48,
                       ),
                       const SizedBox(height: 16),
@@ -1280,14 +1290,14 @@ class _FinancialPlanPageState extends State<FinancialPlanPage>
                         ),
                         label: const Text('Get AI Advice'),
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.purple,
+                          backgroundColor: Colors.teal, // Changed to teal
                           foregroundColor: Colors.white,
                           padding: const EdgeInsets.symmetric(
                             horizontal: 32,
                             vertical: 12,
                           ),
                         ),
-                      ),
+                      )
                     ],
                   ),
                 ),
@@ -1314,7 +1324,7 @@ class _FinancialPlanPageState extends State<FinancialPlanPage>
               decoration: BoxDecoration(
                 color: Colors.grey[900],
                 borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: Colors.purple.withOpacity(0.3)),
+                border: Border.all(color: Colors.teal.withOpacity(0.3)),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -1327,12 +1337,12 @@ class _FinancialPlanPageState extends State<FinancialPlanPage>
                         Container(
                           padding: const EdgeInsets.all(8),
                           decoration: BoxDecoration(
-                            color: Colors.purple.withOpacity(0.2),
+                            color: Colors.teal.withOpacity(0.2),
                             borderRadius: BorderRadius.circular(8),
                           ),
                           child: const Icon(
                             Icons.psychology,
-                            color: Colors.purple,
+                            color: Colors.teal,
                             size: 20,
                           ),
                         ),
@@ -1401,10 +1411,10 @@ class _FinancialPlanPageState extends State<FinancialPlanPage>
                     child: Container(
                       padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
-                        color: Colors.purple.withOpacity(0.1),
+                        color: Colors.teal.withOpacity(0.1),
                         borderRadius: BorderRadius.circular(8),
                         border: Border.all(
-                          color: Colors.purple.withOpacity(0.3),
+                          color: Colors.teal.withOpacity(0.3),
                         ),
                       ),
                       child: Column(
@@ -1414,14 +1424,14 @@ class _FinancialPlanPageState extends State<FinancialPlanPage>
                             children: [
                               const Icon(
                                 Icons.auto_awesome,
-                                color: Colors.purple,
+                                color: Colors.teal,
                                 size: 16,
                               ),
                               const SizedBox(width: 8),
                               const Text(
                                 'AI Analysis',
                                 style: TextStyle(
-                                  color: Colors.purple,
+                                  color: Colors.teal,
                                   fontSize: 14,
                                   fontWeight: FontWeight.bold,
                                 ),
@@ -1515,7 +1525,7 @@ class _FinancialPlanPageState extends State<FinancialPlanPage>
                                     width: 24,
                                     height: 24,
                                     decoration: BoxDecoration(
-                                      color: Colors.purple,
+                                      color: Colors.teal,
                                       borderRadius: BorderRadius.circular(12),
                                     ),
                                     child: Center(
@@ -1616,7 +1626,7 @@ class _FinancialPlanPageState extends State<FinancialPlanPage>
     final total = spendingData.values.fold(0.0, (sum, amount) => sum + amount);
     final colors = [
       Colors.teal,
-      Colors.purple,
+      Colors.teal,
       Colors.orange,
       Colors.blue,
       Colors.red,
@@ -1642,6 +1652,7 @@ class _FinancialPlanPageState extends State<FinancialPlanPage>
     }).toList();
   }
 
+
   String _getTimeAgo(DateTime dateTime) {
     final now = DateTime.now();
     final difference = now.difference(dateTime);
@@ -1663,7 +1674,7 @@ class _FinancialPlanPageState extends State<FinancialPlanPage>
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Your AI financial analysis is ready! 🎉'),
-          backgroundColor: Colors.purple,
+          backgroundColor: Colors.teal,
         ),
       );
     } catch (e) {
@@ -1800,9 +1811,9 @@ class _FinancialPlanPageState extends State<FinancialPlanPage>
                 Tab(text: 'Overview'),
                 Tab(text: 'AI Advice'),
               ],
-              labelColor: Colors.purple,
+              labelColor: Colors.teal,
               unselectedLabelColor: Colors.white54,
-              indicatorColor: Colors.purple,
+              indicatorColor: Colors.teal,
               indicatorWeight: 3,
             ),
           ),

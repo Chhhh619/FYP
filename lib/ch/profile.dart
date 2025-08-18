@@ -325,13 +325,16 @@ class _ProfilePageState extends State<ProfilePage> {
                 title: 'Equipped Badge',
                 value: userData!['equippedBadge'] ?? 'None',
                 iconColor: Colors.purple,
-                onTap: () {
-                  Navigator.push(
+                onTap: () async {
+                  final result = await Navigator.push(
                     context,
                     MaterialPageRoute(
                       builder: (context) => const RewardsPage(),
                     ),
                   );
+                  if (result == true) {
+                    await _loadUserData(); //Reload to know if badge was unequipped or not
+                  }
                 },
               ),
 

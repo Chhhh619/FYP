@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
-import 'dart:math' as math;
+
 
 class CurrencyConverterScreen extends StatefulWidget {
   const CurrencyConverterScreen({super.key});
@@ -79,7 +79,7 @@ class _CurrencyConverterScreenState extends State<CurrencyConverterScreen>
         final data = jsonDecode(response.body);
         if (data['success']) {
           setState(() {
-            _exchangeRate = data['quotes']['$_baseCurrency$_targetCurrency'] ?? 0.24;
+            _exchangeRate = data['quotes']['$_baseCurrency$_targetCurrency'] ?? 0.24;//if api fails, it goes back to 0.24usd to 1 myr
             _lastUpdated = _formatDate(DateTime.now());
           });
         }
@@ -163,6 +163,7 @@ class _CurrencyConverterScreenState extends State<CurrencyConverterScreen>
     });
   }
 
+  //set input to 0 if empty
   void _updateAmount(String value) {
     setState(() {
       _amountInput = value.isEmpty ? '0' : value;
@@ -256,7 +257,7 @@ class _CurrencyConverterScreenState extends State<CurrencyConverterScreen>
                   padding: const EdgeInsets.all(20),
                   child: CustomPaint(
                     size: const Size(double.infinity, double.infinity),
-                    painter: EnhancedExchangeRateChart(
+                    painter: ExchangeRateChart(
                       historicalRates: _historicalRates,
                       color: const Color(0xFFB0BEC5),
                       baseCurrency: _baseCurrency,
@@ -697,7 +698,7 @@ class _CurrencyConverterScreenState extends State<CurrencyConverterScreen>
                                         )
                                             : CustomPaint(
                                           size: const Size(double.infinity, double.infinity),
-                                          painter: EnhancedExchangeRateChart(
+                                          painter: ExchangeRateChart(
                                             historicalRates: _historicalRates,
                                             color: const Color(0xFFB0BEC5),
                                             baseCurrency: _baseCurrency,
@@ -762,14 +763,14 @@ class _CurrencyConverterScreenState extends State<CurrencyConverterScreen>
   }
 }
 
-class EnhancedExchangeRateChart extends CustomPainter {
+class ExchangeRateChart extends CustomPainter {
   final List<Map<String, dynamic>> historicalRates;
   final Color color;
   final String baseCurrency;
   final String targetCurrency;
   final bool isZoomed;
 
-  EnhancedExchangeRateChart({
+  ExchangeRateChart({
     required this.historicalRates,
     required this.color,
     required this.baseCurrency,
@@ -1158,7 +1159,7 @@ class EnhancedExchangeRateChart extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant EnhancedExchangeRateChart oldDelegate) {
+  bool shouldRepaint(covariant ExchangeRateChart oldDelegate) {
     return oldDelegate.historicalRates != historicalRates ||
         oldDelegate.color != color ||
         oldDelegate.isZoomed != isZoomed;

@@ -70,9 +70,9 @@ class _RewardsPageState extends State<RewardsPage> {
     }
   }
 
-  Future<void> _equipBadge(String badgeId) async {
+  Future<bool> _equipBadge(String badgeId) async {
     final userId = _auth.currentUser?.uid;
-    if (userId == null) return;
+    if (userId == null) return false;
 
     try {
       await _firestore.collection('users').doc(userId).update({
@@ -90,6 +90,7 @@ class _RewardsPageState extends State<RewardsPage> {
           behavior: SnackBarBehavior.floating,
         ),
       );
+      return true; // Indicate success
     } catch (e) {
       print('Error equipping badge: $e');
       ScaffoldMessenger.of(context).showSnackBar(
@@ -99,12 +100,13 @@ class _RewardsPageState extends State<RewardsPage> {
           behavior: SnackBarBehavior.floating,
         ),
       );
+      return false; // Indicate failure
     }
   }
 
-  Future<void> _unequipBadge() async {
+  Future<bool> _unequipBadge() async {
     final userId = _auth.currentUser?.uid;
-    if (userId == null) return;
+    if (userId == null) return false;
 
     try {
       await _firestore.collection('users').doc(userId).update({
@@ -122,6 +124,7 @@ class _RewardsPageState extends State<RewardsPage> {
           behavior: SnackBarBehavior.floating,
         ),
       );
+      return true; // Indicate success
     } catch (e) {
       print('Error unequipping badge: $e');
       ScaffoldMessenger.of(context).showSnackBar(
@@ -131,6 +134,7 @@ class _RewardsPageState extends State<RewardsPage> {
           behavior: SnackBarBehavior.floating,
         ),
       );
+      return false; // Indicate failure
     }
   }
 
@@ -275,7 +279,12 @@ class _RewardsPageState extends State<RewardsPage> {
                   if (!isEquipped)
                     Expanded(
                       child: ElevatedButton.icon(
-                        onPressed: () => _equipBadge(badge['id']),
+                        onPressed: () async {
+                          final success = await _equipBadge(badge['id']);
+                          if (success) {
+                            Navigator.pop(context, true); // Return true to indicate badge was equipped
+                          }
+                        },
                         icon: const Icon(Icons.star, size: 18),
                         label: const Text('Equip'),
                         style: ElevatedButton.styleFrom(
@@ -290,7 +299,12 @@ class _RewardsPageState extends State<RewardsPage> {
                   if (isEquipped)
                     Expanded(
                       child: ElevatedButton.icon(
-                        onPressed: _unequipBadge,
+                        onPressed: () async {
+                          final success = await _unequipBadge();
+                          if (success) {
+                            Navigator.pop(context, true); // Return true to indicate badge was unequipped
+                          }
+                        },
                         icon: const Icon(Icons.star_border, size: 18),
                         label: const Text('Unequip'),
                         style: ElevatedButton.styleFrom(
