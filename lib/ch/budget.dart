@@ -1159,7 +1159,7 @@ class _BudgetPageState extends State<BudgetPage> {
 
   Widget _buildCategoryCard(String name, double budget, double spent, String icon, String docId) {
     final remaining = budget - spent;
-    final percent = (budget > 0) ? (spent / budget).clamp(0.0, 1.0) * 100 : 0.0;
+    final percent = (budget > 0) ? (spent / budget).clamp(0.0, 1.0) * 100 : 0.0; // This is already correct - shows percentage used
 
     return GestureDetector(
       onLongPress: () {
@@ -1237,13 +1237,15 @@ class _BudgetPageState extends State<BudgetPage> {
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
                 Text(
-                  '${(100 - percent).toStringAsFixed(2)}%',
+                  '${percent.toStringAsFixed(1)}%', // Changed from (100 - percent) to just percent
                   style: const TextStyle(color: Colors.white70),
                 ),
                 Text(
-                  'Remaining\nRM${remaining.toStringAsFixed(1)}',
+                  remaining >= 0 ? 'Remaining\nRM${remaining.toStringAsFixed(1)}' : 'Over Budget\nRM${remaining.abs().toStringAsFixed(1)}', // Added logic for over budget
                   textAlign: TextAlign.right,
-                  style: const TextStyle(color: Colors.white),
+                  style: TextStyle(
+                    color: remaining >= 0 ? Colors.white : Colors.redAccent, // Red color when over budget
+                  ),
                 ),
               ],
             ),

@@ -17,6 +17,32 @@ class _CustomCategoryPageState extends State<CustomCategoryPage> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final FirebaseAuth _auth = FirebaseAuth.instance;
   bool _isSaving = false;
+  int _currentEmojiPage = 0;
+
+  // Extended emoji collection organized by categories
+  final List<List<String>> _emojiCategories = [
+    // Faces & People
+    ['😊', '😂', '😍', '😎', '🤔', '😴', '😢', '😡', '🤗', '🤩', '😇', '🥳', '🤯', '😱', '🤫', '🥰', '😋', '🤤', '🙄', '😏'],
+    // Objects & Symbols
+    ['💰', '💳', '💎', '💵', '💴', '💶', '💷', '🪙', '💸', '🏦', '🏧', '📊', '📈', '📉', '💹', '🏆', '⭐', '🌟', '🎁', '🎉'],
+    // Transportation
+    ['🚗', '🚕', '🚙', '🚌', '🚎', '🏎️', '🚓', '🚑', '🚒', '🚐', '🛻', '🚚', '🚛', '🚜', '🏍️', '🛵', '🚲', '🛴', '✈️', '🚁'],
+    // Food & Drink
+    ['🍎', '🍕', '🍔', '🍟', '🌭', '🥪', '🌮', '🌯', '🥙', '🍣', '🍜', '🍝', '🍤', '🍖', '🥩', '🍗', '🥓', '🍞', '🥐', '🧀'],
+    // Activities & Entertainment
+    ['⚽', '🏀', '🏈', '⚾', '🎾', '🏐', '🏉', '🎱', '🏓', '🏸', '🥅', '🎰', '🎮', '🕹️', '🎲', '♠️', '♥️', '♦️', '♣️', '🃏'],
+    // Nature & Places
+    ['🏠', '🏡', '🏢', '🏣', '🏤', '🏥', '🏦', '🏧', '🏨', '🏩', '🏪', '🏫', '🏬', '🏭', '🏮', '🏯', '🏰', '🗼', '🗽', '⛪'],
+  ];
+
+  final List<String> _categoryNames = [
+    'Faces & People',
+    'Objects & Symbols',
+    'Transportation',
+    'Food & Drink',
+    'Activities',
+    'Places'
+  ];
 
   @override
   void dispose() {
@@ -84,27 +110,79 @@ class _CustomCategoryPageState extends State<CustomCategoryPage> {
               style: TextStyle(color: Colors.white),
             ),
             const SizedBox(height: 20),
-            GridView.count(
-              crossAxisCount: 6,
-              shrinkWrap: true,
-              crossAxisSpacing: 10,
-              mainAxisSpacing: 10,
-              children: [
-                for (var emoji in [
-                  '😊', '😂', '😍', '😎', '🤓', '😴', '😢', '😡', '🤔', '👍', '👎', '🎉',
-                  '❤️', '💔', '💰', '⭐', '🌟', '🍎', '🚗', '🏠'
-                ])
-                  GestureDetector(
-                    onTap: () => setState(() => _selectedEmoji = emoji),
-                    child: CircleAvatar(
-                      backgroundColor: _selectedEmoji == emoji ? Colors.teal : Colors.grey,
-                      child: Text(
-                        emoji,
-                        style: TextStyle(fontSize: 24),
+            // Category tabs
+            Container(
+              height: 40,
+              child: ListView.builder(
+                scrollDirection: Axis.horizontal,
+                itemCount: _categoryNames.length,
+                itemBuilder: (context, index) {
+                  return Padding(
+                    padding: const EdgeInsets.only(right: 8.0),
+                    child: GestureDetector(
+                      onTap: () => setState(() => _currentEmojiPage = index),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: _currentEmojiPage == index
+                              ? Colors.teal.withOpacity(0.8)
+                              : const Color.fromRGBO(33, 35, 34, 1),
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Text(
+                          _categoryNames[index],
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 12,
+                            fontWeight: _currentEmojiPage == index
+                                ? FontWeight.bold
+                                : FontWeight.normal,
+                          ),
+                        ),
                       ),
                     ),
-                  ),
-              ],
+                  );
+                },
+              ),
+            ),
+            const SizedBox(height: 20),
+            // Emoji grid
+            Expanded(
+              child: GridView.builder(
+                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 5,
+                  crossAxisSpacing: 12,
+                  mainAxisSpacing: 12,
+                  childAspectRatio: 1.0,
+                ),
+                itemCount: _emojiCategories[_currentEmojiPage].length,
+                itemBuilder: (context, index) {
+                  final emoji = _emojiCategories[_currentEmojiPage][index];
+                  return GestureDetector(
+                    onTap: () => setState(() => _selectedEmoji = emoji),
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: _selectedEmoji == emoji
+                            ? Colors.teal.withOpacity(0.8)
+                            : const Color.fromRGBO(33, 35, 34, 1), // Match categories_list.dart
+                        shape: BoxShape.circle,
+                        border: _selectedEmoji == emoji
+                            ? Border.all(color: Colors.teal, width: 2)
+                            : null,
+                      ),
+                      child: Center(
+                        child: Text(
+                          emoji,
+                          style: const TextStyle(
+                            fontSize: 24,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
             ),
           ],
         ),

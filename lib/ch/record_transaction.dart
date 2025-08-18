@@ -28,6 +28,8 @@ class _RecordTransactionPageState extends State<RecordTransactionPage> {
   bool _isCalculatorOpen = false;
   int _currentPage = 0;
   Map<String, dynamic>? _selectedCard;
+  bool _isSaving = false;
+
 
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final FirebaseAuth _auth = FirebaseAuth.instance;
@@ -114,6 +116,13 @@ class _RecordTransactionPageState extends State<RecordTransactionPage> {
       double calculatorResult,
       StateSetter setState,
       ) async {
+
+    // PREVENT MULTIPLE SUBMISSIONS
+    if (_isSaving) {
+      print('Transaction already in progress, ignoring duplicate request');
+      return;
+    }
+
     final userId = _auth.currentUser?.uid;
     if (userId == null || _selectedCategoryId == null) {
       setState(() {
@@ -139,9 +148,11 @@ class _RecordTransactionPageState extends State<RecordTransactionPage> {
       return;
     }
 
+    // SET LOADING STATE
     setState(() {
       _inputInvalid = false;
       _saveErrorMessage = null;
+      _isSaving = true; // Start loading
     });
 
     try {
@@ -222,29 +233,27 @@ class _RecordTransactionPageState extends State<RecordTransactionPage> {
         });
       }
 
-      // UPDATE CHALLENGES AFTER SUCCESSFUL TRANSACTION
-      try {
-        // Force an immediate check and update
-        await _gamificationService.checkAndUpdateChallenges();
-        print('Challenges updated after transaction');
+      setState(() {
+        _isSaving = false;
+      });
 
-        // For consecutive days challenges, do an extra check
-        final userId = _auth.currentUser?.uid;
-        if (userId != null) {
-          // This ensures consecutive days are properly counted
-          await Future.delayed(const Duration(milliseconds: 500));
-          await _gamificationService.checkAndUpdateChallenges();
-        }
-      } catch (e) {
-        print('Error updating challenges: $e');
-        // Don't fail the transaction if challenge update fails
-      }
+      // UPDATE CHALLENGES IN BACKGROUND (non-blocking)
+      _updateChallengesInBackground();
 
       // FIXED NAVIGATION - Instead of popUntil, use proper navigation
       if (!mounted) return;
 
       // Close the modal first
       Navigator.of(context).pop();
+
+      // Show success message
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Transaction saved successfully!'),
+          backgroundColor: Colors.green,
+          duration: const Duration(seconds: 2),
+        ),
+      );
 
       // Then navigate back to homepage with a slight delay
       Future.delayed(const Duration(milliseconds: 100), () {
@@ -258,6 +267,11 @@ class _RecordTransactionPageState extends State<RecordTransactionPage> {
       });
 
     } catch (error) {
+      // RESET LOADING STATE ON ERROR
+      setState(() {
+        _isSaving = false;
+      });
+
       String errorMessage;
       print('Transaction error: $error'); // Debug logging
 
@@ -286,6 +300,20 @@ class _RecordTransactionPageState extends State<RecordTransactionPage> {
         }
       });
     }
+  }
+
+  void _updateChallengesInBackground() {
+    // Run in background without awaiting or blocking UI
+    Future.microtask(() async {
+      try {
+        print('Starting background challenge update...');
+        await _gamificationService.checkAndUpdateChallenges();
+        print('Background challenge update completed');
+      } catch (e) {
+        print('Background challenge update failed: $e');
+        // Don't show error to user since this is background operation
+      }
+    });
   }
 
   Future<void> _selectDate(BuildContext context, StateSetter setState) async {
@@ -702,11 +730,13 @@ class _RecordTransactionPageState extends State<RecordTransactionPage> {
                           );
                         },
                       ),
+// Replace your current Add button with this centered version:
+
                       Row(
                         children: [
                           Expanded(
                             child: ElevatedButton(
-                              onPressed: () {
+                              onPressed: _isSaving ? null : () {
                                 setState(() {
                                   _saveAttempted = false;
                                   _inputInvalid = false;
@@ -718,22 +748,32 @@ class _RecordTransactionPageState extends State<RecordTransactionPage> {
                                 );
                               },
                               style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.teal,
+                                backgroundColor: _isSaving ? Colors.grey : Colors.teal,
                                 foregroundColor: Colors.white,
                                 minimumSize: Size(0, buttonHeight),
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(8),
                                 ),
                               ),
-                              child: const Text(
+                              child: _isSaving
+                                  ? Center(
+                                child: SizedBox(
+                                  width: 20,
+                                  height: 20,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                                  ),
+                                ),
+                              )
+                                  : Text(
                                 'Add',
                                 style: TextStyle(fontSize: 16),
                               ),
                             ),
                           ),
                         ],
-                      ),
-                      SizedBox(height: bottomSafeArea > 0 ? bottomSafeArea * 0.8 : sectionSpacing),
+                      ),                      SizedBox(height: bottomSafeArea > 0 ? bottomSafeArea * 0.8 : sectionSpacing),
                     ],
                   ),
                 ),

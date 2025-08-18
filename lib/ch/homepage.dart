@@ -58,41 +58,8 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
     for (var tx in transactions) {
       Map<String, dynamic> processedTx = {...tx};
 
-      if (tx.containsKey('cardId') && tx['cardId'] != null) {
-        // Handle manual card transactions
-        final String type = tx['type'] ?? 'transaction';
-        processedTx.addAll({
-          'categoryIcon': _getIconForTransactionType(type),
-          'categoryName': _getNameForTransactionType(type),
-          'categoryType': type == 'income' ? 'income' : 'expense',
-        });
-      }
-      else if (tx.containsKey('fromCardId') || tx.containsKey('toCardId')) {
-        // Handle card transfers
-        final String type = tx['type'] ?? 'transfer';
-        processedTx.addAll({
-          'categoryIcon': _getIconForTransactionType(type),
-          'categoryName': _getNameForTransactionType(type),
-          'categoryType': 'expense', // Transfers are considered neutral, but we'll show as expense for the sender
-        });
-      }
-      // Check if transaction has subscriptionId (subscription transactions)
-      else if (tx.containsKey('subscriptionId') && tx['subscriptionId'] != null) {
-        processedTx.addAll({
-          'categoryIcon': '💳',
-          'categoryName': tx['name'] ?? 'Subscription',
-          'categoryType': 'expense',
-        });
-      }
-      else if (tx.containsKey('incomeId') && tx['incomeId'] != null) {
-        processedTx.addAll({
-          'categoryIcon': '💰',
-          'categoryName': 'Income',
-          'categoryType': 'income',
-        });
-      }
-      // Handle regular category-based transactions
-      else if (tx.containsKey('category') && tx['category'] != null) {
+      // Handle transactions with category reference (both expense and income categories)
+      if (tx.containsKey('category') && tx['category'] != null) {
         final categoryRef = tx['category'] as DocumentReference;
         final categoryId = categoryRef.id;
         Map<String, dynamic> categoryData = _categoryCache[categoryId] ?? {};
@@ -111,8 +78,39 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
           'categoryName': categoryData['name'] as String? ?? 'Unknown Category',
           'categoryType': categoryData['type'] as String? ?? 'unknown',
         });
+
+        // Debug logging for income transactions
+        if (tx.containsKey('incomeId') && tx['incomeId'] != null) {
+          print('Processing automated income: ${categoryData['name']} - Type: ${categoryData['type']} - Icon: ${categoryData['icon']}');
+        }
       }
-      // Handle transactions without clear category
+      // Handle manual card transactions (no category reference)
+      else if (tx.containsKey('cardId') && tx['cardId'] != null) {
+        final String type = tx['type'] ?? 'transaction';
+        processedTx.addAll({
+          'categoryIcon': _getIconForTransactionType(type),
+          'categoryName': _getNameForTransactionType(type),
+          'categoryType': type == 'income' ? 'income' : 'expense',
+        });
+      }
+      // Handle card transfers
+      else if (tx.containsKey('fromCardId') || tx.containsKey('toCardId')) {
+        final String type = tx['type'] ?? 'transfer';
+        processedTx.addAll({
+          'categoryIcon': _getIconForTransactionType(type),
+          'categoryName': _getNameForTransactionType(type),
+          'categoryType': 'expense',
+        });
+      }
+      // Handle subscription transactions
+      else if (tx.containsKey('subscriptionId') && tx['subscriptionId'] != null) {
+        processedTx.addAll({
+          'categoryIcon': '💳',
+          'categoryName': tx['name'] ?? 'Subscription',
+          'categoryType': 'expense',
+        });
+      }
+      // Fallback for transactions without clear category
       else {
         processedTx.addAll({
           'categoryIcon': '❓',
@@ -121,6 +119,7 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
         });
       }
 
+      // Note: We no longer process card names for display since they'll be shown in details page
       processedTransactions.add(processedTx);
     }
 
@@ -227,9 +226,13 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
                     .doc(fromCardId);
 
                 final cardSnap = await transaction.get(cardRef);
+                String? cardName;
+
                 if (cardSnap.exists) {
-                  final currentBalance = (cardSnap['balance'] ?? 0.0).toDouble();
+                  final cardData = cardSnap.data() as Map<String, dynamic>;
+                  final currentBalance = (cardData['balance'] ?? 0.0).toDouble();
                   final newBalance = currentBalance - (data['amount'] ?? 0.0);
+                  cardName = cardData['name'] as String?; // Get card name
                   transaction.update(cardRef, {'balance': newBalance});
                 }
 
@@ -245,6 +248,7 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
                   'categoryType': 'expense',
                   'type': 'subscription',
                   'fromCardId': fromCardId,
+                  'fromCardName': cardName, // Store card name for display
                 });
               });
             } else {
@@ -311,127 +315,441 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
   void _showCustomDatePicker() {
     availableScreenWidth = MediaQuery.of(context).size.width;
     availableScreenHeight = MediaQuery.of(context).size.height;
+
     showDialog(
       context: context,
+      barrierDismissible: true,
       builder: (BuildContext context) {
         return StatefulBuilder(
           builder: (BuildContext context, StateSetter setState) {
             return Dialog(
-              insetPadding: EdgeInsets.symmetric(horizontal: 16.0),
-              child: SizedBox(
-                width: availableScreenWidth * 0.85,
-                child: Container(
-                  decoration: BoxDecoration(
-                    color: Color.fromRGBO(33, 35, 34, 1),
-                    borderRadius: BorderRadius.circular(12),
+              backgroundColor: Colors.transparent,
+              insetPadding: EdgeInsets.symmetric(horizontal: 20.0, vertical: 60.0),
+              child: Container(
+                width: availableScreenWidth * 0.9,
+                constraints: BoxConstraints(
+                  maxHeight: availableScreenHeight * 0.75,
+                ),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      Color.fromRGBO(40, 42, 41, 1),
+                      Color.fromRGBO(28, 30, 29, 1),
+                    ],
                   ),
-                  padding: EdgeInsets.all(15),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Row(
+                  borderRadius: BorderRadius.circular(20),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.3),
+                      blurRadius: 20,
+                      offset: Offset(0, 10),
+                    ),
+                  ],
+                  border: Border.all(
+                    color: Colors.teal.withOpacity(0.3),
+                    width: 1,
+                  ),
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // Header with close button
+                    Container(
+                      padding: EdgeInsets.fromLTRB(24, 20, 16, 16),
+                      child: Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          Text(
-                            'Select Period',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 20,
-                              fontWeight: FontWeight.bold,
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Select Period',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 24,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              SizedBox(height: 4),
+                              Text(
+                                'Choose your time period',
+                                style: TextStyle(
+                                  color: Colors.white70,
+                                  fontSize: 14,
+                                ),
+                              ),
+                            ],
+                          ),
+                          IconButton(
+                            onPressed: () => Navigator.pop(context),
+                            icon: Icon(Icons.close, color: Colors.white70, size: 24),
+                            style: IconButton.styleFrom(
+                              backgroundColor: Colors.white.withOpacity(0.1),
+                              shape: CircleBorder(),
                             ),
                           ),
-                          Row(
-                            children: [
-                              ElevatedButton(
-                                onPressed: () {
-                                  setState(() {
-                                    popupMode = 'month';
-                                  });
-                                },
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: popupMode == 'month' ? Colors.teal : Color.fromRGBO(33, 35, 34, 1),
-                                  foregroundColor: Colors.white,
+                        ],
+                      ),
+                    ),
+
+                    // Mode Toggle (Month/Year)
+                    Container(
+                      margin: EdgeInsets.symmetric(horizontal: 24),
+                      padding: EdgeInsets.all(4),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacity(0.2),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: Colors.white.withOpacity(0.1),
+                          width: 1,
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: GestureDetector(
+                              onTap: () {
+                                setState(() {
+                                  popupMode = 'month';
+                                });
+                              },
+                              child: AnimatedContainer(
+                                duration: Duration(milliseconds: 200),
+                                padding: EdgeInsets.symmetric(vertical: 12),
+                                decoration: BoxDecoration(
+                                  color: popupMode == 'month'
+                                      ? Colors.teal
+                                      : Colors.transparent,
+                                  borderRadius: BorderRadius.circular(8),
+                                  boxShadow: popupMode == 'month' ? [
+                                    BoxShadow(
+                                      color: Colors.teal.withOpacity(0.3),
+                                      blurRadius: 8,
+                                      offset: Offset(0, 2),
+                                    ),
+                                  ] : null,
                                 ),
-                                child: Text('Month'),
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(
+                                      Icons.calendar_view_month,
+                                      color: popupMode == 'month' ? Colors.white : Colors.white60,
+                                      size: 18,
+                                    ),
+                                    SizedBox(width: 8),
+                                    Text(
+                                      'Month',
+                                      style: TextStyle(
+                                        color: popupMode == 'month' ? Colors.white : Colors.white60,
+                                        fontSize: 16,
+                                        fontWeight: popupMode == 'month'
+                                            ? FontWeight.w600
+                                            : FontWeight.normal,
+                                      ),
+                                    ),
+                                  ],
+                                ),
                               ),
-                              SizedBox(width: 8),
-                              ElevatedButton(
-                                onPressed: () {
-                                  setState(() {
-                                    popupMode = 'year';
-                                  });
-                                },
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: popupMode == 'year' ? Colors.teal : Color.fromRGBO(33, 35, 34, 1),
-                                  foregroundColor: Colors.white,
+                            ),
+                          ),
+                          Expanded(
+                            child: GestureDetector(
+                              onTap: () {
+                                setState(() {
+                                  popupMode = 'year';
+                                });
+                              },
+                              child: AnimatedContainer(
+                                duration: Duration(milliseconds: 200),
+                                padding: EdgeInsets.symmetric(vertical: 12),
+                                decoration: BoxDecoration(
+                                  color: popupMode == 'year'
+                                      ? Colors.teal
+                                      : Colors.transparent,
+                                  borderRadius: BorderRadius.circular(8),
+                                  boxShadow: popupMode == 'year' ? [
+                                    BoxShadow(
+                                      color: Colors.teal.withOpacity(0.3),
+                                      blurRadius: 8,
+                                      offset: Offset(0, 2),
+                                    ),
+                                  ] : null,
                                 ),
-                                child: Text('Year'),
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(
+                                      Icons.date_range,
+                                      color: popupMode == 'year' ? Colors.white : Colors.white60,
+                                      size: 18,
+                                    ),
+                                    SizedBox(width: 8),
+                                    Text(
+                                      'Year',
+                                      style: TextStyle(
+                                        color: popupMode == 'year' ? Colors.white : Colors.white60,
+                                        fontSize: 16,
+                                        fontWeight: popupMode == 'year'
+                                            ? FontWeight.w600
+                                            : FontWeight.normal,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    SizedBox(height: 24),
+
+                    // Current Selection Display
+                    Container(
+                      margin: EdgeInsets.symmetric(horizontal: 24),
+                      padding: EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: Colors.teal.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: Colors.teal.withOpacity(0.3),
+                          width: 1,
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          Container(
+                            padding: EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: Colors.teal.withOpacity(0.2),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Icon(
+                              Icons.schedule,
+                              color: Colors.teal,
+                              size: 20,
+                            ),
+                          ),
+                          SizedBox(width: 12),
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Current Period',
+                                style: TextStyle(
+                                  color: Colors.white70,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                              SizedBox(height: 2),
+                              Text(
+                                popupMode == 'month'
+                                    ? DateFormat('MMMM yyyy').format(selectedDate)
+                                    : selectedDate.year.toString(),
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w600,
+                                ),
                               ),
                             ],
                           ),
                         ],
                       ),
-                      SizedBox(height: 16),
-                      Container(
-                        height: 210,
-                        child: GridView.count(
-                          crossAxisCount: 3,
-                          crossAxisSpacing: 8,
-                          mainAxisSpacing: 8,
-                          children: [
-                            if (popupMode == 'month')
-                              ...List.generate(12, (index) {
-                                final month = DateTime(selectedDate.year, index + 1);
-                                return ElevatedButton(
-                                  onPressed: () {
-                                    _updateCurrentPeriod(DateTime(selectedDate.year, index + 1));
-                                    Navigator.pop(context);
-                                  },
-                                  style: ElevatedButton.styleFrom(
-                                    minimumSize: Size(60, 60),
-                                    backgroundColor: selectedDate.month == index + 1 ? Colors.teal : Color.fromRGBO(33, 35, 34, 1),
-                                    foregroundColor: Colors.white,
-                                  ),
-                                  child: Text(DateFormat('MMM').format(month)),
-                                );
-                              }),
-                            if (popupMode == 'year')
-                              ...List.generate(3, (index) {
-                                final year = selectedDate.year + (index - 1);
-                                return ElevatedButton(
-                                  onPressed: () {
-                                    _updateCurrentPeriod(DateTime(year, selectedDate.month));
-                                    Navigator.pop(context);
-                                  },
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: selectedDate.year == year ? Colors.teal : Color.fromRGBO(33, 35, 34, 1),
-                                    foregroundColor: Colors.white,
-                                  ),
-                                  child: Text(year.toString()),
-                                );
-                              }),
-                          ],
-                        ),
+                    ),
+
+                    SizedBox(height: 24),
+
+                    // Selection Grid
+                    Flexible(
+                      child: Container(
+                        margin: EdgeInsets.symmetric(horizontal: 24),
+                        child: popupMode == 'month'
+                            ? _buildMonthGrid(setState)
+                            : _buildYearGrid(setState),
                       ),
-                      SizedBox(height: 16),
-                      ElevatedButton(
-                        onPressed: () {
-                          Navigator.pop(context);
-                        },
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.teal,
-                          foregroundColor: Colors.white,
-                        ),
-                        child: Text('Confirm'),
-                      ),
-                    ],
-                  ),
+                    ),
+
+                    SizedBox(height: 24),
+
+                    SizedBox(height: 24),
+                  ],
                 ),
               ),
             );
           },
         );
       },
+    );
+  }
+
+// Add these helper methods to build the month and year grids
+
+  Widget _buildMonthGrid(StateSetter setState) {
+    return GridView.count(
+      shrinkWrap: true,
+      crossAxisCount: 3,
+      crossAxisSpacing: 12,
+      mainAxisSpacing: 12,
+      childAspectRatio: 1.2,
+      children: List.generate(12, (index) {
+        final month = DateTime(selectedDate.year, index + 1);
+        final isSelected = selectedDate.month == index + 1;
+        final isCurrentMonth = DateTime.now().month == index + 1 &&
+            DateTime.now().year == selectedDate.year;
+
+        return GestureDetector(
+          onTap: () {
+            _updateCurrentPeriod(DateTime(selectedDate.year, index + 1));
+            Navigator.pop(context); // Close immediately after selection
+          },
+          child: AnimatedContainer(
+            duration: Duration(milliseconds: 200),
+            decoration: BoxDecoration(
+              gradient: isSelected ? LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [Colors.teal, Colors.teal.shade700],
+              ) : null,
+              color: isSelected
+                  ? null
+                  : isCurrentMonth
+                  ? Colors.orange.withOpacity(0.2)
+                  : Colors.white.withOpacity(0.05),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color: isSelected
+                    ? Colors.teal.shade300
+                    : isCurrentMonth
+                    ? Colors.orange.withOpacity(0.5)
+                    : Colors.white.withOpacity(0.1),
+                width: isSelected ? 2 : 1,
+              ),
+              boxShadow: isSelected ? [
+                BoxShadow(
+                  color: Colors.teal.withOpacity(0.3),
+                  blurRadius: 12,
+                  offset: Offset(0, 4),
+                ),
+              ] : null,
+            ),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(
+                  DateFormat('MMM').format(month),
+                  style: TextStyle(
+                    color: isSelected
+                        ? Colors.white
+                        : isCurrentMonth
+                        ? Colors.orange.shade300
+                        : Colors.white70,
+                    fontSize: 16,
+                    fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                  ),
+                ),
+                if (isCurrentMonth && !isSelected) ...[
+                  SizedBox(height: 4),
+                  Container(
+                    width: 6,
+                    height: 6,
+                    decoration: BoxDecoration(
+                      color: Colors.orange,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        );
+      }),
+    );
+  }
+
+  Widget _buildYearGrid(StateSetter setState) {
+    return GridView.count(
+      shrinkWrap: true,
+      crossAxisCount: 2,
+      crossAxisSpacing: 12,
+      mainAxisSpacing: 12,
+      childAspectRatio: 2,
+      children: List.generate(5, (index) {
+        final year = selectedDate.year + (index - 2); // Show 2 years before and 2 after
+        final isSelected = selectedDate.year == year;
+        final isCurrentYear = DateTime.now().year == year;
+
+        return GestureDetector(
+          onTap: () {
+            _updateCurrentPeriod(DateTime(year, selectedDate.month));
+            Navigator.pop(context); // Close immediately after selection
+          },
+          child: AnimatedContainer(
+            duration: Duration(milliseconds: 200),
+            decoration: BoxDecoration(
+              gradient: isSelected ? LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [Colors.teal, Colors.teal.shade700],
+              ) : null,
+              color: isSelected
+                  ? null
+                  : isCurrentYear
+                  ? Colors.orange.withOpacity(0.2)
+                  : Colors.white.withOpacity(0.05),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color: isSelected
+                    ? Colors.teal.shade300
+                    : isCurrentYear
+                    ? Colors.orange.withOpacity(0.5)
+                    : Colors.white.withOpacity(0.1),
+                width: isSelected ? 2 : 1,
+              ),
+              boxShadow: isSelected ? [
+                BoxShadow(
+                  color: Colors.teal.withOpacity(0.3),
+                  blurRadius: 12,
+                  offset: Offset(0, 4),
+                ),
+              ] : null,
+            ),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(
+                  year.toString(),
+                  style: TextStyle(
+                    color: isSelected
+                        ? Colors.white
+                        : isCurrentYear
+                        ? Colors.orange.shade300
+                        : Colors.white70,
+                    fontSize: 18,
+                    fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                  ),
+                ),
+                if (isCurrentYear && !isSelected) ...[
+                  SizedBox(height: 4),
+                  Container(
+                    width: 6,
+                    height: 6,
+                    decoration: BoxDecoration(
+                      color: Colors.orange,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        );
+      }),
     );
   }
 
@@ -559,7 +877,9 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
         final data = doc.data();
         final startDate = (data['startDate'] as Timestamp).toDate();
         final repeat = data['repeat'] ?? 'monthly';
-        final lastGenerated = data['lastGenerated'] != null ? (data['lastGenerated'] as Timestamp).toDate() : startDate;
+        final lastGenerated = data['lastGenerated'] != null
+            ? (data['lastGenerated'] as Timestamp).toDate()
+            : startDate;
 
         DateTime nextDue = _calculateNextIncomeDueDate(lastGenerated, repeat);
 
@@ -576,29 +896,62 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
 
           if (existingTxs.docs.isEmpty) {
             final categoryRef = data['category'] as DocumentReference;
+            final toCardId = data['toCardId'] as String?;
 
-            await _firestore.collection('transactions').add({
-              'userId': userId,
-              'amount': data['amount'] ?? 0.0,
-              'timestamp': Timestamp.fromDate(startOfDay),
-              'category': categoryRef,
-              'incomeId': doc.id,
+            // Use Firestore transaction for atomicity
+            await _firestore.runTransaction((transaction) async {
+              DocumentSnapshot? cardDoc;
+              String? cardName;
+
+              // READ FIRST: Get card document if needed
+              if (toCardId != null) {
+                final cardRef = _firestore
+                    .collection('users')
+                    .doc(userId)
+                    .collection('cards')
+                    .doc(toCardId);
+                cardDoc = await transaction.get(cardRef);
+
+                if (cardDoc.exists) {
+                  final cardData = cardDoc.data() as Map<String, dynamic>;
+                  cardName = cardData['name'] as String?; // Get card name
+                }
+              }
+
+              // WRITE: Create the transaction with all necessary fields including card name
+              final txRef = _firestore.collection('transactions').doc();
+              transaction.set(txRef, {
+                'userId': userId,
+                'amount': data['amount'] ?? 0.0,
+                'timestamp': Timestamp.fromDate(startOfDay),
+                'category': categoryRef,
+                'incomeId': doc.id,
+                'type': 'income', // Ensure it's marked as income
+                'description': 'Automated income: ${data['name'] ?? 'Income'}',
+                if (toCardId != null) 'toCardId': toCardId,
+                if (cardName != null) 'toCardName': cardName, // Store card name for display
+              });
+
+              // WRITE: Update card balance if specified and card exists
+              if (toCardId != null && cardDoc != null && cardDoc.exists) {
+                final cardRef = _firestore
+                    .collection('users')
+                    .doc(userId)
+                    .collection('cards')
+                    .doc(toCardId);
+
+                final currentBalance = (cardDoc.data()! as Map<String, dynamic>)['balance'] ?? 0.0;
+                final newBalance = (currentBalance as num).toDouble() + (data['amount'] ?? 0.0).toDouble();
+                transaction.update(cardRef, {'balance': newBalance});
+              }
             });
 
-            if (data['toCardId'] != null) {
-              final cardRef = _firestore.collection('users').doc(userId).collection('cards').doc(data['toCardId']);
-
-              final cardDoc = await cardRef.get();
-              if (cardDoc.exists) {
-                final currentBalance = (cardDoc.data()!['balance'] ?? 0.0).toDouble();
-                final newBalance = currentBalance + (data['amount'] ?? 0.0).toDouble();
-                await cardRef.update({'balance': newBalance});
-              }
-            }
-
+            // Update lastGenerated after transaction creation
             await _firestore.collection('incomes').doc(doc.id).update({
               'lastGenerated': Timestamp.fromDate(startOfDay),
             });
+
+            print('Automated income transaction created for ${data['name']} on $startOfDay');
           }
 
           nextDue = _calculateNextIncomeDueDate(nextDue, repeat);
@@ -641,12 +994,12 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
     }
 
     return StreamBuilder<QuerySnapshot>(
-      stream: _firestore.collection('transactions')
-          .where('userId', isEqualTo: userId)
-          .where('type', whereNotIn: ['card_creation','transfer', 'goal_deposit', 'goal_withdrawal'])
-          .orderBy('timestamp', descending: true)
-          .snapshots(),
-      builder: (context, snapshot) {
+        stream: _firestore.collection('transactions')
+            .where('userId', isEqualTo: userId)
+            .where('type', whereNotIn: ['card_creation', 'transfer', 'goal_deposit', 'goal_withdrawal'])
+            .orderBy('timestamp', descending: true)
+            .snapshots(),
+        builder: (context, snapshot) {
         if (!snapshot.hasData) {
           return _buildLoadingSkeleton();
         }
@@ -1490,8 +1843,6 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
     });
   }
 
-// In your homepage.dart, update the _buildTransactionItem method:
-
   Widget _buildTransactionItem(Map<String, dynamic> tx, String categoryIcon, String categoryName, String categoryType) {
     final txDate = tx['timestamp']?.toDate();
     final amount = (tx['amount'] as double).abs(); // Always show positive amount for display
@@ -1533,7 +1884,10 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
         child: ListTile(
           leading: Text(categoryIcon, style: TextStyle(fontSize: 24)),
           title: Text(categoryName, style: TextStyle(color: Colors.white)),
-          subtitle: Text(txDate != null ? DateFormat('HH:mm').format(txDate) : 'N/A', style: TextStyle(color: Colors.white)),
+          subtitle: Text(
+              txDate != null ? DateFormat('HH:mm').format(txDate) : 'N/A',
+              style: TextStyle(color: Colors.white70)
+          ),
           trailing: Row(
             mainAxisSize: MainAxisSize.min,
             children: [

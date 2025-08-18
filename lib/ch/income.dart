@@ -18,34 +18,64 @@ class _IncomePageState extends State<IncomePage> {
   @override
   void initState() {
     super.initState();
-    // Remove the income automation from here since it should run from HomePage
+    // Check and generate incomes when the page loads
+    _checkAndGenerateIncomes();
   }
 
   Future<void> _checkAndGenerateIncomes() async {
     final userId = _auth.currentUser?.uid;
     if (userId == null) return;
 
+    print('Starting income automation check for user: $userId');
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
 
     try {
+      // Get all enabled incomes for this user
       final incomes = await _firestore
           .collection('incomes')
           .where('userId', isEqualTo: userId)
+          .where('isEnabled', isEqualTo: true) // Only process enabled incomes
           .get();
+
+      print('Found ${incomes.docs.length} enabled incomes to process');
 
       for (final doc in incomes.docs) {
         final data = doc.data();
         final startDate = (data['startDate'] as Timestamp).toDate();
-        final repeat = data['repeat'] ?? 'monthly';
+        final startDateOnly = DateTime(startDate.year, startDate.month, startDate.day);
+        final repeat = data['repeat'] ?? 'Monthly';
+        final amount = (data['amount'] ?? 0.0).toDouble();
+
+        print('Processing income: ${data['name']}, Start: $startDateOnly, Repeat: $repeat, Amount: $amount');
+
+        // Skip if start date is in the future
+        if (startDateOnly.isAfter(today)) {
+          print('Skipping - start date is in future');
+          continue;
+        }
+
         final lastGenerated = data['lastGenerated'] != null
             ? (data['lastGenerated'] as Timestamp).toDate()
-            : startDate;
+            : null;
 
-        DateTime nextDue = _calculateNextDueDate(lastGenerated, repeat);
+        // Generate all missed transactions from start date or last generated date up to today
+        DateTime currentDue;
+        if (lastGenerated != null) {
+          currentDue = _calculateNextDueDate(lastGenerated, repeat);
+          print('Last generated: $lastGenerated, Next due: $currentDue');
+        } else {
+          // If never generated, start from the start date
+          currentDue = startDateOnly;
+          print('Never generated before, starting from: $currentDue');
+        }
 
-        while (!nextDue.isAfter(today)) {
-          final startOfDay = DateTime(nextDue.year, nextDue.month, nextDue.day);
+        // Generate all missed transactions up to today
+        int transactionsGenerated = 0;
+        DateTime lastProcessedDate = lastGenerated ?? startDateOnly;
+
+        while (!currentDue.isAfter(today) && transactionsGenerated < 100) { // Safety limit
+          final startOfDay = DateTime(currentDue.year, currentDue.month, currentDue.day);
 
           // Check if transaction already exists for this date
           final existingTxs = await _firestore
@@ -53,47 +83,96 @@ class _IncomePageState extends State<IncomePage> {
               .where('userId', isEqualTo: userId)
               .where('incomeId', isEqualTo: doc.id)
               .where('timestamp', isGreaterThanOrEqualTo: Timestamp.fromDate(startOfDay))
-              .where('timestamp', isLessThan: Timestamp.fromDate(startOfDay.add(Duration(days: 1))))
+              .where('timestamp', isLessThan: Timestamp.fromDate(startOfDay.add(const Duration(days: 1))))
               .get();
 
           if (existingTxs.docs.isEmpty) {
+            print('Generating transaction for date: $startOfDay');
+
             // Get the category reference
             final categoryRef = data['category'] as DocumentReference;
 
-            // Create transaction
-            await _firestore.collection('transactions').add({
+            // Create transaction with consistent structure
+            final transactionData = {
               'userId': userId,
-              'amount': data['amount'] ?? 0.0,
-              'timestamp': Timestamp.fromDate(startOfDay),
+              'amount': amount,
+              'timestamp': Timestamp.fromDate(startOfDay.add(const Duration(hours: 9))),
               'category': categoryRef,
-              'incomeId': doc.id, // Add this to track which income generated this transaction
-            });
+              'incomeId': doc.id,
+              'type': 'income', // Add type field for consistency
+              'description': 'Automated income: ${data['name']}',
+            };
 
-            // Update card balance if specified
+            // Add card info if specified
             if (data['toCardId'] != null) {
-              final cardRef = _firestore
-                  .collection('users')
-                  .doc(userId)
-                  .collection('cards')
-                  .doc(data['toCardId']);
-
-              final cardDoc = await cardRef.get();
-              if (cardDoc.exists) {
-                final currentBalance = (cardDoc.data()!['balance'] ?? 0.0).toDouble();
-                final newBalance = currentBalance + (data['amount'] ?? 0.0).toDouble();
-                await cardRef.update({'balance': newBalance});
-              }
+              transactionData['toCardId'] = data['toCardId'];
             }
 
-            // Update lastGenerated
-            await _firestore.collection('incomes').doc(doc.id).update({
-              'lastGenerated': Timestamp.fromDate(startOfDay),
+            // Use Firestore transaction to ensure atomicity - READ FIRST, THEN WRITE
+            await _firestore.runTransaction((transaction) async {
+              DocumentSnapshot? cardDoc;
+              String? cardName;
+
+              // PERFORM ALL READS FIRST
+              if (data['toCardId'] != null) {
+                final cardRef = _firestore
+                    .collection('users')
+                    .doc(userId)
+                    .collection('cards')
+                    .doc(data['toCardId']);
+                cardDoc = await transaction.get(cardRef);
+
+                if (cardDoc.exists) {
+                  final cardData = cardDoc.data() as Map<String, dynamic>;
+                  cardName = cardData['name'] as String?; // Get card name
+                }
+              }
+
+              // Add card name to transaction data if available
+              if (cardName != null) {
+                transactionData['toCardName'] = cardName;
+              }
+
+              // NOW PERFORM ALL WRITES
+              final txRef = _firestore.collection('transactions').doc();
+              transaction.set(txRef, transactionData);
+
+              // Update card balance if specified and card exists
+              if (data['toCardId'] != null && cardDoc != null && cardDoc.exists) {
+                final cardRef = _firestore
+                    .collection('users')
+                    .doc(userId)
+                    .collection('cards')
+                    .doc(data['toCardId']);
+
+                final currentBalance = (cardDoc.data()! as Map<String, dynamic>)['balance'] ?? 0.0;
+                final newBalance = (currentBalance as num).toDouble() + amount;
+                transaction.update(cardRef, {'balance': newBalance});
+                print('Updated card balance: $currentBalance -> $newBalance');
+              }
             });
+
+            transactionsGenerated++;
+            lastProcessedDate = startOfDay;
+            print('Transaction generated successfully for $startOfDay');
+          } else {
+            print('Transaction already exists for date: $startOfDay');
+            lastProcessedDate = startOfDay;
           }
 
-          nextDue = _calculateNextDueDate(nextDue, repeat);
+          currentDue = _calculateNextDueDate(currentDue, repeat);
+        }
+
+        // Update lastGenerated to the last processed date
+        if (transactionsGenerated > 0 || lastGenerated == null) {
+          await _firestore.collection('incomes').doc(doc.id).update({
+            'lastGenerated': Timestamp.fromDate(lastProcessedDate),
+          });
+          print('Updated lastGenerated to: $lastProcessedDate');
         }
       }
+
+      print('Income automation completed');
     } catch (e) {
       print('Error generating incomes: $e');
     }
@@ -106,14 +185,21 @@ class _IncomePageState extends State<IncomePage> {
       case 'weekly':
         return DateTime(from.year, from.month, from.day + 7);
       case 'monthly':
-        final nextMonth = DateTime(from.year, from.month + 1, 1);
-        final day = from.day;
-        final lastDayOfMonth = DateTime(nextMonth.year, nextMonth.month + 1, 0).day;
-        return DateTime(nextMonth.year, nextMonth.month, day > lastDayOfMonth ? lastDayOfMonth : day);
+      // Handle month overflow properly
+        int newYear = from.year;
+        int newMonth = from.month + 1;
+        if (newMonth > 12) {
+          newYear++;
+          newMonth = 1;
+        }
+        // Handle day overflow (e.g., Jan 31 -> Feb 28)
+        final lastDayOfNewMonth = DateTime(newYear, newMonth + 1, 0).day;
+        final day = from.day > lastDayOfNewMonth ? lastDayOfNewMonth : from.day;
+        return DateTime(newYear, newMonth, day);
       case 'annually':
         return DateTime(from.year + 1, from.month, from.day);
       default:
-        return from;
+        return DateTime(from.year, from.month + 1, from.day);
     }
   }
 
@@ -129,9 +215,49 @@ class _IncomePageState extends State<IncomePage> {
     );
 
     if (result == true) {
-      // Refresh the page if needed
+      // Refresh and check for new income automations
       setState(() {});
+      _checkAndGenerateIncomes();
     }
+  }
+
+  // Get categories that belong to the user OR are default categories (no userId field)
+  Stream<QuerySnapshot> _getCategoriesStream() {
+    final userId = _auth.currentUser?.uid;
+    if (userId == null) {
+      return const Stream.empty();
+    }
+
+    return _firestore
+        .collection('categories')
+        .where('type', isEqualTo: 'income')
+        .snapshots();
+  }
+
+  // Filter categories to show only user's categories + default ones
+  List<Map<String, dynamic>> _filterCategories(List<QueryDocumentSnapshot> docs) {
+    final userId = _auth.currentUser?.uid;
+    if (userId == null) return [];
+
+    return docs.where((doc) {
+      final data = doc.data() as Map<String, dynamic>;
+      final categoryUserId = data['userId'];
+
+      // Include if it's the user's category OR if it's a default category (no userId field)
+      // Check for null, empty string, or field doesn't exist
+      return categoryUserId == userId ||
+          categoryUserId == null ||
+          categoryUserId == '' ||
+          !data.containsKey('userId');
+    }).map((doc) {
+      final data = doc.data() as Map<String, dynamic>;
+      return {
+        'id': doc.id,
+        'name': data['name'] ?? 'Unknown',
+        'icon': data['icon'] ?? '💰',
+        'description': data['description'] ?? '',
+      };
+    }).toList();
   }
 
   @override
@@ -178,16 +304,32 @@ class _IncomePageState extends State<IncomePage> {
                   textAlign: TextAlign.center,
                 ),
               ),
-              const SizedBox(width: 40),
+              // Add a refresh button for testing
+              GestureDetector(
+                onTap: () {
+                  _checkAndGenerateIncomes();
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Checking for income updates...'),
+                      backgroundColor: Colors.teal,
+                    ),
+                  );
+                },
+                child: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.grey[850],
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Icon(Icons.refresh, color: Colors.white, size: 20),
+                ),
+              ),
             ],
           ),
         ),
       ),
       body: StreamBuilder<QuerySnapshot>(
-        stream: _firestore
-            .collection('categories')
-            .where('type', isEqualTo: 'income')
-            .snapshots(),
+        stream: _getCategoriesStream(),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(
@@ -213,15 +355,16 @@ class _IncomePageState extends State<IncomePage> {
             );
           }
 
-          final categories = snapshot.data!.docs.map((doc) {
-            final data = doc.data() as Map<String, dynamic>;
-            return {
-              'id': doc.id,
-              'name': data['name'] ?? 'Unknown',
-              'icon': data['icon'] ?? '💰',
-              'description': data['description'] ?? '',
-            };
-          }).toList();
+          final categories = _filterCategories(snapshot.data!.docs);
+
+          if (categories.isEmpty) {
+            return const Center(
+              child: Text(
+                'No income categories available for your account',
+                style: TextStyle(color: Colors.white70, fontSize: 16),
+              ),
+            );
+          }
 
           return Column(
             children: [
@@ -282,6 +425,8 @@ class _IncomePageState extends State<IncomePage> {
   }
 
   Widget _buildCategoryCard(Map<String, dynamic> category) {
+    final userId = _auth.currentUser?.uid;
+
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       child: Material(
@@ -323,13 +468,19 @@ class _IncomePageState extends State<IncomePage> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        category['name'] ?? 'Unknown',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 16,
-                          fontWeight: FontWeight.w500,
-                        ),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              category['name'] ?? 'Unknown',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 16,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                       if (category['description']?.isNotEmpty == true) ...[
                         const SizedBox(height: 4),
@@ -343,6 +494,47 @@ class _IncomePageState extends State<IncomePage> {
                           overflow: TextOverflow.ellipsis,
                         ),
                       ],
+                      // Show if income is set up for this category
+                      StreamBuilder<QuerySnapshot>(
+                        stream: _firestore
+                            .collection('incomes')
+                            .where('userId', isEqualTo: userId)
+                            .where('category', isEqualTo: _firestore.collection('categories').doc(category['id']))
+                            .limit(1)
+                            .snapshots(),
+                        builder: (context, snapshot) {
+                          if (snapshot.hasData && snapshot.data!.docs.isNotEmpty) {
+                            final incomeData = snapshot.data!.docs.first.data() as Map<String, dynamic>;
+                            final isEnabled = incomeData['isEnabled'] ?? false;
+                            final amount = (incomeData['amount'] ?? 0.0).toDouble();
+
+                            return Padding(
+                              padding: const EdgeInsets.only(top: 6),
+                              child: Row(
+                                children: [
+                                  Icon(
+                                    isEnabled ? Icons.autorenew : Icons.pause_circle_outline,
+                                    color: isEnabled ? Colors.green : Colors.orange,
+                                    size: 16,
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    isEnabled
+                                        ? 'RM${amount.toStringAsFixed(0)} • ${incomeData['repeat'] ?? 'Monthly'}'
+                                        : 'Configured but disabled',
+                                    style: TextStyle(
+                                      color: isEnabled ? Colors.green : Colors.orange,
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            );
+                          }
+                          return const SizedBox.shrink();
+                        },
+                      ),
                     ],
                   ),
                 ),

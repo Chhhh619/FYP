@@ -121,7 +121,9 @@ class _RecordsDetailPageState extends State<RecordsDetailPage> {
         if (transactionInfo['category'] is DocumentReference) {
           categoryRef = transactionInfo['category'] as DocumentReference;
         } else if (transactionInfo['category'] is String) {
-          categoryRef = _firestore.collection('categories').doc(transactionInfo['category'] as String);
+          categoryRef = _firestore
+              .collection('categories')
+              .doc(transactionInfo['category'] as String);
         }
 
         if (categoryRef != null) {
@@ -133,8 +135,10 @@ class _RecordsDetailPageState extends State<RecordsDetailPage> {
         }
       }
 
-      // Get card details if cardId exists
+      // Get card details - handle multiple card scenarios
       Map<String, dynamic>? cardInfo;
+
+      // First check if it's a regular manual transaction with cardId
       if (transactionInfo['cardId'] != null) {
         final cardDoc = await _firestore
             .collection('users')
@@ -146,6 +150,52 @@ class _RecordsDetailPageState extends State<RecordsDetailPage> {
         if (cardDoc.exists) {
           cardInfo = cardDoc.data();
           cardInfo!['id'] = cardDoc.id; // Add the ID to card data
+        }
+      }
+      // For automated subscription transactions with fromCardId and fromCardName
+      else if (transactionInfo['fromCardId'] != null) {
+        // Try to get live card data
+        final cardDoc = await _firestore
+            .collection('users')
+            .doc(userId)
+            .collection('cards')
+            .doc(transactionInfo['fromCardId'])
+            .get();
+
+        if (cardDoc.exists) {
+          cardInfo = cardDoc.data();
+          cardInfo!['id'] = cardDoc.id;
+        } else if (transactionInfo['fromCardName'] != null) {
+          // Fallback to stored card name if card document doesn't exist
+          cardInfo = {
+            'id': transactionInfo['fromCardId'],
+            'name': transactionInfo['fromCardName'],
+            'balance': 0.0,
+            // We can't get the current balance if card is deleted
+          };
+        }
+      }
+      // For automated income transactions with toCardId and toCardName
+      else if (transactionInfo['toCardId'] != null) {
+        // Try to get live card data
+        final cardDoc = await _firestore
+            .collection('users')
+            .doc(userId)
+            .collection('cards')
+            .doc(transactionInfo['toCardId'])
+            .get();
+
+        if (cardDoc.exists) {
+          cardInfo = cardDoc.data();
+          cardInfo!['id'] = cardDoc.id;
+        } else if (transactionInfo['toCardName'] != null) {
+          // Fallback to stored card name if card document doesn't exist
+          cardInfo = {
+            'id': transactionInfo['toCardId'],
+            'name': transactionInfo['toCardName'],
+            'balance': 0.0,
+            // We can't get the current balance if card is deleted
+          };
         }
       }
 
@@ -170,7 +220,6 @@ class _RecordsDetailPageState extends State<RecordsDetailPage> {
 
         _isLoading = false;
       });
-
     } catch (e) {
       setState(() {
         _isLoading = false;
@@ -255,7 +304,11 @@ class _RecordsDetailPageState extends State<RecordsDetailPage> {
         final bottomSafeArea = MediaQuery.of(context).padding.bottom;
 
         // Calculate maximum available height for the modal
-        final maxHeight = screenHeight - statusBarHeight - keyboardHeight - 100; // 100px buffer
+        final maxHeight =
+            screenHeight -
+            statusBarHeight -
+            keyboardHeight -
+            100; // 100px buffer
 
         // Calculate dynamic spacing and sizes
         final isSmallScreen = screenHeight < 700;
@@ -267,9 +320,7 @@ class _RecordsDetailPageState extends State<RecordsDetailPage> {
         final sectionSpacing = isSmallScreen ? 8.0 : 12.0;
 
         return Container(
-          constraints: BoxConstraints(
-            maxHeight: maxHeight,
-          ),
+          constraints: BoxConstraints(maxHeight: maxHeight),
           decoration: const BoxDecoration(
             color: Color.fromRGBO(33, 35, 34, 1),
             borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
@@ -324,25 +375,36 @@ class _RecordsDetailPageState extends State<RecordsDetailPage> {
                                     _type = 'expense';
                                     // Update category selection based on type
                                     final expenseCategories = _categories
-                                        .where((cat) => cat['type'] == 'expense')
+                                        .where(
+                                          (cat) => cat['type'] == 'expense',
+                                        )
                                         .toList();
                                     if (expenseCategories.isNotEmpty) {
-                                      _selectedCategoryId = expenseCategories.first['id'];
+                                      _selectedCategoryId =
+                                          expenseCategories.first['id'];
                                     }
                                   });
                                 },
                                 child: Container(
-                                  padding: const EdgeInsets.symmetric(vertical: 12),
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 12,
+                                  ),
                                   decoration: BoxDecoration(
-                                    color: _type == 'expense' ? Colors.teal : Colors.transparent,
+                                    color: _type == 'expense'
+                                        ? Colors.teal
+                                        : Colors.transparent,
                                     borderRadius: BorderRadius.circular(8),
                                   ),
                                   child: Text(
                                     'Expense',
                                     textAlign: TextAlign.center,
                                     style: TextStyle(
-                                      color: _type == 'expense' ? Colors.white : Colors.white60,
-                                      fontWeight: _type == 'expense' ? FontWeight.w600 : FontWeight.normal,
+                                      color: _type == 'expense'
+                                          ? Colors.white
+                                          : Colors.white60,
+                                      fontWeight: _type == 'expense'
+                                          ? FontWeight.w600
+                                          : FontWeight.normal,
                                     ),
                                   ),
                                 ),
@@ -358,22 +420,31 @@ class _RecordsDetailPageState extends State<RecordsDetailPage> {
                                         .where((cat) => cat['type'] == 'income')
                                         .toList();
                                     if (incomeCategories.isNotEmpty) {
-                                      _selectedCategoryId = incomeCategories.first['id'];
+                                      _selectedCategoryId =
+                                          incomeCategories.first['id'];
                                     }
                                   });
                                 },
                                 child: Container(
-                                  padding: const EdgeInsets.symmetric(vertical: 12),
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 12,
+                                  ),
                                   decoration: BoxDecoration(
-                                    color: _type == 'income' ? Colors.teal : Colors.transparent,
+                                    color: _type == 'income'
+                                        ? Colors.teal
+                                        : Colors.transparent,
                                     borderRadius: BorderRadius.circular(8),
                                   ),
                                   child: Text(
                                     'Income',
                                     textAlign: TextAlign.center,
                                     style: TextStyle(
-                                      color: _type == 'income' ? Colors.white : Colors.white60,
-                                      fontWeight: _type == 'income' ? FontWeight.w600 : FontWeight.normal,
+                                      color: _type == 'income'
+                                          ? Colors.white
+                                          : Colors.white60,
+                                      fontWeight: _type == 'income'
+                                          ? FontWeight.w600
+                                          : FontWeight.normal,
                                     ),
                                   ),
                                 ),
@@ -398,11 +469,14 @@ class _RecordsDetailPageState extends State<RecordsDetailPage> {
                                 decoration: BoxDecoration(
                                   color: Colors.grey[800]?.withOpacity(0.2),
                                   borderRadius: BorderRadius.circular(8),
-                                  border: Border.all(color: Colors.grey.withOpacity(0.2)),
+                                  border: Border.all(
+                                    color: Colors.grey.withOpacity(0.2),
+                                  ),
                                 ),
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
-                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceBetween,
                                   children: [
                                     Row(
                                       children: [
@@ -411,7 +485,10 @@ class _RecordsDetailPageState extends State<RecordsDetailPage> {
                                         Expanded(
                                           child: Text(
                                             _getSelectedCategoryName(),
-                                            style: const TextStyle(color: Colors.white, fontSize: 16),
+                                            style: const TextStyle(
+                                              color: Colors.white,
+                                              fontSize: 16,
+                                            ),
                                             overflow: TextOverflow.ellipsis,
                                           ),
                                         ),
@@ -446,11 +523,14 @@ class _RecordsDetailPageState extends State<RecordsDetailPage> {
                                 decoration: BoxDecoration(
                                   color: Colors.grey[800]?.withOpacity(0.3),
                                   borderRadius: BorderRadius.circular(8),
-                                  border: Border.all(color: Colors.teal.withOpacity(0.3)),
+                                  border: Border.all(
+                                    color: Colors.teal.withOpacity(0.3),
+                                  ),
                                 ),
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
-                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceBetween,
                                   children: [
                                     Text(
                                       _selectedCard != null
@@ -499,20 +579,35 @@ class _RecordsDetailPageState extends State<RecordsDetailPage> {
                             child: GestureDetector(
                               onTap: () => _selectDate(context, setState),
                               child: Container(
-                                padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 12,
+                                  horizontal: 16,
+                                ),
                                 decoration: BoxDecoration(
                                   color: Colors.teal.withOpacity(0.15),
                                   borderRadius: BorderRadius.circular(6),
-                                  border: Border.all(color: Colors.teal.withOpacity(0.4)),
+                                  border: Border.all(
+                                    color: Colors.teal.withOpacity(0.4),
+                                  ),
                                 ),
                                 child: Row(
-                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceBetween,
                                   children: [
                                     Text(
-                                      DateFormat('d MMM yyyy').format(_selectedDate),
-                                      style: const TextStyle(color: Colors.white, fontSize: 14),
+                                      DateFormat(
+                                        'd MMM yyyy',
+                                      ).format(_selectedDate),
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 14,
+                                      ),
                                     ),
-                                    const Icon(Icons.calendar_today, color: Colors.teal, size: 16),
+                                    const Icon(
+                                      Icons.calendar_today,
+                                      color: Colors.teal,
+                                      size: 16,
+                                    ),
                                   ],
                                 ),
                               ),
@@ -523,20 +618,33 @@ class _RecordsDetailPageState extends State<RecordsDetailPage> {
                             child: GestureDetector(
                               onTap: () => _selectTime(context, setState),
                               child: Container(
-                                padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 12,
+                                  horizontal: 16,
+                                ),
                                 decoration: BoxDecoration(
                                   color: Colors.teal.withOpacity(0.15),
                                   borderRadius: BorderRadius.circular(6),
-                                  border: Border.all(color: Colors.teal.withOpacity(0.4)),
+                                  border: Border.all(
+                                    color: Colors.teal.withOpacity(0.4),
+                                  ),
                                 ),
                                 child: Row(
-                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceBetween,
                                   children: [
                                     Text(
                                       _selectedTime.format(context),
-                                      style: const TextStyle(color: Colors.white, fontSize: 14),
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 14,
+                                      ),
                                     ),
-                                    const Icon(Icons.access_time, color: Colors.teal, size: 16),
+                                    const Icon(
+                                      Icons.access_time,
+                                      color: Colors.teal,
+                                      size: 16,
+                                    ),
                                   ],
                                 ),
                               ),
@@ -548,9 +656,13 @@ class _RecordsDetailPageState extends State<RecordsDetailPage> {
                       SizedBox(height: sectionSpacing),
 
                       // Error messages
-                      if (_saveAttempted && (_calculatorInput == '0' || _calculatorInput == 'Error'))
+                      if (_saveAttempted &&
+                          (_calculatorInput == '0' ||
+                              _calculatorInput == 'Error'))
                         Padding(
-                          padding: EdgeInsets.only(bottom: sectionSpacing * 0.5),
+                          padding: EdgeInsets.only(
+                            bottom: sectionSpacing * 0.5,
+                          ),
                           child: const Text(
                             'Please enter an amount before saving.',
                             style: TextStyle(color: Colors.red, fontSize: 14),
@@ -559,7 +671,9 @@ class _RecordsDetailPageState extends State<RecordsDetailPage> {
 
                       if (_inputInvalid)
                         Padding(
-                          padding: EdgeInsets.only(bottom: sectionSpacing * 0.5),
+                          padding: EdgeInsets.only(
+                            bottom: sectionSpacing * 0.5,
+                          ),
                           child: const Text(
                             'Please enter a valid amount.',
                             style: TextStyle(color: Colors.red, fontSize: 14),
@@ -570,7 +684,8 @@ class _RecordsDetailPageState extends State<RecordsDetailPage> {
                       LayoutBuilder(
                         builder: (context, constraints) {
                           final availableWidth = constraints.maxWidth;
-                          final buttonSize = (availableWidth - (3 * gridSpacing)) / 4;
+                          final buttonSize =
+                              (availableWidth - (3 * gridSpacing)) / 4;
 
                           return GridView.count(
                             crossAxisCount: 4,
@@ -580,26 +695,71 @@ class _RecordsDetailPageState extends State<RecordsDetailPage> {
                             mainAxisSpacing: gridSpacing,
                             childAspectRatio: 1.0,
                             children: [
-                              _buildCalcButton('7', (input) => _calculate(input, setState)),
-                              _buildCalcButton('8', (input) => _calculate(input, setState)),
-                              _buildCalcButton('9', (input) => _calculate(input, setState)),
-                              _buildCalcButton('/', (input) => _calculate(input, setState)),
-                              _buildCalcButton('4', (input) => _calculate(input, setState)),
-                              _buildCalcButton('5', (input) => _calculate(input, setState)),
-                              _buildCalcButton('6', (input) => _calculate(input, setState)),
-                              _buildCalcButton('*', (input) => _calculate(input, setState)),
-                              _buildCalcButton('1', (input) => _calculate(input, setState)),
-                              _buildCalcButton('2', (input) => _calculate(input, setState)),
-                              _buildCalcButton('3', (input) => _calculate(input, setState)),
-                              _buildCalcButton('-', (input) => _calculate(input, setState)),
-                              _buildCalcButton('.', (input) => _calculate(input, setState)),
-                              _buildCalcButton('0', (input) => _calculate(input, setState)),
+                              _buildCalcButton(
+                                '7',
+                                (input) => _calculate(input, setState),
+                              ),
+                              _buildCalcButton(
+                                '8',
+                                (input) => _calculate(input, setState),
+                              ),
+                              _buildCalcButton(
+                                '9',
+                                (input) => _calculate(input, setState),
+                              ),
+                              _buildCalcButton(
+                                '/',
+                                (input) => _calculate(input, setState),
+                              ),
+                              _buildCalcButton(
+                                '4',
+                                (input) => _calculate(input, setState),
+                              ),
+                              _buildCalcButton(
+                                '5',
+                                (input) => _calculate(input, setState),
+                              ),
+                              _buildCalcButton(
+                                '6',
+                                (input) => _calculate(input, setState),
+                              ),
+                              _buildCalcButton(
+                                '*',
+                                (input) => _calculate(input, setState),
+                              ),
+                              _buildCalcButton(
+                                '1',
+                                (input) => _calculate(input, setState),
+                              ),
+                              _buildCalcButton(
+                                '2',
+                                (input) => _calculate(input, setState),
+                              ),
+                              _buildCalcButton(
+                                '3',
+                                (input) => _calculate(input, setState),
+                              ),
+                              _buildCalcButton(
+                                '-',
+                                (input) => _calculate(input, setState),
+                              ),
+                              _buildCalcButton(
+                                '.',
+                                (input) => _calculate(input, setState),
+                              ),
+                              _buildCalcButton(
+                                '0',
+                                (input) => _calculate(input, setState),
+                              ),
                               _buildCalcButton(
                                 'delete',
-                                    (input) => _calculate(input, setState),
+                                (input) => _calculate(input, setState),
                                 icon: Icons.backspace,
                               ),
-                              _buildCalcButton('+', (input) => _calculate(input, setState)),
+                              _buildCalcButton(
+                                '+',
+                                (input) => _calculate(input, setState),
+                              ),
                             ],
                           );
                         },
@@ -617,7 +777,11 @@ class _RecordsDetailPageState extends State<RecordsDetailPage> {
                                   _saveAttempted = false;
                                   _inputInvalid = false;
                                 });
-                                _updateTransaction(_calculatorInput, _calculatorResult, setState);
+                                _updateTransaction(
+                                  _calculatorInput,
+                                  _calculatorResult,
+                                  setState,
+                                );
                               },
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: Colors.teal,
@@ -635,7 +799,11 @@ class _RecordsDetailPageState extends State<RecordsDetailPage> {
                           ),
                         ],
                       ),
-                      SizedBox(height: bottomSafeArea > 0 ? bottomSafeArea * 0.8 : sectionSpacing),
+                      SizedBox(
+                        height: bottomSafeArea > 0
+                            ? bottomSafeArea * 0.8
+                            : sectionSpacing,
+                      ),
                     ],
                   ),
                 ),
@@ -780,10 +948,14 @@ class _RecordsDetailPageState extends State<RecordsDetailPage> {
                       },
                       child: Container(
                         decoration: BoxDecoration(
-                          color: isSelected ? Colors.teal.withOpacity(0.3) : Colors.grey[800]?.withOpacity(0.3),
+                          color: isSelected
+                              ? Colors.teal.withOpacity(0.3)
+                              : Colors.grey[800]?.withOpacity(0.3),
                           borderRadius: BorderRadius.circular(8),
                           border: Border.all(
-                            color: isSelected ? Colors.teal : Colors.transparent,
+                            color: isSelected
+                                ? Colors.teal
+                                : Colors.transparent,
                             width: 2,
                           ),
                         ),
@@ -834,10 +1006,7 @@ class _RecordsDetailPageState extends State<RecordsDetailPage> {
           width: 24,
           height: 24,
           alignment: Alignment.center,
-          child: Text(
-            iconString,
-            style: const TextStyle(fontSize: 20),
-          ),
+          child: Text(iconString, style: const TextStyle(fontSize: 20)),
         );
       } else {
         // Fallback to default icon
@@ -850,14 +1019,18 @@ class _RecordsDetailPageState extends State<RecordsDetailPage> {
     if (_selectedCategoryId == null) return 'Select Category';
 
     final category = _categories.firstWhere(
-          (cat) => cat['id'] == _selectedCategoryId,
+      (cat) => cat['id'] == _selectedCategoryId,
       orElse: () => {'name': 'Unknown Category'},
     );
 
     return category['name'];
   }
 
-  Future<void> _updateTransaction(String calculatorInput, double calculatorResult, StateSetter setState) async {
+  Future<void> _updateTransaction(
+    String calculatorInput,
+    double calculatorResult,
+    StateSetter setState,
+  ) async {
     final userId = _auth.currentUser?.uid;
     if (userId == null || _selectedCategoryId == null) {
       setState(() {
@@ -892,7 +1065,9 @@ class _RecordsDetailPageState extends State<RecordsDetailPage> {
       final oldCardId = transactionData!['cardId'];
 
       // Calculate signed amount based on new type
-      final signedAmount = _type == 'income' ? calculatorResult : -calculatorResult;
+      final signedAmount = _type == 'income'
+          ? calculatorResult
+          : -calculatorResult;
 
       // Get current card data for both old and new cards
       Map<String, dynamic>? oldCardData;
@@ -923,13 +1098,17 @@ class _RecordsDetailPageState extends State<RecordsDetailPage> {
       }
 
       await _firestore.runTransaction((transaction) async {
-        final transactionRef = _firestore.collection('transactions').doc(widget.transactionId);
+        final transactionRef = _firestore
+            .collection('transactions')
+            .doc(widget.transactionId);
 
         // Update transaction data
         final updateData = <String, dynamic>{
           'amount': signedAmount,
           'timestamp': Timestamp.fromDate(_selectedDate),
-          'category': _firestore.collection('categories').doc(_selectedCategoryId),
+          'category': _firestore
+              .collection('categories')
+              .doc(_selectedCategoryId),
           'type': _type,
         };
 
@@ -968,7 +1147,6 @@ class _RecordsDetailPageState extends State<RecordsDetailPage> {
             _selectedCard!['id'] != null &&
             newCardData != null &&
             _selectedCard!['id'] != oldCardId) {
-
           final newCardRef = _firestore
               .collection('users')
               .doc(userId)
@@ -1027,7 +1205,6 @@ class _RecordsDetailPageState extends State<RecordsDetailPage> {
           backgroundColor: Colors.teal,
         ),
       );
-
     } catch (e) {
       Navigator.pop(context);
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1064,7 +1241,9 @@ class _RecordsDetailPageState extends State<RecordsDetailPage> {
 
       await _firestore.runTransaction((transaction) async {
         // Delete the transaction
-        final transactionRef = _firestore.collection('transactions').doc(widget.transactionId);
+        final transactionRef = _firestore
+            .collection('transactions')
+            .doc(widget.transactionId);
         transaction.delete(transactionRef);
 
         // Update card balance if cardId exists and we have card data
@@ -1075,7 +1254,8 @@ class _RecordsDetailPageState extends State<RecordsDetailPage> {
               .collection('cards')
               .doc(transactionData!['cardId']);
 
-          final currentBalance = (currentCardData!['balance'] ?? 0.0).toDouble();
+          final currentBalance = (currentCardData!['balance'] ?? 0.0)
+              .toDouble();
 
           // Reverse the transaction
           double newBalance = currentBalance;
@@ -1097,7 +1277,6 @@ class _RecordsDetailPageState extends State<RecordsDetailPage> {
           backgroundColor: Colors.teal,
         ),
       );
-
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -1108,7 +1287,11 @@ class _RecordsDetailPageState extends State<RecordsDetailPage> {
     }
   }
 
-  Widget _buildCalcButton(String text, Function(String) onPressed, {IconData? icon}) {
+  Widget _buildCalcButton(
+    String text,
+    Function(String) onPressed, {
+    IconData? icon,
+  }) {
     return ElevatedButton(
       onPressed: () => onPressed(text),
       style: ElevatedButton.styleFrom(
@@ -1160,7 +1343,7 @@ class _RecordsDetailPageState extends State<RecordsDetailPage> {
     }
 
     final category = _categories.firstWhere(
-          (cat) => cat['id'] == _selectedCategoryId,
+      (cat) => cat['id'] == _selectedCategoryId,
       orElse: () => {'icon': null},
     );
 
@@ -1204,10 +1387,7 @@ class _RecordsDetailPageState extends State<RecordsDetailPage> {
           borderRadius: BorderRadius.circular(12),
         ),
         alignment: Alignment.center,
-        child: Text(
-          iconString,
-          style: const TextStyle(fontSize: 16),
-        ),
+        child: Text(iconString, style: const TextStyle(fontSize: 16)),
       );
     }
   }
@@ -1253,10 +1433,7 @@ class _RecordsDetailPageState extends State<RecordsDetailPage> {
           borderRadius: BorderRadius.circular(25),
         ),
         alignment: Alignment.center,
-        child: Text(
-          iconString,
-          style: const TextStyle(fontSize: 24),
-        ),
+        child: Text(iconString, style: const TextStyle(fontSize: 24)),
       );
     }
   }
@@ -1309,14 +1486,20 @@ class _RecordsDetailPageState extends State<RecordsDetailPage> {
                   actions: [
                     TextButton(
                       onPressed: () => Navigator.pop(context),
-                      child: const Text('Cancel', style: TextStyle(color: Colors.teal)),
+                      child: const Text(
+                        'Cancel',
+                        style: TextStyle(color: Colors.teal),
+                      ),
                     ),
                     TextButton(
                       onPressed: () {
                         Navigator.pop(context);
                         _deleteTransaction();
                       },
-                      child: const Text('Delete', style: TextStyle(color: Colors.red)),
+                      child: const Text(
+                        'Delete',
+                        style: TextStyle(color: Colors.red),
+                      ),
                     ),
                   ],
                 ),
@@ -1329,215 +1512,229 @@ class _RecordsDetailPageState extends State<RecordsDetailPage> {
           ? const Center(child: CircularProgressIndicator(color: Colors.teal))
           : _errorMessage != null
           ? Center(
-        child: Text(
-          _errorMessage!,
-          style: const TextStyle(color: Colors.red, fontSize: 16),
-          textAlign: TextAlign.center,
-        ),
-      )
-          : SingleChildScrollView(
-        padding: const EdgeInsets.all(20.0),
-        child: Column(
-          children: [
-            // First Group - Main transaction info with icon and amount
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(24),
-              decoration: BoxDecoration(
-                color: const Color(0xFF2C2C2C),
-                borderRadius: BorderRadius.circular(16),
+              child: Text(
+                _errorMessage!,
+                style: const TextStyle(color: Colors.red, fontSize: 16),
+                textAlign: TextAlign.center,
               ),
+            )
+          : SingleChildScrollView(
+              padding: const EdgeInsets.all(20.0),
               child: Column(
                 children: [
-                  // Category icon
-                  _buildDisplayCategoryIcon(),
-                  const SizedBox(height: 16),
-
-                  // Transaction type/category name
-                  Text(
-                    _getTransactionDisplayName(),
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 24,
-                      fontWeight: FontWeight.w600,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 8),
-
-                  // Amount
-                  Text(
-                    'RM${(transactionData?['amount'] ?? 0.0).abs().toStringAsFixed(2)}',
-                    style: TextStyle(
-                      color: (transactionData?['type'] ?? 'expense') == 'income'
-                          ? Colors.green
-                          : Colors.red,
-                      fontSize: 32,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-
-            const SizedBox(height: 24),
-
-            // Second Group - Horizontal Type and Expense/Income
-            Row(
-              children: [
-                // Left container - Type
-                Expanded(
-                  child: Container(
-                    padding: const EdgeInsets.all(20),
+                  // First Group - Main transaction info with icon and amount
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(24),
                     decoration: BoxDecoration(
                       color: const Color(0xFF2C2C2C),
                       borderRadius: BorderRadius.circular(16),
                     ),
                     child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Row(
-                          children: [
-                            Container(
-                              width: 24,
-                              height: 24,
-                              decoration: BoxDecoration(
-                                color: Colors.orange.withOpacity(0.2),
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              child: Icon(
-                                Icons.category,
-                                color: Colors.orange,
-                                size: 16,
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Text(
-                              'Type',
-                              style: TextStyle(
-                                color: Colors.white70,
-                                fontSize: 16,
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
+                        // Category icon
+                        _buildDisplayCategoryIcon(),
+                        const SizedBox(height: 16),
+
+                        // Transaction type/category name
                         Text(
                           _getTransactionDisplayName(),
                           style: const TextStyle(
                             color: Colors.white,
-                            fontSize: 18,
-                            fontWeight: FontWeight.w500,
+                            fontSize: 24,
+                            fontWeight: FontWeight.w600,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                        const SizedBox(height: 8),
+
+                        // Amount
+                        Text(
+                          'RM${(transactionData?['amount'] ?? 0.0).abs().toStringAsFixed(2)}',
+                          style: TextStyle(
+                            color:
+                                (transactionData?['type'] ?? 'expense') ==
+                                    'income'
+                                ? Colors.green
+                                : Colors.red,
+                            fontSize: 32,
+                            fontWeight: FontWeight.bold,
                           ),
                         ),
                       ],
                     ),
                   ),
-                ),
 
-                const SizedBox(width: 16),
+                  const SizedBox(height: 24),
 
-                // Right container - Expense/Income
-                Expanded(
-                  child: Container(
-                    padding: const EdgeInsets.all(20),
+                  // Second Group - Horizontal Type and Expense/Income
+                  Row(
+                    children: [
+                      // Left container - Type
+                      Expanded(
+                        child: Container(
+                          padding: const EdgeInsets.all(20),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF2C2C2C),
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Container(
+                                    width: 24,
+                                    height: 24,
+                                    decoration: BoxDecoration(
+                                      color: Colors.orange.withOpacity(0.2),
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    child: Icon(
+                                      Icons.category,
+                                      color: Colors.orange,
+                                      size: 16,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    'Type',
+                                    style: TextStyle(
+                                      color: Colors.white70,
+                                      fontSize: 16,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                _getTransactionDisplayName(),
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+
+                      const SizedBox(width: 16),
+
+                      // Right container - Expense/Income
+                      Expanded(
+                        child: Container(
+                          padding: const EdgeInsets.all(20),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF2C2C2C),
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Container(
+                                    width: 24,
+                                    height: 24,
+                                    decoration: BoxDecoration(
+                                      color:
+                                          ((transactionData?['type'] ??
+                                                          'expense') ==
+                                                      'income'
+                                                  ? Colors.green
+                                                  : Colors.red)
+                                              .withOpacity(0.2),
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    child: Icon(
+                                      (transactionData?['type'] ?? 'expense') ==
+                                              'income'
+                                          ? Icons.trending_up
+                                          : Icons.trending_down,
+                                      color:
+                                          (transactionData?['type'] ??
+                                                  'expense') ==
+                                              'income'
+                                          ? Colors.green
+                                          : Colors.red,
+                                      size: 16,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    (transactionData?['type'] ?? 'expense') ==
+                                            'income'
+                                        ? 'Income'
+                                        : 'Expenses',
+                                    style: TextStyle(
+                                      color: Colors.white70,
+                                      fontSize: 16,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                '${(transactionData?['type'] ?? 'expense') == 'income' ? '+' : '-'}RM${(transactionData?['amount'] ?? 0.0).abs().toStringAsFixed(2)}',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+
+                  const SizedBox(height: 16),
+
+                  Container(
+                    width: double.infinity,
                     decoration: BoxDecoration(
                       color: const Color(0xFF2C2C2C),
                       borderRadius: BorderRadius.circular(16),
                     ),
                     child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Row(
-                          children: [
-                            Container(
-                              width: 24,
-                              height: 24,
-                              decoration: BoxDecoration(
-                                color: ((transactionData?['type'] ?? 'expense') == 'income'
-                                    ? Colors.green
-                                    : Colors.red).withOpacity(0.2),
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              child: Icon(
-                                (transactionData?['type'] ?? 'expense') == 'income'
-                                    ? Icons.trending_up
-                                    : Icons.trending_down,
-                                color: (transactionData?['type'] ?? 'expense') == 'income'
-                                    ? Colors.green
-                                    : Colors.red,
-                                size: 16,
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Text(
-                              (transactionData?['type'] ?? 'expense') == 'income' ? 'Income' : 'Expenses',
-                              style: TextStyle(
-                                color: Colors.white70,
-                                fontSize: 16,
-                              ),
-                            ),
-                          ],
+                        // Date
+                        _buildDetailRow(
+                          icon: Icons.calendar_today,
+                          iconColor: Colors.blue,
+                          title: 'Date',
+                          value:
+                              transactionData != null &&
+                                  transactionData!['timestamp'] != null
+                              ? DateFormat('d MMM yyyy \'at\' HH:mm:ss').format(
+                                  (transactionData!['timestamp'] as Timestamp)
+                                      .toDate(),
+                                )
+                              : 'Unknown Date',
+                          isFirst: true,
                         ),
-                        const SizedBox(height: 8),
-                        Text(
-                          '${(transactionData?['type'] ?? 'expense') == 'income' ? '+' : '-'}RM${(transactionData?['amount'] ?? 0.0).abs().toStringAsFixed(2)}',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 18,
-                            fontWeight: FontWeight.w500,
+
+                        // Card (show if any card data exists)
+                        if (cardData != null)
+                          _buildDetailRow(
+                            icon: Icons.credit_card,
+                            iconColor: Colors.green,
+                            title: _getCardDisplayTitle(),
+                            value: _getCardDisplayValue(),
+                            isLast: true,
                           ),
-                        ),
+
+                        // If no card, make the date row the last one
+                        if (cardData == null) const SizedBox.shrink(),
                       ],
                     ),
                   ),
-                ),
-              ],
-            ),
-
-            const SizedBox(height: 16),
-
-            // Third Group - Date and Card details
-            Container(
-              width: double.infinity,
-              decoration: BoxDecoration(
-                color: const Color(0xFF2C2C2C),
-                borderRadius: BorderRadius.circular(16),
-              ),
-              child: Column(
-                children: [
-                  // Date
-                  _buildDetailRow(
-                    icon: Icons.calendar_today,
-                    iconColor: Colors.blue,
-                    title: 'Date',
-                    value: transactionData != null && transactionData!['timestamp'] != null
-                        ? DateFormat('d MMM yyyy \'at\' HH:mm:ss').format(
-                      (transactionData!['timestamp'] as Timestamp).toDate(),
-                    )
-                        : 'Unknown Date',
-                    isFirst: true,
-                  ),
-
-                  // Card (only show if card data exists)
-                  if (cardData != null)
-                    _buildDetailRow(
-                      icon: Icons.credit_card,
-                      iconColor: Colors.green,
-                      title: 'Cards',
-                      value: cardData?['name'] ?? 'Unknown Card',
-                      isLast: true,
-                    ),
-
-                  // If no card, make the date row the last one
-                  if (cardData == null)
-                    const SizedBox.shrink(),
                 ],
               ),
             ),
-          ],
-        ),
-      ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _toggleEditCalculator,
         backgroundColor: Colors.teal,
@@ -1549,6 +1746,40 @@ class _RecordsDetailPageState extends State<RecordsDetailPage> {
       ),
       floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
     );
+  }
+
+
+  String _getCardDisplayTitle() {
+    final transactionType = transactionData?['type'] ?? '';
+
+    // For automated income transactions
+    if (transactionData?.containsKey('incomeId') == true ||
+        transactionData?.containsKey('toCardId') == true) {
+      return 'Deposited to Card';
+    }
+    // For automated subscription transactions
+    else if (transactionData?.containsKey('subscriptionId') == true ||
+        transactionData?.containsKey('fromCardId') == true) {
+      return 'Charged from Card';
+    }
+    // For manual transactions
+    else {
+      return 'Card';
+    }
+  }
+
+  String _getCardDisplayValue() {
+    if (cardData == null) return 'No Card';
+
+    final cardName = cardData?['name'] ?? 'Unknown Card';
+    final balance = cardData?['balance'];
+
+    // Show balance only if we have current balance data (not for deleted cards)
+    if (balance != null && balance != 0.0) {
+      return '$cardName (RM${balance.toStringAsFixed(2)})';
+    } else {
+      return cardName;
+    }
   }
 
   Widget _buildDetailRow({
@@ -1563,7 +1794,9 @@ class _RecordsDetailPageState extends State<RecordsDetailPage> {
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         border: Border(
-          top: isFirst ? BorderSide.none : BorderSide(color: Colors.grey[800]!, width: 0.5),
+          top: isFirst
+              ? BorderSide.none
+              : BorderSide(color: Colors.grey[800]!, width: 0.5),
         ),
       ),
       child: Row(
@@ -1584,10 +1817,7 @@ class _RecordsDetailPageState extends State<RecordsDetailPage> {
               children: [
                 Text(
                   title,
-                  style: const TextStyle(
-                    color: Colors.white70,
-                    fontSize: 14,
-                  ),
+                  style: const TextStyle(color: Colors.white70, fontSize: 14),
                 ),
                 const SizedBox(height: 4),
                 Text(
