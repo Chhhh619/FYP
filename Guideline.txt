@@ -1,0 +1,21 @@
+TO OPEN FYP
+
+1) Go to the Latest-combine branch and fetch the complete project from there.
+2) Make sure you have Android Studio installed.
+3) Select an emulator of your choice and start it up.
+4) Make sure the file selected is main.dart and run the program.
+
+TO OPEN PHP PROJECT
+
+1) Download the zip file and remember to unzip it before running it in your IDE.
+2) Make sure you have NetBeans or Visual Studio Code with the necessary plug-ins installed to run PHP programs.
+3) Select any of the files in the view/user/.. folder, preferably dashboard.php.
+4) Right-click with your mouse and click Run File.
+
+TO OPEN ASP.NET PROJECT
+
+1) Double click the Web App Dev CW.sln file to open the program.
+2) Make sure you have Visual Studio installed.
+3) Find homePage1.aspx and right click on the file.
+4) Click "Set As Start Page".
+5) Run the program.
